@@ -7,6 +7,10 @@ use crate::provider::ProviderRegistry;
 use crate::signing::{SigningKeyStore, TransitionChange, TransitionData};
 use crate::store::{ContentHash, Event, EventType, ResourceState, Store, TreeEntry, TreeNode};
 
+/// Tracks provider IDs for resources that have been successfully created/read,
+/// so that dependent resources can resolve their `needs` bindings.
+type ProviderIdMap = HashMap<String, String>;
+
 /// Result of applying a single resource action.
 #[derive(Debug)]
 pub struct ApplyResult {
@@ -70,6 +74,7 @@ pub fn execute_plan_with_config(
 ) -> ApplySummary {
     // Build a config lookup from parsed files
     let config_map = build_config_map(parsed_files);
+    let dep_map = build_dependency_map(parsed_files);
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -89,6 +94,19 @@ pub fn execute_plan_with_config(
     let mut transition_changes = Vec::new();
     let mut seq = store.next_seq().unwrap_or(1);
 
+    // Track provider IDs of successfully applied resources for ref resolution
+    let mut provider_ids: ProviderIdMap = HashMap::new();
+
+    // Pre-populate with existing provider IDs from stored state
+    for (name, entry) in &current_tree.children {
+        if let TreeEntry::Object(hash) = entry
+            && let Ok(obj) = store.get_object(hash)
+            && let Some(pid) = &obj.provider_id
+        {
+            provider_ids.insert(name.clone(), pid.clone());
+        }
+    }
+
     // Sort actions by order to respect dependency ordering
     let mut ordered_actions: Vec<&PlannedAction> = plan
         .actions
@@ -100,10 +118,12 @@ pub fn execute_plan_with_config(
     for action in &ordered_actions {
         let result = match action.action {
             ActionType::Create => {
-                let config = config_map
+                let mut config = config_map
                     .get(&action.resource_id)
                     .cloned()
                     .unwrap_or_else(|| serde_json::json!({}));
+                // Resolve dependency refs into the config
+                resolve_refs(&action.resource_id, &mut config, &dep_map, &provider_ids);
                 apply_create(
                     action,
                     registry,
@@ -115,10 +135,11 @@ pub fn execute_plan_with_config(
                 )
             }
             ActionType::Update => {
-                let config = config_map
+                let mut config = config_map
                     .get(&action.resource_id)
                     .cloned()
                     .unwrap_or_else(|| serde_json::json!({}));
+                resolve_refs(&action.resource_id, &mut config, &dep_map, &provider_ids);
                 apply_update(
                     action,
                     registry,
@@ -134,6 +155,15 @@ pub fn execute_plan_with_config(
             }
             ActionType::Unchanged => unreachable!("filtered above"),
         };
+
+        // Track provider ID for successful creates/updates
+        if let ApplyOutcome::Success {
+            provider_id: Some(pid),
+            ..
+        } = &result.outcome
+        {
+            provider_ids.insert(action.resource_id.clone(), pid.clone());
+        }
 
         // Record event
         let event_type = match (&action.action, &result.outcome) {
@@ -448,6 +478,73 @@ fn apply_delete(
     }
 }
 
+/// Dependency binding info: which resource this depends on and what binding name to use.
+struct DepBinding {
+    /// The resource being depended on (e.g., "vpc.main")
+    target: String,
+    /// The binding name to inject (e.g., "vpc_id")
+    binding: String,
+}
+
+/// Build a map of resource_id -> list of dependency bindings.
+fn build_dependency_map(files: &[SmeltFile]) -> HashMap<String, Vec<DepBinding>> {
+    let mut map: HashMap<String, Vec<DepBinding>> = HashMap::new();
+    for file in files {
+        for decl in &file.declarations {
+            if let Declaration::Resource(resource) = decl {
+                let resource_id = format!("{}.{}", resource.kind, resource.name);
+                let bindings: Vec<DepBinding> = resource
+                    .dependencies
+                    .iter()
+                    .filter_map(|dep| {
+                        let segments = &dep.source.segments;
+                        if segments.len() >= 2 {
+                            Some(DepBinding {
+                                target: format!("{}.{}", segments[0], segments[1]),
+                                binding: dep.binding.clone(),
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                if !bindings.is_empty() {
+                    map.insert(resource_id, bindings);
+                }
+            }
+        }
+    }
+    map
+}
+
+/// Resolve dependency references into a config JSON.
+///
+/// For each dependency binding (e.g., `needs vpc.main -> vpc_id`),
+/// if the target resource has a known provider_id, inject it into the
+/// config as a top-level field (e.g., `vpc_id = "vpc-12345"`).
+fn resolve_refs(
+    resource_id: &str,
+    config: &mut serde_json::Value,
+    dep_map: &HashMap<String, Vec<DepBinding>>,
+    provider_ids: &ProviderIdMap,
+) {
+    let Some(bindings) = dep_map.get(resource_id) else {
+        return;
+    };
+    let Some(obj) = config.as_object_mut() else {
+        return;
+    };
+
+    for binding in bindings {
+        if let Some(pid) = provider_ids.get(&binding.target) {
+            obj.insert(
+                binding.binding.clone(),
+                serde_json::Value::String(pid.clone()),
+            );
+        }
+    }
+}
+
 /// Build a map of resource_id -> JSON config from parsed files.
 fn build_config_map(files: &[SmeltFile]) -> HashMap<String, serde_json::Value> {
     let mut map = HashMap::new();
@@ -753,5 +850,81 @@ mod tests {
         // Will fail (no provider registered) but exercises the config path
         let summary = execute_plan_with_config(&plan, &registry, &store, &project, &[file]);
         assert_eq!(summary.failed, 1);
+    }
+
+    #[test]
+    fn resolve_refs_injects_provider_ids() {
+        use crate::parser;
+
+        let file = parser::parse(
+            r#"
+            resource vpc "main" : aws.ec2.Vpc {
+                network { cidr_block = "10.0.0.0/16" }
+            }
+            resource subnet "pub" : aws.ec2.Subnet {
+                needs vpc.main -> vpc_id
+                network { cidr_block = "10.0.1.0/24" }
+            }
+        "#,
+        )
+        .unwrap();
+
+        let config_map = build_config_map(&[file.clone()]);
+        let dep_map = build_dependency_map(&[file]);
+
+        let mut provider_ids: ProviderIdMap = HashMap::new();
+        provider_ids.insert("vpc.main".to_string(), "vpc-abc123".to_string());
+
+        let mut subnet_config = config_map["subnet.pub"].clone();
+        resolve_refs("subnet.pub", &mut subnet_config, &dep_map, &provider_ids);
+
+        // vpc_id should be injected as a top-level field
+        assert_eq!(
+            subnet_config.get("vpc_id"),
+            Some(&serde_json::json!("vpc-abc123"))
+        );
+        // Original config should still be there
+        assert_eq!(
+            subnet_config.pointer("/network/cidr_block"),
+            Some(&serde_json::json!("10.0.1.0/24"))
+        );
+    }
+
+    #[test]
+    fn build_dependency_map_from_ast() {
+        use crate::parser;
+
+        let file = parser::parse(
+            r#"
+            resource vpc "main" : aws.ec2.Vpc {
+                network { cidr_block = "10.0.0.0/16" }
+            }
+            resource subnet "a" : aws.ec2.Subnet {
+                needs vpc.main -> vpc_id
+                network { cidr_block = "10.0.1.0/24" }
+            }
+            resource sg "web" : aws.ec2.SecurityGroup {
+                needs vpc.main -> vpc_id
+                security { name = "web" }
+            }
+        "#,
+        )
+        .unwrap();
+
+        let dep_map = build_dependency_map(&[file]);
+
+        // VPC has no deps
+        assert!(!dep_map.contains_key("vpc.main"));
+
+        // Subnet depends on VPC
+        let subnet_deps = &dep_map["subnet.a"];
+        assert_eq!(subnet_deps.len(), 1);
+        assert_eq!(subnet_deps[0].target, "vpc.main");
+        assert_eq!(subnet_deps[0].binding, "vpc_id");
+
+        // SG depends on VPC
+        let sg_deps = &dep_map["sg.web"];
+        assert_eq!(sg_deps.len(), 1);
+        assert_eq!(sg_deps[0].target, "vpc.main");
     }
 }

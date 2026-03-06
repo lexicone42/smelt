@@ -1,0 +1,57 @@
+resource subnet "private_a" : aws.ec2.Subnet {
+  @intent "Private subnet in AZ-a for application tier"
+  @owner "platform-team"
+
+  needs vpc.main -> vpc_id
+
+  identity {
+    name = "priv-a"
+    tags = { tier = "private" }
+  }
+
+  network {
+    availability_zone = "us-east-1a"
+    cidr_block = "10.0.10.0/24"
+    public_ip_on_launch = false
+  }
+}
+
+resource subnet "private_b" : aws.ec2.Subnet {
+  @intent "Private subnet in AZ-b for application tier"
+  @owner "platform-team"
+
+  needs vpc.main -> vpc_id
+
+  identity {
+    name = "priv-b"
+    tags = { tier = "private" }
+  }
+
+  network {
+    availability_zone = "us-east-1b"
+    cidr_block = "10.0.11.0/24"
+    public_ip_on_launch = false
+  }
+}
+
+resource security_group "app" : aws.ec2.SecurityGroup {
+  @intent "Allow traffic from web tier to application tier"
+  @constraint "Ingress only from web security group CIDR"
+
+  needs vpc.main -> vpc_id
+
+  identity {
+    name = "app-sg"
+    tags = { tier = "application" }
+  }
+
+  security {
+    egress = [
+      { cidr = "0.0.0.0/0", port = 0, protocol = "-1" }
+    ]
+    ingress = [
+      { cidr = "10.0.1.0/24", port = 8080, protocol = "tcp" },
+      { cidr = "10.0.2.0/24", port = 8080, protocol = "tcp" }
+    ]
+  }
+}

@@ -230,14 +230,14 @@ impl AwsProvider {
                 ProviderError::InvalidConfig("network.availability_zone is required".into())
             })?;
 
-        // Look for VPC reference — the apply engine needs to resolve refs
-        // For now, check if there's a vpc_id in the config (set by apply engine)
+        // VPC ID from dependency ref resolution (top-level) or explicit config
         let vpc_id = config
-            .pointer("/network/vpc_id")
+            .get("vpc_id")
+            .or_else(|| config.pointer("/network/vpc_id"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| {
                 ProviderError::InvalidConfig(
-                    "network.vpc_id is required (resolved from dependency)".into(),
+                    "vpc_id is required (use `needs vpc.name -> vpc_id`)".into(),
                 )
             })?;
 
@@ -353,12 +353,16 @@ impl AwsProvider {
             .and_then(|v| v.as_str())
             .ok_or_else(|| ProviderError::InvalidConfig("identity.name is required".into()))?;
 
+        // VPC ID from dependency ref resolution (top-level) or explicit config
         let vpc_id = config
-            .pointer("/security/vpc_id")
+            .get("vpc_id")
+            .or_else(|| config.pointer("/security/vpc_id"))
             .or_else(|| config.pointer("/network/vpc_id"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| {
-                ProviderError::InvalidConfig("vpc_id is required (resolved from dependency)".into())
+                ProviderError::InvalidConfig(
+                    "vpc_id is required (use `needs vpc.name -> vpc_id`)".into(),
+                )
             })?;
 
         let tag_spec = Self::build_tags(config, AwsResourceType::SecurityGroup);
