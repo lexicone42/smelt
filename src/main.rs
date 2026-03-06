@@ -278,8 +278,16 @@ fn build_registry() -> smelt::provider::ProviderRegistry {
     use smelt::provider::google_workspace::GoogleWorkspaceProvider;
 
     let mut registry = ProviderRegistry::new();
-    // Register providers with placeholder config — real config will come from project settings
-    registry.register(Box::new(AwsProvider::new("us-east-1")));
+
+    // AWS — create client from environment (standard AWS credential chain)
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    let aws_provider = rt.block_on(AwsProvider::from_env());
+    registry.register(Box::new(aws_provider));
+
+    // Other providers use placeholder config for now
     registry.register(Box::new(GcpProvider::new("default", "us-central1")));
     registry.register(Box::new(CloudflareProvider::new("default")));
     registry.register(Box::new(GoogleWorkspaceProvider::new("default")));

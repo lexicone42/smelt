@@ -33,6 +33,10 @@ chrono = { version = "0.4", features = ["serde"] }
 # Async runtime (for provider API calls)
 tokio = { version = "1", features = ["rt", "macros"] }
 
+# AWS SDK — uses aws-lc-rs + rustls by default (no openssl)
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-sdk-ec2 = "1"
+
 # AWS crypto — FIPS-validated, use instead of ring
 # We'll use this for signing state transitions and future TLS needs
 aws-lc-rs = "1"

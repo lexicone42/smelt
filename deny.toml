@@ -46,8 +46,12 @@ deny = [
     # Prefer rustls over openssl
     { crate = "openssl", use-instead = "rustls" },
     { crate = "openssl-sys", use-instead = "rustls" },
-    # Prefer aws-lc-rs over ring for crypto
-    { crate = "ring", use-instead = "aws-lc-rs" },
+]
+
+skip = [
+    # ring is pulled in transitively by the AWS SDK (via rustls 0.21 / aws-smithy-http-client).
+    # Smelt's own code uses aws-lc-rs for crypto — this skip only permits the transitive dep.
+    { crate = "ring@0.17.14" },
 ]
 
 # ============================================================================
