@@ -78,6 +78,12 @@ pub enum TreeEntry {
     Tree(ContentHash),
 }
 
+impl Default for TreeNode {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TreeNode {
     /// Compute the content hash of this tree node.
     pub fn hash(&self) -> ContentHash {
@@ -347,9 +353,19 @@ impl Store {
 /// A diff entry between two tree nodes.
 #[derive(Debug, Clone)]
 pub enum TreeDiff {
-    Added { name: String, hash: ContentHash },
-    Removed { name: String, hash: ContentHash },
-    Changed { name: String, old_hash: ContentHash, new_hash: ContentHash },
+    Added {
+        name: String,
+        hash: ContentHash,
+    },
+    Removed {
+        name: String,
+        hash: ContentHash,
+    },
+    Changed {
+        name: String,
+        old_hash: ContentHash,
+        new_hash: ContentHash,
+    },
 }
 
 fn entry_hash(entry: &TreeEntry) -> &ContentHash {
@@ -377,10 +393,7 @@ mod tests {
 
     fn temp_store() -> Store {
         let id = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = env::temp_dir().join(format!(
-            "smelt-test-{}-{id}",
-            std::process::id()
-        ));
+        let dir = env::temp_dir().join(format!("smelt-test-{}-{id}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         Store::open(&dir).unwrap()
     }

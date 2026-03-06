@@ -52,16 +52,14 @@ fn resource_decl() -> impl Parser<char, ResourceDecl, Error = Simple<char>> {
         .then(type_path())
         .padded()
         .then(resource_body().delimited_by(just('{').padded(), just('}').padded()))
-        .map(|(((kind, name), type_path), body)| {
-            ResourceDecl {
-                kind,
-                name,
-                type_path,
-                annotations: body.annotations,
-                dependencies: body.dependencies,
-                sections: body.sections,
-                fields: body.fields,
-            }
+        .map(|(((kind, name), type_path), body)| ResourceDecl {
+            kind,
+            name,
+            type_path,
+            annotations: body.annotations,
+            dependencies: body.dependencies,
+            sections: body.sections,
+            fields: body.fields,
         })
 }
 

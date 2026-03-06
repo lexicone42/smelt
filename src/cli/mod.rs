@@ -86,6 +86,36 @@ pub enum Command {
         environment: String,
     },
 
+    /// Apply planned changes to infrastructure
+    Apply {
+        /// Environment name
+        #[arg(default_value = "default")]
+        environment: String,
+
+        /// Files to apply
+        #[arg(value_name = "FILE")]
+        files: Vec<PathBuf>,
+
+        /// Skip confirmation prompt
+        #[arg(long)]
+        yes: bool,
+    },
+
+    /// Destroy all resources in an environment
+    Destroy {
+        /// Environment name
+        #[arg(default_value = "default")]
+        environment: String,
+
+        /// Files describing resources to destroy
+        #[arg(value_name = "FILE")]
+        files: Vec<PathBuf>,
+
+        /// Skip confirmation prompt
+        #[arg(long)]
+        yes: bool,
+    },
+
     /// Parse a .smelt file and dump the AST as JSON
     Debug {
         /// File to parse

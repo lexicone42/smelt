@@ -30,6 +30,9 @@ similar = { version = "2", features = ["text"] }
 # Time
 chrono = { version = "0.4", features = ["serde"] }
 
+# Async runtime (for provider API calls)
+tokio = { version = "1", features = ["rt", "macros"] }
+
 # AWS crypto — FIPS-validated, use instead of ring
 # We'll use this for signing state transitions and future TLS needs
 aws-lc-rs = "1"

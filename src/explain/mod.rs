@@ -78,7 +78,9 @@ pub fn explain(
     // Find the resource declaration to get full details
     let resource_decl = files.iter().find_map(|f| {
         f.declarations.iter().find_map(|d| match d {
-            Declaration::Resource(r) if r.kind == resource_id.kind && r.name == resource_id.name => {
+            Declaration::Resource(r)
+                if r.kind == resource_id.kind && r.name == resource_id.name =>
+            {
                 Some(r)
             }
             _ => None,
