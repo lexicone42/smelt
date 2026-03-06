@@ -287,54 +287,120 @@ fn format_json_compact(value: &serde_json::Value) -> String {
     }
 }
 
-/// Format a plan as human-readable text output.
+// ANSI color helpers
+const GREEN: &str = "\x1b[32m";
+const YELLOW: &str = "\x1b[33m";
+const RED: &str = "\x1b[31m";
+const BOLD: &str = "\x1b[1m";
+const RESET: &str = "\x1b[0m";
+const DIM: &str = "\x1b[2m";
+
+fn use_color() -> bool {
+    std::env::var("NO_COLOR").is_err() && atty_stderr()
+}
+
+fn atty_stderr() -> bool {
+    // Simple heuristic: check if stderr is a terminal
+    libc_isatty(2) != 0
+}
+
+unsafe extern "C" {
+    #[link_name = "isatty"]
+    safe fn libc_isatty(fd: i32) -> i32;
+}
+
+/// Format a plan as human-readable text output with optional terminal colors.
 pub fn format_plan(plan: &Plan) -> String {
+    let color = use_color();
     let mut out = String::new();
 
-    out.push_str(&format!("Plan for environment: {}\n\n", plan.environment));
+    out.push_str(&format!(
+        "{BOLD}Plan for environment: {}{RESET}\n\n",
+        plan.environment,
+        BOLD = if color { BOLD } else { "" },
+        RESET = if color { RESET } else { "" },
+    ));
 
     for action in &plan.actions {
         if action.action == ActionType::Unchanged {
             continue;
         }
 
-        let symbol = match action.action {
-            ActionType::Create => "+",
-            ActionType::Update => "~",
-            ActionType::Delete => "-",
-            ActionType::Unchanged => " ",
+        let (symbol, clr) = match action.action {
+            ActionType::Create => ("+", GREEN),
+            ActionType::Update => ("~", YELLOW),
+            ActionType::Delete => ("-", RED),
+            ActionType::Unchanged => (" ", ""),
         };
 
         let intent_str = action
             .intent
             .as_deref()
-            .map(|i| format!("  # {i}"))
+            .map(|i| {
+                if color {
+                    format!("  {DIM}# {i}{RESET}")
+                } else {
+                    format!("  # {i}")
+                }
+            })
             .unwrap_or_default();
 
-        out.push_str(&format!(
-            "  {symbol} {} : {}{intent_str}\n",
-            action.resource_id, action.type_path
-        ));
+        if color {
+            out.push_str(&format!(
+                "  {clr}{symbol}{RESET} {BOLD}{}{RESET} : {}{intent_str}\n",
+                action.resource_id, action.type_path,
+            ));
+        } else {
+            out.push_str(&format!(
+                "  {symbol} {} : {}{intent_str}\n",
+                action.resource_id, action.type_path
+            ));
+        }
 
         for change in &action.changes {
             match &change.change {
                 ChangeKind::Added { value } => {
-                    out.push_str(&format!("      + {} = {value}\n", change.path));
+                    if color {
+                        out.push_str(&format!(
+                            "      {GREEN}+ {} = {value}{RESET}\n",
+                            change.path
+                        ));
+                    } else {
+                        out.push_str(&format!("      + {} = {value}\n", change.path));
+                    }
                 }
                 ChangeKind::Removed { value } => {
-                    out.push_str(&format!("      - {} = {value}\n", change.path));
+                    if color {
+                        out.push_str(&format!("      {RED}- {} = {value}{RESET}\n", change.path));
+                    } else {
+                        out.push_str(&format!("      - {} = {value}\n", change.path));
+                    }
                 }
                 ChangeKind::Modified { old, new } => {
-                    out.push_str(&format!("      ~ {} : {old} -> {new}\n", change.path));
+                    if color {
+                        out.push_str(&format!(
+                            "      {YELLOW}~ {} : {old} -> {new}{RESET}\n",
+                            change.path
+                        ));
+                    } else {
+                        out.push_str(&format!("      ~ {} : {old} -> {new}\n", change.path));
+                    }
                 }
             }
         }
     }
 
-    out.push_str(&format!(
-        "\nSummary: {} to create, {} to update, {} to delete, {} unchanged\n",
-        plan.summary.create, plan.summary.update, plan.summary.delete, plan.summary.unchanged
-    ));
+    if color {
+        out.push_str(&format!(
+            "\n{BOLD}Summary:{RESET} {GREEN}{}{RESET} to create, {YELLOW}{}{RESET} to update, {RED}{}{RESET} to delete, {} unchanged\n",
+            plan.summary.create, plan.summary.update, plan.summary.delete, plan.summary.unchanged
+        ));
+    } else {
+        out.push_str(&format!(
+            "\nSummary: {} to create, {} to update, {} to delete, {} unchanged\n",
+            plan.summary.create, plan.summary.update, plan.summary.delete, plan.summary.unchanged
+        ));
+    }
 
     out
 }

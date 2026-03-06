@@ -55,6 +55,17 @@ fn main() -> Result<()> {
             filter,
             json,
         } => cmd_query(&environment, filter.as_deref(), json),
+        Command::Rollback {
+            environment,
+            target,
+            yes,
+        } => cmd_rollback(&environment, &target, yes),
+        Command::Show {
+            environment,
+            resource,
+            json,
+        } => cmd_show(&environment, &resource, json),
+        Command::Envs => cmd_envs(),
         Command::History { environment } => cmd_history(&environment),
         Command::Debug { file } => cmd_debug(&file),
     }
@@ -699,6 +710,148 @@ fn format_json_compact(value: &serde_json::Value) -> String {
         serde_json::Value::String(s) => format!("\"{s}\""),
         other => serde_json::to_string(other).unwrap_or_else(|_| format!("{other}")),
     }
+}
+
+fn cmd_rollback(environment: &str, target: &str, yes: bool) -> Result<()> {
+    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+
+    // Verify the target tree exists
+    let target_hash = store::ContentHash(target.to_string());
+
+    // Try to find by short hash if full hash doesn't exist
+    let resolved_hash = if s.get_tree(&target_hash).is_ok() {
+        target_hash
+    } else {
+        // Search for a tree with matching short hash prefix
+        find_tree_by_prefix(&s, target)?
+    };
+
+    let tree = s.get_tree(&resolved_hash).map_err(|e| miette!("{e}"))?;
+
+    eprintln!(
+        "Rollback environment '{}' to tree {}",
+        environment,
+        resolved_hash.short()
+    );
+    eprintln!("  {} resource(s) in target state", tree.children.len());
+
+    if !yes {
+        eprint!("\nProceed with rollback? [y/N] ");
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).into_diagnostic()?;
+        if !input.trim().eq_ignore_ascii_case("y") {
+            eprintln!("rollback cancelled");
+            return Ok(());
+        }
+    }
+
+    s.set_ref(environment, &resolved_hash)
+        .map_err(|e| miette!("{e}"))?;
+
+    // Record rollback event
+    let event = store::Event {
+        seq: s.next_seq().map_err(|e| miette!("{e}"))?,
+        timestamp: chrono::Utc::now(),
+        event_type: store::EventType::Rollback,
+        resource_id: format!("env:{environment}"),
+        actor: "rollback".to_string(),
+        intent: Some(format!("rollback to {}", resolved_hash.short())),
+        prev_hash: None,
+        new_hash: Some(resolved_hash.clone()),
+    };
+    let _ = s.append_event(&event);
+
+    eprintln!("rolled back to {}", resolved_hash.short());
+    Ok(())
+}
+
+fn find_tree_by_prefix(store: &store::Store, prefix: &str) -> Result<store::ContentHash> {
+    // List all refs and check their tree hashes
+    let refs = store.list_refs().map_err(|e| miette!("{e}"))?;
+    for (_, hash) in &refs {
+        if hash.0.starts_with(prefix) {
+            return Ok(hash.clone());
+        }
+    }
+    Err(miette!("no tree found matching prefix '{prefix}'"))
+}
+
+fn cmd_show(environment: &str, resource: &str, json: bool) -> Result<()> {
+    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+
+    let tree_hash = s
+        .get_ref(environment)
+        .map_err(|_| miette!("no state for environment '{environment}'"))?;
+    let tree = s.get_tree(&tree_hash).map_err(|e| miette!("{e}"))?;
+
+    let hash = match tree.children.get(resource) {
+        Some(store::TreeEntry::Object(h)) => h,
+        _ => {
+            return Err(miette!(
+                "resource '{}' not found in environment '{}'",
+                resource,
+                environment
+            ));
+        }
+    };
+
+    let obj = s.get_object(hash).map_err(|e| miette!("{e}"))?;
+
+    if json {
+        let json_str = serde_json::to_string_pretty(&obj).into_diagnostic()?;
+        println!("{json_str}");
+    } else {
+        eprintln!("Resource: {}", obj.resource_id);
+        eprintln!("Type:     {}", obj.type_path);
+        if let Some(pid) = &obj.provider_id {
+            eprintln!("Provider: {pid}");
+        }
+        if let Some(intent) = &obj.intent {
+            eprintln!("Intent:   {intent}");
+        }
+        eprintln!("Hash:     {}", hash.short());
+        eprintln!();
+
+        eprintln!("Config:");
+        let config_str = serde_json::to_string_pretty(&obj.config).into_diagnostic()?;
+        for line in config_str.lines() {
+            eprintln!("  {line}");
+        }
+
+        if let Some(actual) = &obj.actual {
+            eprintln!();
+            eprintln!("Actual state:");
+            let actual_str = serde_json::to_string_pretty(actual).into_diagnostic()?;
+            for line in actual_str.lines() {
+                eprintln!("  {line}");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_envs() -> Result<()> {
+    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let refs = s.list_refs().map_err(|e| miette!("{e}"))?;
+
+    if refs.is_empty() {
+        eprintln!("no environments with state");
+        return Ok(());
+    }
+
+    eprintln!("Environments:");
+    for (name, hash) in &refs {
+        let resource_count = s.get_tree(hash).map(|t| t.children.len()).unwrap_or(0);
+        eprintln!(
+            "  {} ({} resources) [{}]",
+            name,
+            resource_count,
+            hash.short()
+        );
+    }
+
+    Ok(())
 }
 
 fn cmd_history(environment: &str) -> Result<()> {

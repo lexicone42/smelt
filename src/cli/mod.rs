@@ -163,6 +163,37 @@ pub enum Command {
         json: bool,
     },
 
+    /// Rollback to a previous state
+    Rollback {
+        /// Environment name
+        #[arg(default_value = "default")]
+        environment: String,
+
+        /// Tree hash to rollback to (from history output)
+        target: String,
+
+        /// Skip confirmation prompt
+        #[arg(long)]
+        yes: bool,
+    },
+
+    /// Show detailed state for a specific resource
+    Show {
+        /// Environment name
+        #[arg(default_value = "default")]
+        environment: String,
+
+        /// Resource identifier (kind.name, e.g., "vpc.main")
+        resource: String,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// List all environments with state
+    Envs,
+
     /// Parse a .smelt file and dump the AST as JSON
     Debug {
         /// File to parse
