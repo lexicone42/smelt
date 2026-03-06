@@ -155,7 +155,11 @@ impl DependencyGraph {
         // toposort gives us dependency order; reverse for apply order
         // (dependencies before dependents)
         let sorted = toposort(&self.graph, None).expect("already verified acyclic");
-        sorted.into_iter().rev().map(|idx| &self.graph[idx]).collect()
+        sorted
+            .into_iter()
+            .rev()
+            .map(|idx| &self.graph[idx])
+            .collect()
     }
 
     /// Get the topological order for destroying resources (dependents first).
@@ -202,7 +206,10 @@ impl DependencyGraph {
 
         while let Some(current) = stack.pop() {
             // Find all resources that depend on current (incoming edges)
-            for edge in self.graph.edges_directed(current, petgraph::Direction::Incoming) {
+            for edge in self
+                .graph
+                .edges_directed(current, petgraph::Direction::Incoming)
+            {
                 let dependent = edge.source();
                 if seen.insert(dependent) {
                     visited.push(dependent);
@@ -236,7 +243,10 @@ impl DependencyGraph {
 
     /// Export the graph as a Graphviz DOT string.
     pub fn to_dot(&self) -> String {
-        format!("{:?}", Dot::with_config(&self.graph, &[Config::EdgeNoLabel]))
+        format!(
+            "{:?}",
+            Dot::with_config(&self.graph, &[Config::EdgeNoLabel])
+        )
     }
 }
 

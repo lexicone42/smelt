@@ -89,9 +89,7 @@ pub fn build_plan(
         // Find the resource declaration
         let resource_decl = desired_files.iter().find_map(|f| {
             f.declarations.iter().find_map(|d| match d {
-                Declaration::Resource(r)
-                    if r.kind == node.id.kind && r.name == node.id.name =>
-                {
+                Declaration::Resource(r) if r.kind == node.id.kind && r.name == node.id.name => {
                     Some(r)
                 }
                 _ => None,
@@ -120,7 +118,7 @@ pub fn build_plan(
             }
             Some(current) => {
                 // Resource exists — check for changes
-                let changes = diff_json_values("", &current, &desired_json);
+                let changes = diff_json_values("", current, &desired_json);
                 let action = if changes.is_empty() {
                     ActionType::Unchanged
                 } else {
@@ -155,10 +153,22 @@ pub fn build_plan(
     }
 
     let summary = PlanSummary {
-        create: actions.iter().filter(|a| a.action == ActionType::Create).count(),
-        update: actions.iter().filter(|a| a.action == ActionType::Update).count(),
-        delete: actions.iter().filter(|a| a.action == ActionType::Delete).count(),
-        unchanged: actions.iter().filter(|a| a.action == ActionType::Unchanged).count(),
+        create: actions
+            .iter()
+            .filter(|a| a.action == ActionType::Create)
+            .count(),
+        update: actions
+            .iter()
+            .filter(|a| a.action == ActionType::Update)
+            .count(),
+        delete: actions
+            .iter()
+            .filter(|a| a.action == ActionType::Delete)
+            .count(),
+        unchanged: actions
+            .iter()
+            .filter(|a| a.action == ActionType::Unchanged)
+            .count(),
     };
 
     Plan {
@@ -193,9 +203,7 @@ fn value_to_json(value: &Value) -> serde_json::Value {
         Value::Number(n) => serde_json::json!(*n),
         Value::Integer(n) => serde_json::json!(*n),
         Value::Bool(b) => serde_json::Value::Bool(*b),
-        Value::Array(items) => {
-            serde_json::Value::Array(items.iter().map(value_to_json).collect())
-        }
+        Value::Array(items) => serde_json::Value::Array(items.iter().map(value_to_json).collect()),
         Value::Record(fields) => {
             let mut map = serde_json::Map::new();
             for f in fields {
@@ -208,7 +216,11 @@ fn value_to_json(value: &Value) -> serde_json::Value {
 }
 
 /// Recursively diff two JSON values, producing field-level diffs.
-fn diff_json_values(path: &str, old: &serde_json::Value, new: &serde_json::Value) -> Vec<FieldDiff> {
+fn diff_json_values(
+    path: &str,
+    old: &serde_json::Value,
+    new: &serde_json::Value,
+) -> Vec<FieldDiff> {
     if old == new {
         return vec![];
     }
@@ -279,10 +291,7 @@ fn format_json_compact(value: &serde_json::Value) -> String {
 pub fn format_plan(plan: &Plan) -> String {
     let mut out = String::new();
 
-    out.push_str(&format!(
-        "Plan for environment: {}\n\n",
-        plan.environment
-    ));
+    out.push_str(&format!("Plan for environment: {}\n\n", plan.environment));
 
     for action in &plan.actions {
         if action.action == ActionType::Unchanged {
@@ -338,23 +347,37 @@ pub fn format_plan_diff(plan: &Plan) -> String {
     for action in &plan.actions {
         match action.action {
             ActionType::Create => {
-                new_lines.push(format!("resource {} : {}", action.resource_id, action.type_path));
+                new_lines.push(format!(
+                    "resource {} : {}",
+                    action.resource_id, action.type_path
+                ));
             }
             ActionType::Delete => {
-                old_lines.push(format!("resource {} : {}", action.resource_id, action.type_path));
+                old_lines.push(format!(
+                    "resource {} : {}",
+                    action.resource_id, action.type_path
+                ));
             }
             ActionType::Update => {
                 for change in &action.changes {
                     match &change.change {
                         ChangeKind::Modified { old, new } => {
-                            old_lines.push(format!("{}.{} = {}", action.resource_id, change.path, old));
-                            new_lines.push(format!("{}.{} = {}", action.resource_id, change.path, new));
+                            old_lines
+                                .push(format!("{}.{} = {}", action.resource_id, change.path, old));
+                            new_lines
+                                .push(format!("{}.{} = {}", action.resource_id, change.path, new));
                         }
                         ChangeKind::Added { value } => {
-                            new_lines.push(format!("{}.{} = {}", action.resource_id, change.path, value));
+                            new_lines.push(format!(
+                                "{}.{} = {}",
+                                action.resource_id, change.path, value
+                            ));
                         }
                         ChangeKind::Removed { value } => {
-                            old_lines.push(format!("{}.{} = {}", action.resource_id, change.path, value));
+                            old_lines.push(format!(
+                                "{}.{} = {}",
+                                action.resource_id, change.path, value
+                            ));
                         }
                     }
                 }

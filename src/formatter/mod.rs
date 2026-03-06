@@ -157,10 +157,7 @@ fn format_dependencies(out: &mut String, deps: &[Dependency], indent: usize) {
 
     for dep in &sorted {
         let pad = "  ".repeat(indent);
-        out.push_str(&format!(
-            "{pad}needs {} -> {}\n",
-            dep.source, dep.binding
-        ));
+        out.push_str(&format!("{pad}needs {} -> {}\n", dep.source, dep.binding));
     }
 }
 
@@ -269,7 +266,11 @@ fn is_simple_array(items: &[Value]) -> bool {
     items.iter().all(|v| {
         matches!(
             v,
-            Value::String(_) | Value::Number(_) | Value::Integer(_) | Value::Bool(_) | Value::Ref(_)
+            Value::String(_)
+                | Value::Number(_)
+                | Value::Integer(_)
+                | Value::Bool(_)
+                | Value::Ref(_)
         )
     })
 }
@@ -280,7 +281,11 @@ fn is_simple_record(fields: &[Field]) -> bool {
         && fields.iter().all(|f| {
             matches!(
                 f.value,
-                Value::String(_) | Value::Number(_) | Value::Integer(_) | Value::Bool(_) | Value::Ref(_)
+                Value::String(_)
+                    | Value::Number(_)
+                    | Value::Integer(_)
+                    | Value::Bool(_)
+                    | Value::Ref(_)
             )
         })
 }

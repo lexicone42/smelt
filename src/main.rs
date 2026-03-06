@@ -4,12 +4,12 @@ use std::path::Path;
 use std::process;
 
 use clap::Parser;
-use miette::{miette, IntoDiagnostic, Result};
+use miette::{IntoDiagnostic, Result, miette};
 
 use smelt::ast::SmeltFile;
 use smelt::cli::{Cli, Command};
 use smelt::graph::{DependencyGraph, ResourceId};
-use smelt::{explain, formatter, parser, plan, signing, store};
+use smelt::{apply, explain, formatter, parser, plan, signing, store};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -29,6 +29,16 @@ fn main() -> Result<()> {
             json,
         } => cmd_explain(&resource, &files, json),
         Command::Graph { files, dot } => cmd_graph(&files, dot),
+        Command::Apply {
+            environment,
+            files,
+            yes,
+        } => cmd_apply(&environment, &files, yes),
+        Command::Destroy {
+            environment,
+            files,
+            yes,
+        } => cmd_destroy(&environment, &files, yes),
         Command::History { environment } => cmd_history(&environment),
         Command::Debug { file } => cmd_debug(&file),
     }
@@ -186,10 +196,10 @@ fn load_current_state(environment: &str) -> BTreeMap<String, serde_json::Value> 
 
     let mut state = BTreeMap::new();
     for (name, entry) in &tree.children {
-        if let store::TreeEntry::Object(hash) = entry {
-            if let Ok(obj) = store.get_object(hash) {
-                state.insert(name.clone(), obj.config);
-            }
+        if let store::TreeEntry::Object(hash) = entry
+            && let Ok(obj) = store.get_object(hash)
+        {
+            state.insert(name.clone(), obj.config);
         }
     }
     state
@@ -248,9 +258,116 @@ fn cmd_graph(files: &[std::path::PathBuf], dot: bool) -> Result<()> {
                 .unwrap_or_default();
             eprintln!(
                 "  {}. {} : {}{}{}",
-                i + 1, node.id, node.type_path, dep_str, intent_str
+                i + 1,
+                node.id,
+                node.type_path,
+                dep_str,
+                intent_str
             );
         }
+    }
+
+    Ok(())
+}
+
+fn build_registry() -> smelt::provider::ProviderRegistry {
+    use smelt::provider::aws::AwsProvider;
+    use smelt::provider::cloudflare::CloudflareProvider;
+    use smelt::provider::gcp::GcpProvider;
+    use smelt::provider::google_workspace::GoogleWorkspaceProvider;
+    use smelt::provider::ProviderRegistry;
+
+    let mut registry = ProviderRegistry::new();
+    // Register providers with placeholder config — real config will come from project settings
+    registry.register(Box::new(AwsProvider::new("us-east-1")));
+    registry.register(Box::new(GcpProvider::new("default", "us-central1")));
+    registry.register(Box::new(CloudflareProvider::new("default")));
+    registry.register(Box::new(GoogleWorkspaceProvider::new("default")));
+    registry
+}
+
+fn cmd_apply(environment: &str, files: &[std::path::PathBuf], yes: bool) -> Result<()> {
+    let files = resolve_files(files)?;
+    let parsed = parse_files(&files)?;
+
+    let graph = DependencyGraph::build(&parsed).map_err(|e| miette!("{e}"))?;
+    let current_state = load_current_state(environment);
+    let p = plan::build_plan(environment, &parsed, &current_state, &graph);
+
+    if p.summary.create == 0 && p.summary.update == 0 && p.summary.delete == 0 {
+        eprintln!("nothing to do — infrastructure matches desired state");
+        return Ok(());
+    }
+
+    // Show the plan first
+    eprint!("{}", plan::format_plan(&p));
+
+    if !yes {
+        eprint!("\nProceed with apply? [y/N] ");
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).into_diagnostic()?;
+        if !input.trim().eq_ignore_ascii_case("y") {
+            eprintln!("apply cancelled");
+            return Ok(());
+        }
+    }
+
+    let registry = build_registry();
+    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+
+    let summary = apply::execute_plan(&p, &registry, &s, Path::new("."));
+    eprint!("{}", apply::format_summary(&summary));
+
+    if summary.failed > 0 {
+        return Err(miette!("{} resource(s) failed to apply", summary.failed));
+    }
+
+    Ok(())
+}
+
+fn cmd_destroy(environment: &str, files: &[std::path::PathBuf], yes: bool) -> Result<()> {
+    let files = resolve_files(files)?;
+    let parsed = parse_files(&files)?;
+
+    let graph = DependencyGraph::build(&parsed).map_err(|e| miette!("{e}"))?;
+
+    // Build a plan where all resources are marked for deletion
+    let mut all_state = BTreeMap::new();
+    let destroy_order = graph.destroy_order();
+    for node in &destroy_order {
+        // Mark each resource as existing so plan sees them as deletions
+        all_state.insert(node.id.to_string(), serde_json::json!({}));
+    }
+
+    // Build plan with empty desired state (no files) to get all deletions
+    let empty_files: Vec<smelt::ast::SmeltFile> = vec![];
+    let p = plan::build_plan(environment, &empty_files, &all_state, &graph);
+
+    if p.summary.delete == 0 {
+        eprintln!("nothing to destroy");
+        return Ok(());
+    }
+
+    eprint!("{}", plan::format_plan(&p));
+
+    if !yes {
+        eprint!("\nThis will DESTROY {} resource(s). Proceed? [y/N] ", p.summary.delete);
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).into_diagnostic()?;
+        if !input.trim().eq_ignore_ascii_case("y") {
+            eprintln!("destroy cancelled");
+            return Ok(());
+        }
+    }
+
+    let registry = build_registry();
+    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+
+    let summary = apply::execute_plan(&p, &registry, &s, Path::new("."));
+    eprint!("{}", apply::format_summary(&summary));
+
+    if summary.failed > 0 {
+        return Err(miette!("{} resource(s) failed to destroy", summary.failed));
     }
 
     Ok(())

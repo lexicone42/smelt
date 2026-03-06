@@ -296,7 +296,7 @@ impl Provider for AwsProvider {
     }
 }
 
-fn diff_values(
+pub fn diff_values(
     path: &str,
     desired: &serde_json::Value,
     actual: &serde_json::Value,
@@ -388,7 +388,12 @@ mod tests {
     #[test]
     fn vpc_schema_has_semantic_sections() {
         let schema = AwsProvider::ec2_vpc_schema();
-        let section_names: Vec<_> = schema.schema.sections.iter().map(|s| s.name.as_str()).collect();
+        let section_names: Vec<_> = schema
+            .schema
+            .sections
+            .iter()
+            .map(|s| s.name.as_str())
+            .collect();
         assert!(section_names.contains(&"identity"));
         assert!(section_names.contains(&"network"));
     }

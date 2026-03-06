@@ -66,8 +66,8 @@ impl SigningKeyStore {
     /// Generate a new Ed25519 signing key pair.
     pub fn generate_key(&self, identity: &str) -> Result<String, SigningError> {
         let rng = aws_lc_rs::rand::SystemRandom::new();
-        let pkcs8_doc = Ed25519KeyPair::generate_pkcs8(&rng)
-            .map_err(|_| SigningError::KeyGeneration)?;
+        let pkcs8_doc =
+            Ed25519KeyPair::generate_pkcs8(&rng).map_err(|_| SigningError::KeyGeneration)?;
 
         let key_pair = Ed25519KeyPair::from_pkcs8(pkcs8_doc.as_ref())
             .map_err(|_| SigningError::KeyGeneration)?;
@@ -89,17 +89,13 @@ impl SigningKeyStore {
     pub fn default_key(&self) -> Result<(Ed25519KeyPair, String, String), SigningError> {
         let entries: Vec<_> = fs::read_dir(&self.keys_dir)?
             .filter_map(|e| e.ok())
-            .filter(|e| {
-                e.path()
-                    .extension()
-                    .is_some_and(|ext| ext == "key")
-            })
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "key"))
             .collect();
 
         let entry = entries.first().ok_or(SigningError::NoKey)?;
         let pkcs8_bytes = fs::read(entry.path())?;
-        let key_pair = Ed25519KeyPair::from_pkcs8(&pkcs8_bytes)
-            .map_err(|_| SigningError::KeyGeneration)?;
+        let key_pair =
+            Ed25519KeyPair::from_pkcs8(&pkcs8_bytes).map_err(|_| SigningError::KeyGeneration)?;
 
         let public_key_hex = hex_encode(key_pair.public_key().as_ref());
 
@@ -130,13 +126,11 @@ impl SigningKeyStore {
 
     /// Verify a signed state transition.
     pub fn verify_transition(signed: &SignedTransition) -> Result<bool, SigningError> {
-        let public_key_bytes = hex_decode(&signed.signer_public_key)
-            .map_err(|e| SigningError::VerificationFailed(format!("invalid public key hex: {e}")))?;
+        let public_key_bytes = hex_decode(&signed.signer_public_key).map_err(|e| {
+            SigningError::VerificationFailed(format!("invalid public key hex: {e}"))
+        })?;
 
-        let public_key = signature::UnparsedPublicKey::new(
-            &signature::ED25519,
-            &public_key_bytes,
-        );
+        let public_key = signature::UnparsedPublicKey::new(&signature::ED25519, &public_key_bytes);
 
         let canonical = serde_json::to_string(&signed.transition)?;
         let sig_bytes = hex_decode(&signed.signature)
@@ -154,7 +148,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 }
 
 fn hex_decode(hex: &str) -> Result<Vec<u8>, String> {
-    if hex.len() % 2 != 0 {
+    if !hex.len().is_multiple_of(2) {
         return Err("odd-length hex string".to_string());
     }
     (0..hex.len())
