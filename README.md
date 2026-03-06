@@ -91,6 +91,11 @@ resource subnet public_a : aws.ec2.Subnet {
 | `smelt plan <env> [files...]` | Show what would change (`--json` for AI) |
 | `smelt explain <resource>` | Show intent, deps, blast radius (`--json` for AI) |
 | `smelt graph [files...]` | Display dependency graph (`--dot` for Graphviz) |
+| `smelt apply <env> [files...]` | Apply planned changes (`--yes` to skip confirmation) |
+| `smelt destroy <env> [files...]` | Destroy all resources (`--yes` to skip confirmation) |
+| `smelt drift <env> [files...]` | Detect drift between stored and live state (`--json`) |
+| `smelt import <resource> <id>` | Import existing cloud resource into state |
+| `smelt query <env>` | Query stored state (`--filter`, `--json`) |
 | `smelt history <env>` | Show event history for an environment |
 | `smelt debug <file>` | Dump parsed AST as JSON |
 

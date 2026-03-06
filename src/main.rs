@@ -39,6 +39,22 @@ fn main() -> Result<()> {
             files,
             yes,
         } => cmd_destroy(&environment, &files, yes),
+        Command::Drift {
+            environment,
+            files,
+            json,
+        } => cmd_drift(&environment, &files, json),
+        Command::Import {
+            resource,
+            provider_id,
+            files,
+            environment,
+        } => cmd_import(&resource, &provider_id, &files, &environment),
+        Command::Query {
+            environment,
+            filter,
+            json,
+        } => cmd_query(&environment, filter.as_deref(), json),
         Command::History { environment } => cmd_history(&environment),
         Command::Debug { file } => cmd_debug(&file),
     }
@@ -323,7 +339,7 @@ fn cmd_apply(environment: &str, files: &[std::path::PathBuf], yes: bool) -> Resu
     let registry = build_registry();
     let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
 
-    let summary = apply::execute_plan(&p, &registry, &s, Path::new("."));
+    let summary = apply::execute_plan_with_config(&p, &registry, &s, Path::new("."), &parsed);
     eprint!("{}", apply::format_summary(&summary));
 
     if summary.failed > 0 {
@@ -382,6 +398,307 @@ fn cmd_destroy(environment: &str, files: &[std::path::PathBuf], yes: bool) -> Re
     }
 
     Ok(())
+}
+
+fn cmd_drift(environment: &str, files: &[std::path::PathBuf], json: bool) -> Result<()> {
+    let files = resolve_files(files)?;
+    let parsed = parse_files(&files)?;
+
+    let graph = DependencyGraph::build(&parsed).map_err(|e| miette!("{e}"))?;
+    let current_state = load_current_state(environment);
+
+    if current_state.is_empty() {
+        eprintln!("no stored state for environment '{environment}' — run apply first");
+        return Ok(());
+    }
+
+    let registry = build_registry();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    let store = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+
+    // Load the tree to get provider IDs
+    let tree_hash = store.get_ref(environment).map_err(|e| miette!("{e}"))?;
+    let tree = store.get_tree(&tree_hash).map_err(|e| miette!("{e}"))?;
+
+    let mut drifts: Vec<DriftEntry> = Vec::new();
+    let apply_order = graph.apply_order();
+
+    for node in &apply_order {
+        let resource_id = node.id.to_string();
+
+        // Skip resources that aren't in stored state
+        let Some(stored_config) = current_state.get(&resource_id) else {
+            continue;
+        };
+
+        // Get provider_id from tree
+        let provider_id = match tree.children.get(&resource_id) {
+            Some(store::TreeEntry::Object(hash)) => {
+                store.get_object(hash).ok().and_then(|s| s.provider_id)
+            }
+            _ => None,
+        };
+
+        let Some(provider_id) = provider_id else {
+            continue;
+        };
+
+        let Some((provider, resource_type)) = registry.resolve(&node.type_path) else {
+            continue;
+        };
+
+        // Read live state from the cloud
+        match rt.block_on(provider.read(&resource_type, &provider_id)) {
+            Ok(output) => {
+                // Compare live state against stored config
+                let changes = provider.diff(&resource_type, stored_config, &output.state);
+                if !changes.is_empty() {
+                    drifts.push(DriftEntry {
+                        resource_id: resource_id.clone(),
+                        type_path: node.type_path.clone(),
+                        provider_id: provider_id.clone(),
+                        changes: changes
+                            .iter()
+                            .map(|c| DriftChange {
+                                path: c.path.clone(),
+                                expected: c.old_value.clone(),
+                                actual: c.new_value.clone(),
+                            })
+                            .collect(),
+                    });
+                }
+            }
+            Err(e) => {
+                drifts.push(DriftEntry {
+                    resource_id: resource_id.clone(),
+                    type_path: node.type_path.clone(),
+                    provider_id: provider_id.clone(),
+                    changes: vec![DriftChange {
+                        path: "<error>".to_string(),
+                        expected: None,
+                        actual: Some(serde_json::Value::String(format!("{e}"))),
+                    }],
+                });
+            }
+        }
+    }
+
+    if json {
+        let json_str = serde_json::to_string_pretty(&drifts).into_diagnostic()?;
+        println!("{json_str}");
+    } else if drifts.is_empty() {
+        eprintln!("no drift detected — live state matches stored state");
+    } else {
+        eprintln!("Drift detected in {} resource(s):\n", drifts.len());
+        for drift in &drifts {
+            eprintln!(
+                "  ! {} : {} [{}]",
+                drift.resource_id, drift.type_path, drift.provider_id
+            );
+            for change in &drift.changes {
+                let expected = change
+                    .expected
+                    .as_ref()
+                    .map(format_json_compact)
+                    .unwrap_or_else(|| "<none>".to_string());
+                let actual = change
+                    .actual
+                    .as_ref()
+                    .map(format_json_compact)
+                    .unwrap_or_else(|| "<none>".to_string());
+                eprintln!("      {} : expected {expected}, got {actual}", change.path);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(serde::Serialize)]
+struct DriftEntry {
+    resource_id: String,
+    type_path: String,
+    provider_id: String,
+    changes: Vec<DriftChange>,
+}
+
+#[derive(serde::Serialize)]
+struct DriftChange {
+    path: String,
+    expected: Option<serde_json::Value>,
+    actual: Option<serde_json::Value>,
+}
+
+fn cmd_import(
+    resource: &str,
+    provider_id: &str,
+    files: &[std::path::PathBuf],
+    environment: &str,
+) -> Result<()> {
+    let files = resolve_files(files)?;
+    let parsed = parse_files(&files)?;
+
+    let graph = DependencyGraph::build(&parsed).map_err(|e| miette!("{e}"))?;
+
+    // Parse resource identifier
+    let parts: Vec<&str> = resource.splitn(2, '.').collect();
+    if parts.len() != 2 {
+        return Err(miette!(
+            "resource identifier must be 'kind.name' (e.g., 'vpc.main')"
+        ));
+    }
+    let resource_id = ResourceId::new(parts[0], parts[1]);
+
+    // Find the resource in the graph to get its type_path
+    let node = graph
+        .get(&resource_id)
+        .ok_or_else(|| miette!("resource '{}' not found in .smelt files", resource))?;
+
+    let registry = build_registry();
+    let Some((provider, resource_type)) = registry.resolve(&node.type_path) else {
+        return Err(miette!("no provider for type '{}'", node.type_path));
+    };
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    // Read the live state from the cloud
+    let output = rt
+        .block_on(provider.read(&resource_type, provider_id))
+        .map_err(|e| miette!("failed to read resource: {e}"))?;
+
+    // Store it
+    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+
+    // Load or create current tree
+    let mut current_tree = match s.get_ref(environment) {
+        Ok(hash) => s.get_tree(&hash).unwrap_or_default(),
+        Err(_) => store::TreeNode::new(),
+    };
+
+    let state = store::ResourceState {
+        resource_id: resource.to_string(),
+        type_path: node.type_path.clone(),
+        config: output.state.clone(),
+        actual: Some(output.state),
+        provider_id: Some(provider_id.to_string()),
+        intent: node.intent.clone(),
+    };
+
+    let hash = s.put_object(&state).map_err(|e| miette!("{e}"))?;
+    current_tree
+        .children
+        .insert(resource.to_string(), store::TreeEntry::Object(hash.clone()));
+
+    let tree_hash = s.put_tree(&current_tree).map_err(|e| miette!("{e}"))?;
+    s.set_ref(environment, &tree_hash)
+        .map_err(|e| miette!("{e}"))?;
+
+    // Record import event
+    let event = store::Event {
+        seq: s.next_seq().map_err(|e| miette!("{e}"))?,
+        timestamp: chrono::Utc::now(),
+        event_type: store::EventType::ResourceCreated,
+        resource_id: resource.to_string(),
+        actor: "import".to_string(),
+        intent: Some(format!("imported from {provider_id}")),
+        prev_hash: None,
+        new_hash: Some(hash),
+    };
+    let _ = s.append_event(&event);
+
+    eprintln!("imported {} from {}", resource, provider_id);
+    eprintln!("  type: {}", node.type_path);
+    eprintln!("  hash: {}", tree_hash.short());
+
+    Ok(())
+}
+
+fn cmd_query(environment: &str, filter: Option<&str>, json: bool) -> Result<()> {
+    let store = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+
+    let tree_hash = store
+        .get_ref(environment)
+        .map_err(|_| miette!("no state for environment '{environment}'"))?;
+    let tree = store.get_tree(&tree_hash).map_err(|e| miette!("{e}"))?;
+
+    let mut entries: Vec<QueryEntry> = Vec::new();
+
+    for (name, entry) in &tree.children {
+        if let store::TreeEntry::Object(hash) = entry {
+            // Apply filter if specified
+            if let Some(f) = filter
+                && !name.starts_with(f)
+                && name != f
+            {
+                continue;
+            }
+
+            if let Ok(obj) = store.get_object(hash) {
+                entries.push(QueryEntry {
+                    resource_id: obj.resource_id,
+                    type_path: obj.type_path,
+                    provider_id: obj.provider_id,
+                    intent: obj.intent,
+                    config: obj.config,
+                    hash: hash.short().to_string(),
+                });
+            }
+        }
+    }
+
+    entries.sort_by(|a, b| a.resource_id.cmp(&b.resource_id));
+
+    if json {
+        let json_str = serde_json::to_string_pretty(&entries).into_diagnostic()?;
+        println!("{json_str}");
+    } else if entries.is_empty() {
+        eprintln!("no resources found");
+    } else {
+        eprintln!("Resources in environment '{environment}':\n");
+        for entry in &entries {
+            let pid = entry
+                .provider_id
+                .as_deref()
+                .map(|id| format!(" [{id}]"))
+                .unwrap_or_default();
+            let intent = entry
+                .intent
+                .as_deref()
+                .map(|i| format!(" — {i}"))
+                .unwrap_or_default();
+            eprintln!(
+                "  {} : {}{}{} ({})",
+                entry.resource_id, entry.type_path, pid, intent, entry.hash
+            );
+        }
+        eprintln!("\n{} resource(s)", entries.len());
+    }
+
+    Ok(())
+}
+
+#[derive(serde::Serialize)]
+struct QueryEntry {
+    resource_id: String,
+    type_path: String,
+    provider_id: Option<String>,
+    intent: Option<String>,
+    config: serde_json::Value,
+    hash: String,
+}
+
+fn format_json_compact(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => format!("\"{s}\""),
+        other => serde_json::to_string(other).unwrap_or_else(|_| format!("{other}")),
+    }
 }
 
 fn cmd_history(environment: &str) -> Result<()> {
