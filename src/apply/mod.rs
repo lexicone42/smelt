@@ -513,7 +513,13 @@ mod tests {
         let project = temp_project();
         let store = Store::open(&project).unwrap();
         let mut registry = ProviderRegistry::new();
-        registry.register(Box::new(AwsProvider::new("us-east-1")));
+        // Create a dummy AWS client (no credentials needed — the API call will fail)
+        let ec2_config = aws_sdk_ec2::Config::builder()
+            .behavior_version(aws_sdk_ec2::config::BehaviorVersion::latest())
+            .region(aws_sdk_ec2::config::Region::new("us-east-1"))
+            .build();
+        let client = aws_sdk_ec2::Client::from_conf(ec2_config);
+        registry.register(Box::new(AwsProvider::from_client(client)));
 
         let plan = Plan {
             environment: "test".to_string(),
@@ -533,12 +539,12 @@ mod tests {
             },
         };
 
-        // AWS provider returns "not yet implemented" error
+        // AWS provider will fail (no credentials/endpoint configured for test)
         let summary = execute_plan(&plan, &registry, &store, &project);
         assert_eq!(summary.failed, 1);
         assert!(matches!(
             &summary.results[0].outcome,
-            ApplyOutcome::Failed { error } if error.contains("not yet implemented")
+            ApplyOutcome::Failed { .. }
         ));
     }
 
