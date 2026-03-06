@@ -24,6 +24,7 @@ allow = [
     "CC0-1.0",
     "Apache-2.0 WITH LLVM-exception",
     "OpenSSL",
+    "BlueOak-1.0.0",
 ]
 confidence-threshold = 0.8
 exceptions = []

@@ -683,6 +683,7 @@ mod tests {
                 intent: Some("Test VPC".to_string()),
                 changes: vec![],
                 order: 0,
+                forces_replacement: false,
             }],
             summary: PlanSummary {
                 create: 1,
@@ -702,13 +703,7 @@ mod tests {
         let project = temp_project();
         let store = Store::open(&project).unwrap();
         let mut registry = ProviderRegistry::new();
-        // Create a dummy AWS client (no credentials needed — the API call will fail)
-        let ec2_config = aws_sdk_ec2::Config::builder()
-            .behavior_version(aws_sdk_ec2::config::BehaviorVersion::latest())
-            .region(aws_sdk_ec2::config::Region::new("us-east-1"))
-            .build();
-        let client = aws_sdk_ec2::Client::from_conf(ec2_config);
-        registry.register(Box::new(AwsProvider::from_client(client)));
+        registry.register(Box::new(AwsProvider::for_testing()));
 
         let plan = Plan {
             environment: "test".to_string(),
@@ -719,6 +714,7 @@ mod tests {
                 intent: Some("Test VPC".to_string()),
                 changes: vec![],
                 order: 0,
+                forces_replacement: false,
             }],
             summary: PlanSummary {
                 create: 1,
@@ -838,6 +834,7 @@ mod tests {
                 intent: None,
                 changes: vec![],
                 order: 0,
+                forces_replacement: false,
             }],
             summary: PlanSummary {
                 create: 1,

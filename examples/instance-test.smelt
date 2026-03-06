@@ -1,0 +1,93 @@
+resource vpc "test" : aws.ec2.Vpc {
+  @intent "Minimal test VPC for instance launch validation"
+
+  identity {
+    name = "smelt-test-vpc"
+    tags = { environment = "test", purpose = "smelt-validation" }
+  }
+
+  network {
+    cidr_block = "10.99.0.0/16"
+    dns_hostnames = true
+    dns_support = true
+  }
+}
+
+resource internet_gateway "test" : aws.ec2.InternetGateway {
+  @intent "Internet access for test VPC"
+
+  needs vpc.test -> vpc_id
+
+  identity {
+    name = "smelt-test-igw"
+  }
+}
+
+resource route_table "test" : aws.ec2.RouteTable {
+  @intent "Public route table with internet gateway"
+
+  needs internet_gateway.test -> gateway_id
+  needs vpc.test -> vpc_id
+
+  identity {
+    name = "smelt-test-rt"
+  }
+
+  network {
+    routes = [
+      { cidr = "0.0.0.0/0" }
+    ]
+  }
+}
+
+resource subnet "test" : aws.ec2.Subnet {
+  @intent "Single public subnet for test instance"
+
+  needs vpc.test -> vpc_id
+
+  identity {
+    name = "smelt-test-subnet"
+  }
+
+  network {
+    availability_zone = "us-east-1a"
+    cidr_block = "10.99.1.0/24"
+    public_ip_on_launch = true
+  }
+}
+
+resource security_group "test" : aws.ec2.SecurityGroup {
+  @intent "Allow SSH and all outbound for test instance"
+
+  needs vpc.test -> vpc_id
+
+  identity {
+    name = "smelt-test-sg"
+  }
+
+  security {
+    egress = [
+      { cidr = "0.0.0.0/0", port = 0, protocol = "-1" }
+    ]
+    ingress = [
+      { cidr = "0.0.0.0/0", port = 22, protocol = "tcp" }
+    ]
+  }
+}
+
+resource instance "test" : aws.ec2.Instance {
+  @intent "Minimal t3.micro for end-to-end validation"
+
+  needs security_group.test -> security_group_id
+  needs subnet.test -> subnet_id
+
+  identity {
+    name = "smelt-test-instance"
+    tags = { purpose = "smelt-e2e-test" }
+  }
+
+  sizing {
+    ami_id = "ami-0c02fb55956c7d316"
+    instance_type = "t3.micro"
+  }
+}
