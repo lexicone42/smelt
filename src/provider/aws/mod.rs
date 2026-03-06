@@ -1,694 +1,152 @@
+mod acm;
+mod apigateway;
+mod autoscaling;
+mod cloudfront;
+mod cloudwatch;
+mod cognito;
+mod dynamodb;
+mod ec2;
+mod ecr;
+mod ecs;
+mod efs;
+mod eks;
+mod elasticache;
+mod elbv2;
+mod eventbridge;
+mod iam;
+mod kms;
+mod lambda;
+mod logs;
+mod rds;
+mod route53;
+mod s3;
+mod secretsmanager;
+mod ses;
+mod sfn;
+mod sns;
+mod sqs;
+mod ssm;
+mod wafv2;
+
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-
-use aws_sdk_ec2 as ec2;
-use ec2::types::{IpPermission, IpRange, ResourceType as AwsResourceType, Tag, TagSpecification};
 
 use crate::provider::*;
 
 /// AWS provider implementation backed by the AWS SDK for Rust.
 ///
-/// Uses aws-sdk-ec2 for VPC, Subnet, and SecurityGroup lifecycle operations.
-/// Credentials and region are resolved from the standard AWS credential chain
-/// (env vars, ~/.aws/credentials, IAM roles, etc.).
+/// Covers EC2, IAM, S3, ELBv2, ECS, ECR, RDS, Lambda, Route53,
+/// CloudWatch Logs, SQS, SNS, and KMS. Credentials and region are
+/// resolved from the standard AWS credential chain.
 pub struct AwsProvider {
-    client: ec2::Client,
+    pub(crate) ec2_client: aws_sdk_ec2::Client,
+    pub(crate) iam_client: aws_sdk_iam::Client,
+    pub(crate) s3_client: aws_sdk_s3::Client,
+    pub(crate) elbv2_client: aws_sdk_elasticloadbalancingv2::Client,
+    pub(crate) ecs_client: aws_sdk_ecs::Client,
+    pub(crate) ecr_client: aws_sdk_ecr::Client,
+    pub(crate) rds_client: aws_sdk_rds::Client,
+    pub(crate) lambda_client: aws_sdk_lambda::Client,
+    pub(crate) route53_client: aws_sdk_route53::Client,
+    pub(crate) logs_client: aws_sdk_cloudwatchlogs::Client,
+    pub(crate) sqs_client: aws_sdk_sqs::Client,
+    pub(crate) sns_client: aws_sdk_sns::Client,
+    pub(crate) kms_client: aws_sdk_kms::Client,
+    pub(crate) dynamodb_client: aws_sdk_dynamodb::Client,
+    pub(crate) cloudfront_client: aws_sdk_cloudfront::Client,
+    pub(crate) acm_client: aws_sdk_acm::Client,
+    pub(crate) secretsmanager_client: aws_sdk_secretsmanager::Client,
+    pub(crate) ssm_client: aws_sdk_ssm::Client,
+    pub(crate) elasticache_client: aws_sdk_elasticache::Client,
+    pub(crate) efs_client: aws_sdk_efs::Client,
+    pub(crate) apigateway_client: aws_sdk_apigatewayv2::Client,
+    pub(crate) sfn_client: aws_sdk_sfn::Client,
+    pub(crate) eventbridge_client: aws_sdk_eventbridge::Client,
+    pub(crate) cloudwatch_client: aws_sdk_cloudwatch::Client,
+    pub(crate) autoscaling_client: aws_sdk_autoscaling::Client,
+    pub(crate) eks_client: aws_sdk_eks::Client,
+    pub(crate) wafv2_client: aws_sdk_wafv2::Client,
+    pub(crate) cognito_client: aws_sdk_cognitoidentityprovider::Client,
+    pub(crate) ses_client: aws_sdk_sesv2::Client,
 }
 
 impl AwsProvider {
-    /// Create provider from a pre-built EC2 client (useful for testing).
-    pub fn from_client(client: ec2::Client) -> Self {
-        Self { client }
-    }
-
     /// Create provider from environment — loads AWS config from standard chain.
     pub async fn from_env() -> Self {
         let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-        let client = ec2::Client::new(&config);
-        Self { client }
+        Self::from_sdk_config(&config)
     }
 
     /// Create provider with a specific region.
     pub async fn from_region(region: &str) -> Self {
         let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .region(ec2::config::Region::new(region.to_string()))
+            .region(aws_config::Region::new(region.to_string()))
             .load()
             .await;
-        let client = ec2::Client::new(&config);
-        Self { client }
+        Self::from_sdk_config(&config)
     }
 
-    fn build_tags(config: &serde_json::Value, resource_type: AwsResourceType) -> TagSpecification {
-        let mut tags = Vec::new();
-
-        if let Some(name) = config.pointer("/identity/name").and_then(|v| v.as_str()) {
-            tags.push(Tag::builder().key("Name").value(name).build());
+    /// Create provider from a pre-built SDK config.
+    pub fn from_sdk_config(config: &aws_config::SdkConfig) -> Self {
+        Self {
+            ec2_client: aws_sdk_ec2::Client::new(config),
+            iam_client: aws_sdk_iam::Client::new(config),
+            s3_client: aws_sdk_s3::Client::new(config),
+            elbv2_client: aws_sdk_elasticloadbalancingv2::Client::new(config),
+            ecs_client: aws_sdk_ecs::Client::new(config),
+            ecr_client: aws_sdk_ecr::Client::new(config),
+            rds_client: aws_sdk_rds::Client::new(config),
+            lambda_client: aws_sdk_lambda::Client::new(config),
+            route53_client: aws_sdk_route53::Client::new(config),
+            logs_client: aws_sdk_cloudwatchlogs::Client::new(config),
+            sqs_client: aws_sdk_sqs::Client::new(config),
+            sns_client: aws_sdk_sns::Client::new(config),
+            kms_client: aws_sdk_kms::Client::new(config),
+            dynamodb_client: aws_sdk_dynamodb::Client::new(config),
+            cloudfront_client: aws_sdk_cloudfront::Client::new(config),
+            acm_client: aws_sdk_acm::Client::new(config),
+            secretsmanager_client: aws_sdk_secretsmanager::Client::new(config),
+            ssm_client: aws_sdk_ssm::Client::new(config),
+            elasticache_client: aws_sdk_elasticache::Client::new(config),
+            efs_client: aws_sdk_efs::Client::new(config),
+            apigateway_client: aws_sdk_apigatewayv2::Client::new(config),
+            sfn_client: aws_sdk_sfn::Client::new(config),
+            eventbridge_client: aws_sdk_eventbridge::Client::new(config),
+            cloudwatch_client: aws_sdk_cloudwatch::Client::new(config),
+            autoscaling_client: aws_sdk_autoscaling::Client::new(config),
+            eks_client: aws_sdk_eks::Client::new(config),
+            wafv2_client: aws_sdk_wafv2::Client::new(config),
+            cognito_client: aws_sdk_cognitoidentityprovider::Client::new(config),
+            ses_client: aws_sdk_sesv2::Client::new(config),
         }
+    }
+}
 
-        // Add custom tags from identity.tags
-        if let Some(tag_map) = config.pointer("/identity/tags").and_then(|v| v.as_object()) {
-            for (k, v) in tag_map {
-                if let Some(val) = v.as_str() {
-                    tags.push(Tag::builder().key(k).value(val).build());
-                }
+/// Extract tag key-value pairs from a smelt resource config JSON.
+pub(crate) fn extract_tags(config: &serde_json::Value) -> HashMap<String, String> {
+    let mut tags = HashMap::new();
+    if let Some(name) = config.pointer("/identity/name").and_then(|v| v.as_str()) {
+        tags.insert("Name".to_string(), name.to_string());
+    }
+    if let Some(tag_map) = config.pointer("/identity/tags").and_then(|v| v.as_object()) {
+        for (k, v) in tag_map {
+            if let Some(val) = v.as_str() {
+                tags.insert(k.clone(), val.to_string());
             }
         }
-
-        // Always tag with managed_by = smelt
-        tags.push(Tag::builder().key("managed_by").value("smelt").build());
-
-        let mut spec = TagSpecification::builder().resource_type(resource_type);
-        for tag in tags {
-            spec = spec.tags(tag);
-        }
-        spec.build()
     }
+    tags.insert("managed_by".to_string(), "smelt".to_string());
+    tags
+}
 
-    // --- VPC operations ---
-
-    async fn create_vpc(
-        &self,
-        config: &serde_json::Value,
-    ) -> Result<ResourceOutput, ProviderError> {
-        let cidr = config
-            .pointer("/network/cidr_block")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ProviderError::InvalidConfig("network.cidr_block is required".into()))?;
-
-        let tag_spec = Self::build_tags(config, AwsResourceType::Vpc);
-
-        let result = self
-            .client
-            .create_vpc()
-            .cidr_block(cidr)
-            .tag_specifications(tag_spec)
-            .send()
-            .await
-            .map_err(|e| ProviderError::ApiError(format!("CreateVpc: {e}")))?;
-
-        let vpc = result
-            .vpc()
-            .ok_or_else(|| ProviderError::ApiError("CreateVpc returned no VPC".into()))?;
-        let vpc_id = vpc
-            .vpc_id()
-            .ok_or_else(|| ProviderError::ApiError("VPC has no ID".into()))?;
-
-        // Enable DNS hostnames if requested
-        if config
-            .pointer("/network/dns_hostnames")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-        {
-            self.client
-                .modify_vpc_attribute()
-                .vpc_id(vpc_id)
-                .enable_dns_hostnames(
-                    ec2::types::AttributeBooleanValue::builder()
-                        .value(true)
-                        .build(),
-                )
-                .send()
-                .await
-                .map_err(|e| {
-                    ProviderError::ApiError(format!("ModifyVpcAttribute (DNS hostnames): {e}"))
-                })?;
-        }
-
-        // Enable/disable DNS support if specified
-        if let Some(dns_support) = config
-            .pointer("/network/dns_support")
-            .and_then(|v| v.as_bool())
-        {
-            self.client
-                .modify_vpc_attribute()
-                .vpc_id(vpc_id)
-                .enable_dns_support(
-                    ec2::types::AttributeBooleanValue::builder()
-                        .value(dns_support)
-                        .build(),
-                )
-                .send()
-                .await
-                .map_err(|e| {
-                    ProviderError::ApiError(format!("ModifyVpcAttribute (DNS support): {e}"))
-                })?;
-        }
-
-        let state = self.read_vpc(vpc_id).await?;
-
-        Ok(ResourceOutput {
-            provider_id: vpc_id.to_string(),
-            state: state.state,
-            outputs: state.outputs,
-        })
-    }
-
-    async fn read_vpc(&self, vpc_id: &str) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .client
-            .describe_vpcs()
-            .vpc_ids(vpc_id)
-            .send()
-            .await
-            .map_err(|e| ProviderError::ApiError(format!("DescribeVpcs: {e}")))?;
-
-        let vpc = result
-            .vpcs()
-            .first()
-            .ok_or_else(|| ProviderError::NotFound(format!("VPC {vpc_id}")))?;
-
-        let mut state = serde_json::json!({
-            "identity": {
-                "name": extract_name_tag(vpc.tags()),
-            },
-            "network": {
-                "cidr_block": vpc.cidr_block().unwrap_or(""),
-            }
-        });
-
-        // Add tags (excluding Name)
-        let tags: HashMap<String, String> = vpc
-            .tags()
-            .iter()
-            .filter(|t| t.key().unwrap_or("") != "Name" && t.key().unwrap_or("") != "managed_by")
-            .map(|t| {
-                (
-                    t.key().unwrap_or("").to_string(),
-                    t.value().unwrap_or("").to_string(),
-                )
-            })
-            .collect();
-        if !tags.is_empty() {
-            state["identity"]["tags"] = serde_json::to_value(&tags).unwrap_or_default();
-        }
-
-        let mut outputs = HashMap::new();
-        outputs.insert(
-            "vpc_id".to_string(),
-            serde_json::Value::String(vpc_id.to_string()),
-        );
-        if let Some(state_name) = vpc.state() {
-            outputs.insert(
-                "state".to_string(),
-                serde_json::Value::String(state_name.as_str().to_string()),
-            );
-        }
-
-        Ok(ResourceOutput {
-            provider_id: vpc_id.to_string(),
-            state,
-            outputs,
-        })
-    }
-
-    async fn delete_vpc(&self, vpc_id: &str) -> Result<(), ProviderError> {
-        self.client
-            .delete_vpc()
-            .vpc_id(vpc_id)
-            .send()
-            .await
-            .map_err(|e| ProviderError::ApiError(format!("DeleteVpc: {e}")))?;
-        Ok(())
-    }
-
-    // --- Subnet operations ---
-
-    async fn create_subnet(
-        &self,
-        config: &serde_json::Value,
-    ) -> Result<ResourceOutput, ProviderError> {
-        let cidr = config
-            .pointer("/network/cidr_block")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ProviderError::InvalidConfig("network.cidr_block is required".into()))?;
-
-        let az = config
-            .pointer("/network/availability_zone")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ProviderError::InvalidConfig("network.availability_zone is required".into())
-            })?;
-
-        // VPC ID from dependency ref resolution (top-level) or explicit config
-        let vpc_id = config
-            .get("vpc_id")
-            .or_else(|| config.pointer("/network/vpc_id"))
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ProviderError::InvalidConfig(
-                    "vpc_id is required (use `needs vpc.name -> vpc_id`)".into(),
-                )
-            })?;
-
-        let tag_spec = Self::build_tags(config, AwsResourceType::Subnet);
-
-        let result = self
-            .client
-            .create_subnet()
-            .vpc_id(vpc_id)
-            .cidr_block(cidr)
-            .availability_zone(az)
-            .tag_specifications(tag_spec)
-            .send()
-            .await
-            .map_err(|e| ProviderError::ApiError(format!("CreateSubnet: {e}")))?;
-
-        let subnet = result
-            .subnet()
-            .ok_or_else(|| ProviderError::ApiError("CreateSubnet returned no subnet".into()))?;
-        let subnet_id = subnet
-            .subnet_id()
-            .ok_or_else(|| ProviderError::ApiError("Subnet has no ID".into()))?;
-
-        // Set map_public_ip_on_launch if requested
-        if config
-            .pointer("/network/public_ip_on_launch")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-        {
-            self.client
-                .modify_subnet_attribute()
-                .subnet_id(subnet_id)
-                .map_public_ip_on_launch(
-                    ec2::types::AttributeBooleanValue::builder()
-                        .value(true)
-                        .build(),
-                )
-                .send()
-                .await
-                .map_err(|e| ProviderError::ApiError(format!("ModifySubnetAttribute: {e}")))?;
-        }
-
-        let state = self.read_subnet(subnet_id).await?;
-
-        Ok(ResourceOutput {
-            provider_id: subnet_id.to_string(),
-            state: state.state,
-            outputs: state.outputs,
-        })
-    }
-
-    async fn read_subnet(&self, subnet_id: &str) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .client
-            .describe_subnets()
-            .subnet_ids(subnet_id)
-            .send()
-            .await
-            .map_err(|e| ProviderError::ApiError(format!("DescribeSubnets: {e}")))?;
-
-        let subnet = result
-            .subnets()
-            .first()
-            .ok_or_else(|| ProviderError::NotFound(format!("Subnet {subnet_id}")))?;
-
-        let state = serde_json::json!({
-            "identity": {
-                "name": extract_name_tag(subnet.tags()),
-            },
-            "network": {
-                "cidr_block": subnet.cidr_block().unwrap_or(""),
-                "availability_zone": subnet.availability_zone().unwrap_or(""),
-                "public_ip_on_launch": subnet.map_public_ip_on_launch(),
-                "vpc_id": subnet.vpc_id().unwrap_or(""),
-            }
-        });
-
-        let mut outputs = HashMap::new();
-        outputs.insert(
-            "subnet_id".to_string(),
-            serde_json::Value::String(subnet_id.to_string()),
-        );
-        outputs.insert(
-            "available_ips".to_string(),
-            serde_json::json!(subnet.available_ip_address_count()),
-        );
-
-        Ok(ResourceOutput {
-            provider_id: subnet_id.to_string(),
-            state,
-            outputs,
-        })
-    }
-
-    async fn delete_subnet(&self, subnet_id: &str) -> Result<(), ProviderError> {
-        self.client
-            .delete_subnet()
-            .subnet_id(subnet_id)
-            .send()
-            .await
-            .map_err(|e| ProviderError::ApiError(format!("DeleteSubnet: {e}")))?;
-        Ok(())
-    }
-
-    // --- SecurityGroup operations ---
-
-    async fn create_security_group(
-        &self,
-        config: &serde_json::Value,
-    ) -> Result<ResourceOutput, ProviderError> {
-        let name = config
-            .pointer("/identity/name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ProviderError::InvalidConfig("identity.name is required".into()))?;
-
-        // VPC ID from dependency ref resolution (top-level) or explicit config
-        let vpc_id = config
-            .get("vpc_id")
-            .or_else(|| config.pointer("/security/vpc_id"))
-            .or_else(|| config.pointer("/network/vpc_id"))
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ProviderError::InvalidConfig(
-                    "vpc_id is required (use `needs vpc.name -> vpc_id`)".into(),
-                )
-            })?;
-
-        let tag_spec = Self::build_tags(config, AwsResourceType::SecurityGroup);
-
-        let result = self
-            .client
-            .create_security_group()
-            .group_name(name)
-            .description(format!("Managed by smelt: {name}"))
-            .vpc_id(vpc_id)
-            .tag_specifications(tag_spec)
-            .send()
-            .await
-            .map_err(|e| ProviderError::ApiError(format!("CreateSecurityGroup: {e}")))?;
-
-        let sg_id = result
-            .group_id()
-            .ok_or_else(|| ProviderError::ApiError("SecurityGroup has no ID".into()))?;
-
-        // Add ingress rules
-        if let Some(ingress) = config
-            .pointer("/security/ingress")
-            .and_then(|v| v.as_array())
-        {
-            let permissions: Vec<IpPermission> = ingress
-                .iter()
-                .filter_map(|rule| {
-                    let port = rule.get("port")?.as_i64()? as i32;
-                    let protocol = rule.get("protocol")?.as_str()?;
-                    let cidr = rule.get("cidr")?.as_str()?;
-
-                    Some(
-                        IpPermission::builder()
-                            .ip_protocol(protocol)
-                            .from_port(port)
-                            .to_port(port)
-                            .ip_ranges(IpRange::builder().cidr_ip(cidr).build())
-                            .build(),
-                    )
-                })
-                .collect();
-
-            if !permissions.is_empty() {
-                self.client
-                    .authorize_security_group_ingress()
-                    .group_id(sg_id)
-                    .set_ip_permissions(Some(permissions))
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        ProviderError::ApiError(format!("AuthorizeSecurityGroupIngress: {e}"))
-                    })?;
-            }
-        }
-
-        let state = self.read_security_group(sg_id).await?;
-
-        Ok(ResourceOutput {
-            provider_id: sg_id.to_string(),
-            state: state.state,
-            outputs: state.outputs,
-        })
-    }
-
-    async fn read_security_group(&self, sg_id: &str) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .client
-            .describe_security_groups()
-            .group_ids(sg_id)
-            .send()
-            .await
-            .map_err(|e| ProviderError::ApiError(format!("DescribeSecurityGroups: {e}")))?;
-
-        let sg = result
-            .security_groups()
-            .first()
-            .ok_or_else(|| ProviderError::NotFound(format!("SecurityGroup {sg_id}")))?;
-
-        let ingress: Vec<serde_json::Value> = sg
-            .ip_permissions()
-            .iter()
-            .flat_map(|perm| {
-                let protocol = perm.ip_protocol().unwrap_or("-1");
-                let from_port = perm.from_port().unwrap_or(0);
-                perm.ip_ranges().iter().map(move |range| {
-                    serde_json::json!({
-                        "port": from_port,
-                        "protocol": protocol,
-                        "cidr": range.cidr_ip().unwrap_or(""),
-                    })
-                })
-            })
-            .collect();
-
-        let state = serde_json::json!({
-            "identity": {
-                "name": extract_name_tag(sg.tags()),
-            },
-            "security": {
-                "ingress": ingress,
-                "vpc_id": sg.vpc_id().unwrap_or(""),
-            }
-        });
-
-        let mut outputs = HashMap::new();
-        outputs.insert(
-            "group_id".to_string(),
-            serde_json::Value::String(sg_id.to_string()),
-        );
-        outputs.insert(
-            "group_name".to_string(),
-            serde_json::Value::String(sg.group_name().unwrap_or("").to_string()),
-        );
-
-        Ok(ResourceOutput {
-            provider_id: sg_id.to_string(),
-            state,
-            outputs,
-        })
-    }
-
-    async fn delete_security_group(&self, sg_id: &str) -> Result<(), ProviderError> {
-        self.client
-            .delete_security_group()
-            .group_id(sg_id)
-            .send()
-            .await
-            .map_err(|e| ProviderError::ApiError(format!("DeleteSecurityGroup: {e}")))?;
-        Ok(())
-    }
-
-    // --- Schema definitions ---
-
-    fn ec2_vpc_schema() -> ResourceTypeInfo {
-        ResourceTypeInfo {
-            type_path: "ec2.Vpc".to_string(),
-            description: "Amazon VPC (Virtual Private Cloud)".to_string(),
-            schema: ResourceSchema {
-                sections: vec![
-                    SectionSchema {
-                        name: "identity".to_string(),
-                        description: "Resource identification and tagging".to_string(),
-                        fields: vec![
-                            FieldSchema {
-                                name: "name".to_string(),
-                                description: "Name tag for the VPC".to_string(),
-                                field_type: FieldType::String,
-                                required: true,
-                                default: None,
-                            },
-                            FieldSchema {
-                                name: "tags".to_string(),
-                                description: "Key-value tags".to_string(),
-                                field_type: FieldType::Record(vec![]),
-                                required: false,
-                                default: Some(serde_json::json!({})),
-                            },
-                        ],
-                    },
-                    SectionSchema {
-                        name: "network".to_string(),
-                        description: "Network configuration".to_string(),
-                        fields: vec![
-                            FieldSchema {
-                                name: "cidr_block".to_string(),
-                                description: "The IPv4 CIDR block for the VPC".to_string(),
-                                field_type: FieldType::String,
-                                required: true,
-                                default: None,
-                            },
-                            FieldSchema {
-                                name: "dns_hostnames".to_string(),
-                                description: "Enable DNS hostnames".to_string(),
-                                field_type: FieldType::Bool,
-                                required: false,
-                                default: Some(serde_json::json!(false)),
-                            },
-                            FieldSchema {
-                                name: "dns_support".to_string(),
-                                description: "Enable DNS support".to_string(),
-                                field_type: FieldType::Bool,
-                                required: false,
-                                default: Some(serde_json::json!(true)),
-                            },
-                        ],
-                    },
-                ],
-            },
-        }
-    }
-
-    fn ec2_subnet_schema() -> ResourceTypeInfo {
-        ResourceTypeInfo {
-            type_path: "ec2.Subnet".to_string(),
-            description: "Amazon VPC Subnet".to_string(),
-            schema: ResourceSchema {
-                sections: vec![
-                    SectionSchema {
-                        name: "identity".to_string(),
-                        description: "Resource identification and tagging".to_string(),
-                        fields: vec![
-                            FieldSchema {
-                                name: "name".to_string(),
-                                description: "Name tag for the subnet".to_string(),
-                                field_type: FieldType::String,
-                                required: true,
-                                default: None,
-                            },
-                            FieldSchema {
-                                name: "tags".to_string(),
-                                description: "Key-value tags".to_string(),
-                                field_type: FieldType::Record(vec![]),
-                                required: false,
-                                default: Some(serde_json::json!({})),
-                            },
-                        ],
-                    },
-                    SectionSchema {
-                        name: "network".to_string(),
-                        description: "Network configuration".to_string(),
-                        fields: vec![
-                            FieldSchema {
-                                name: "cidr_block".to_string(),
-                                description: "The IPv4 CIDR block for the subnet".to_string(),
-                                field_type: FieldType::String,
-                                required: true,
-                                default: None,
-                            },
-                            FieldSchema {
-                                name: "availability_zone".to_string(),
-                                description: "The AZ for the subnet".to_string(),
-                                field_type: FieldType::String,
-                                required: true,
-                                default: None,
-                            },
-                            FieldSchema {
-                                name: "public_ip_on_launch".to_string(),
-                                description: "Auto-assign public IP on launch".to_string(),
-                                field_type: FieldType::Bool,
-                                required: false,
-                                default: Some(serde_json::json!(false)),
-                            },
-                        ],
-                    },
-                ],
-            },
-        }
-    }
-
-    fn ec2_security_group_schema() -> ResourceTypeInfo {
-        ResourceTypeInfo {
-            type_path: "ec2.SecurityGroup".to_string(),
-            description: "Amazon VPC Security Group".to_string(),
-            schema: ResourceSchema {
-                sections: vec![
-                    SectionSchema {
-                        name: "identity".to_string(),
-                        description: "Resource identification and tagging".to_string(),
-                        fields: vec![
-                            FieldSchema {
-                                name: "name".to_string(),
-                                description: "Name of the security group".to_string(),
-                                field_type: FieldType::String,
-                                required: true,
-                                default: None,
-                            },
-                            FieldSchema {
-                                name: "tags".to_string(),
-                                description: "Key-value tags".to_string(),
-                                field_type: FieldType::Record(vec![]),
-                                required: false,
-                                default: Some(serde_json::json!({})),
-                            },
-                        ],
-                    },
-                    SectionSchema {
-                        name: "security".to_string(),
-                        description: "Security rules".to_string(),
-                        fields: vec![
-                            FieldSchema {
-                                name: "ingress".to_string(),
-                                description: "Inbound rules".to_string(),
-                                field_type: FieldType::Array(Box::new(FieldType::Record(vec![
-                                    FieldSchema {
-                                        name: "port".to_string(),
-                                        description: "Port number".to_string(),
-                                        field_type: FieldType::Integer,
-                                        required: true,
-                                        default: None,
-                                    },
-                                    FieldSchema {
-                                        name: "protocol".to_string(),
-                                        description: "Protocol (tcp, udp, icmp, -1)".to_string(),
-                                        field_type: FieldType::Enum(vec![
-                                            "tcp".to_string(),
-                                            "udp".to_string(),
-                                            "icmp".to_string(),
-                                            "-1".to_string(),
-                                        ]),
-                                        required: true,
-                                        default: None,
-                                    },
-                                    FieldSchema {
-                                        name: "cidr".to_string(),
-                                        description: "CIDR block to allow".to_string(),
-                                        field_type: FieldType::String,
-                                        required: true,
-                                        default: None,
-                                    },
-                                ]))),
-                                required: false,
-                                default: Some(serde_json::json!([])),
-                            },
-                            FieldSchema {
-                                name: "egress".to_string(),
-                                description: "Outbound rules".to_string(),
-                                field_type: FieldType::Array(Box::new(FieldType::Record(vec![]))),
-                                required: false,
-                                default: Some(serde_json::json!([])),
-                            },
-                        ],
-                    },
-                ],
-            },
-        }
-    }
+/// Extract the "Name" tag value from EC2 tag lists.
+pub(crate) fn extract_name_tag(tags: &[aws_sdk_ec2::types::Tag]) -> String {
+    tags.iter()
+        .find(|t| t.key().unwrap_or("") == "Name")
+        .and_then(|t| t.value())
+        .unwrap_or("")
+        .to_string()
 }
 
 impl Provider for AwsProvider {
@@ -698,9 +156,83 @@ impl Provider for AwsProvider {
 
     fn resource_types(&self) -> Vec<ResourceTypeInfo> {
         vec![
+            // EC2
             Self::ec2_vpc_schema(),
             Self::ec2_subnet_schema(),
             Self::ec2_security_group_schema(),
+            Self::ec2_internet_gateway_schema(),
+            Self::ec2_route_table_schema(),
+            Self::ec2_nat_gateway_schema(),
+            Self::ec2_elastic_ip_schema(),
+            Self::ec2_key_pair_schema(),
+            Self::ec2_instance_schema(),
+            // IAM
+            Self::iam_role_schema(),
+            Self::iam_policy_schema(),
+            Self::iam_instance_profile_schema(),
+            // S3
+            Self::s3_bucket_schema(),
+            // ELBv2
+            Self::elbv2_load_balancer_schema(),
+            Self::elbv2_target_group_schema(),
+            Self::elbv2_listener_schema(),
+            // ECS
+            Self::ecs_cluster_schema(),
+            Self::ecs_service_schema(),
+            Self::ecs_task_definition_schema(),
+            // ECR
+            Self::ecr_repository_schema(),
+            // RDS
+            Self::rds_db_instance_schema(),
+            Self::rds_db_subnet_group_schema(),
+            // Lambda
+            Self::lambda_function_schema(),
+            // Route53
+            Self::route53_hosted_zone_schema(),
+            Self::route53_record_set_schema(),
+            // CloudWatch Logs
+            Self::logs_log_group_schema(),
+            // SQS
+            Self::sqs_queue_schema(),
+            // SNS
+            Self::sns_topic_schema(),
+            // KMS
+            Self::kms_key_schema(),
+            // DynamoDB
+            Self::dynamodb_table_schema(),
+            // CloudFront
+            Self::cloudfront_distribution_schema(),
+            // ACM
+            Self::acm_certificate_schema(),
+            // Secrets Manager
+            Self::secretsmanager_secret_schema(),
+            // SSM Parameter Store
+            Self::ssm_parameter_schema(),
+            // ElastiCache
+            Self::elasticache_replication_group_schema(),
+            // EFS
+            Self::efs_file_system_schema(),
+            Self::efs_mount_target_schema(),
+            // API Gateway v2
+            Self::apigateway_api_schema(),
+            Self::apigateway_stage_schema(),
+            // Step Functions
+            Self::sfn_state_machine_schema(),
+            // EventBridge
+            Self::eventbridge_rule_schema(),
+            // CloudWatch
+            Self::cloudwatch_alarm_schema(),
+            // Auto Scaling
+            Self::autoscaling_group_schema(),
+            // EKS
+            Self::eks_cluster_schema(),
+            Self::eks_node_group_schema(),
+            // WAFv2
+            Self::wafv2_web_acl_schema(),
+            // Cognito
+            Self::cognito_user_pool_schema(),
+            // SES
+            Self::ses_email_identity_schema(),
         ]
     }
 
@@ -713,9 +245,83 @@ impl Provider for AwsProvider {
         let provider_id = provider_id.to_string();
         Box::pin(async move {
             match resource_type.as_str() {
+                // EC2
                 "ec2.Vpc" => self.read_vpc(&provider_id).await,
                 "ec2.Subnet" => self.read_subnet(&provider_id).await,
                 "ec2.SecurityGroup" => self.read_security_group(&provider_id).await,
+                "ec2.InternetGateway" => self.read_internet_gateway(&provider_id).await,
+                "ec2.RouteTable" => self.read_route_table(&provider_id).await,
+                "ec2.NatGateway" => self.read_nat_gateway(&provider_id).await,
+                "ec2.ElasticIp" => self.read_elastic_ip(&provider_id).await,
+                "ec2.KeyPair" => self.read_key_pair(&provider_id).await,
+                "ec2.Instance" => self.read_instance(&provider_id).await,
+                // IAM
+                "iam.Role" => self.read_role(&provider_id).await,
+                "iam.Policy" => self.read_policy(&provider_id).await,
+                "iam.InstanceProfile" => self.read_instance_profile(&provider_id).await,
+                // S3
+                "s3.Bucket" => self.read_bucket(&provider_id).await,
+                // ELBv2
+                "elbv2.LoadBalancer" => self.read_load_balancer(&provider_id).await,
+                "elbv2.TargetGroup" => self.read_target_group(&provider_id).await,
+                "elbv2.Listener" => self.read_listener(&provider_id).await,
+                // ECS
+                "ecs.Cluster" => self.read_cluster(&provider_id).await,
+                "ecs.Service" => self.read_ecs_service(&provider_id).await,
+                "ecs.TaskDefinition" => self.read_task_definition(&provider_id).await,
+                // ECR
+                "ecr.Repository" => self.read_repository(&provider_id).await,
+                // RDS
+                "rds.DBInstance" => self.read_db_instance(&provider_id).await,
+                "rds.DBSubnetGroup" => self.read_db_subnet_group(&provider_id).await,
+                // Lambda
+                "lambda.Function" => self.read_lambda_function(&provider_id).await,
+                // Route53
+                "route53.HostedZone" => self.read_hosted_zone(&provider_id).await,
+                "route53.RecordSet" => self.read_record_set(&provider_id).await,
+                // CloudWatch Logs
+                "logs.LogGroup" => self.read_log_group(&provider_id).await,
+                // SQS
+                "sqs.Queue" => self.read_queue(&provider_id).await,
+                // SNS
+                "sns.Topic" => self.read_topic(&provider_id).await,
+                // KMS
+                "kms.Key" => self.read_kms_key(&provider_id).await,
+                // DynamoDB
+                "dynamodb.Table" => self.read_dynamodb_table(&provider_id).await,
+                // CloudFront
+                "cloudfront.Distribution" => self.read_distribution(&provider_id).await,
+                // ACM
+                "acm.Certificate" => self.read_certificate(&provider_id).await,
+                // Secrets Manager
+                "secretsmanager.Secret" => self.read_secret(&provider_id).await,
+                // SSM
+                "ssm.Parameter" => self.read_parameter(&provider_id).await,
+                // ElastiCache
+                "elasticache.ReplicationGroup" => self.read_replication_group(&provider_id).await,
+                // EFS
+                "efs.FileSystem" => self.read_file_system(&provider_id).await,
+                "efs.MountTarget" => self.read_mount_target(&provider_id).await,
+                // API Gateway
+                "apigateway.Api" => self.read_api(&provider_id).await,
+                "apigateway.Stage" => self.read_stage(&provider_id).await,
+                // Step Functions
+                "sfn.StateMachine" => self.read_state_machine(&provider_id).await,
+                // EventBridge
+                "eventbridge.Rule" => self.read_eventbridge_rule(&provider_id).await,
+                // CloudWatch
+                "cloudwatch.Alarm" => self.read_alarm(&provider_id).await,
+                // Auto Scaling
+                "autoscaling.Group" => self.read_asg(&provider_id).await,
+                // EKS
+                "eks.Cluster" => self.read_eks_cluster(&provider_id).await,
+                "eks.NodeGroup" => self.read_node_group(&provider_id).await,
+                // WAFv2
+                "wafv2.WebACL" => self.read_web_acl(&provider_id).await,
+                // Cognito
+                "cognito.UserPool" => self.read_user_pool(&provider_id).await,
+                // SES
+                "ses.EmailIdentity" => self.read_email_identity(&provider_id).await,
                 _ => Err(ProviderError::ApiError(format!(
                     "unsupported resource type: {resource_type}"
                 ))),
@@ -732,9 +338,68 @@ impl Provider for AwsProvider {
         let config = config.clone();
         Box::pin(async move {
             match resource_type.as_str() {
+                // EC2
                 "ec2.Vpc" => self.create_vpc(&config).await,
                 "ec2.Subnet" => self.create_subnet(&config).await,
                 "ec2.SecurityGroup" => self.create_security_group(&config).await,
+                "ec2.InternetGateway" => self.create_internet_gateway(&config).await,
+                "ec2.RouteTable" => self.create_route_table(&config).await,
+                "ec2.NatGateway" => self.create_nat_gateway(&config).await,
+                "ec2.ElasticIp" => self.create_elastic_ip(&config).await,
+                "ec2.KeyPair" => self.create_key_pair(&config).await,
+                "ec2.Instance" => self.create_instance(&config).await,
+                // IAM
+                "iam.Role" => self.create_role(&config).await,
+                "iam.Policy" => self.create_policy(&config).await,
+                "iam.InstanceProfile" => self.create_instance_profile(&config).await,
+                // S3
+                "s3.Bucket" => self.create_bucket(&config).await,
+                // ELBv2
+                "elbv2.LoadBalancer" => self.create_load_balancer(&config).await,
+                "elbv2.TargetGroup" => self.create_target_group(&config).await,
+                "elbv2.Listener" => self.create_listener(&config).await,
+                // ECS
+                "ecs.Cluster" => self.create_cluster(&config).await,
+                "ecs.Service" => self.create_ecs_service(&config).await,
+                "ecs.TaskDefinition" => self.create_task_definition(&config).await,
+                // ECR
+                "ecr.Repository" => self.create_repository(&config).await,
+                // RDS
+                "rds.DBInstance" => self.create_db_instance(&config).await,
+                "rds.DBSubnetGroup" => self.create_db_subnet_group(&config).await,
+                // Lambda
+                "lambda.Function" => self.create_lambda_function(&config).await,
+                // Route53
+                "route53.HostedZone" => self.create_hosted_zone(&config).await,
+                "route53.RecordSet" => self.create_record_set(&config).await,
+                // CloudWatch Logs
+                "logs.LogGroup" => self.create_log_group(&config).await,
+                // SQS
+                "sqs.Queue" => self.create_queue(&config).await,
+                // SNS
+                "sns.Topic" => self.create_topic(&config).await,
+                // KMS
+                "kms.Key" => self.create_kms_key(&config).await,
+                // Extended services
+                "dynamodb.Table" => self.create_dynamodb_table(&config).await,
+                "cloudfront.Distribution" => self.create_distribution(&config).await,
+                "acm.Certificate" => self.create_certificate(&config).await,
+                "secretsmanager.Secret" => self.create_secret(&config).await,
+                "ssm.Parameter" => self.create_parameter(&config).await,
+                "elasticache.ReplicationGroup" => self.create_replication_group(&config).await,
+                "efs.FileSystem" => self.create_file_system(&config).await,
+                "efs.MountTarget" => self.create_mount_target(&config).await,
+                "apigateway.Api" => self.create_api(&config).await,
+                "apigateway.Stage" => self.create_stage(&config).await,
+                "sfn.StateMachine" => self.create_state_machine(&config).await,
+                "eventbridge.Rule" => self.create_eventbridge_rule(&config).await,
+                "cloudwatch.Alarm" => self.create_alarm(&config).await,
+                "autoscaling.Group" => self.create_asg(&config).await,
+                "eks.Cluster" => self.create_eks_cluster(&config).await,
+                "eks.NodeGroup" => self.create_node_group(&config).await,
+                "wafv2.WebACL" => self.create_web_acl(&config).await,
+                "cognito.UserPool" => self.create_user_pool(&config).await,
+                "ses.EmailIdentity" => self.create_email_identity(&config).await,
                 _ => Err(ProviderError::ApiError(format!(
                     "unsupported resource type: {resource_type}"
                 ))),
@@ -753,40 +418,74 @@ impl Provider for AwsProvider {
         let provider_id = provider_id.to_string();
         let new_config = new_config.clone();
         Box::pin(async move {
-            // For VPC: can update DNS settings and tags in-place
-            // For Subnet/SecurityGroup: most changes require replacement
             match resource_type.as_str() {
-                "ec2.Vpc" => {
-                    // Update DNS settings
-                    if let Some(dns_hostnames) = new_config
-                        .pointer("/network/dns_hostnames")
-                        .and_then(|v| v.as_bool())
-                    {
-                        self.client
-                            .modify_vpc_attribute()
-                            .vpc_id(&provider_id)
-                            .enable_dns_hostnames(
-                                ec2::types::AttributeBooleanValue::builder()
-                                    .value(dns_hostnames)
-                                    .build(),
-                            )
-                            .send()
-                            .await
-                            .map_err(|e| {
-                                ProviderError::ApiError(format!("ModifyVpcAttribute: {e}"))
-                            })?;
-                    }
-                    self.read_vpc(&provider_id).await
+                // In-place updatable
+                "ec2.Vpc" => self.update_vpc(&provider_id, &new_config).await,
+                "ec2.Instance" => self.update_instance(&provider_id, &new_config).await,
+                "ec2.RouteTable" => self.update_route_table(&provider_id, &new_config).await,
+                "iam.Role" => self.update_role(&provider_id, &new_config).await,
+                "iam.Policy" => self.update_policy(&provider_id, &new_config).await,
+                "s3.Bucket" => self.update_bucket(&provider_id, &new_config).await,
+                "elbv2.LoadBalancer" => self.update_load_balancer(&provider_id, &new_config).await,
+                "elbv2.TargetGroup" => self.update_target_group(&provider_id, &new_config).await,
+                "elbv2.Listener" => {
+                    self.update_listener_resource(&provider_id, &new_config)
+                        .await
                 }
-                "ec2.Subnet" => Err(ProviderError::RequiresReplacement(
-                    "subnet changes require replacement".into(),
+                "ecs.Service" => {
+                    self.update_ecs_service_resource(&provider_id, &new_config)
+                        .await
+                }
+                "lambda.Function" => self.update_lambda_function(&provider_id, &new_config).await,
+                "route53.RecordSet" => self.update_record_set(&provider_id, &new_config).await,
+                "logs.LogGroup" => self.update_log_group(&provider_id, &new_config).await,
+                "sqs.Queue" => self.update_queue(&provider_id, &new_config).await,
+                "sns.Topic" => self.update_topic(&provider_id, &new_config).await,
+                "kms.Key" => self.update_kms_key(&provider_id, &new_config).await,
+                // Extended services — in-place updatable
+                "dynamodb.Table" => self.update_dynamodb_table(&provider_id, &new_config).await,
+                "cloudfront.Distribution" => {
+                    self.update_distribution(&provider_id, &new_config).await
+                }
+                "secretsmanager.Secret" => self.update_secret(&provider_id, &new_config).await,
+                "ssm.Parameter" => self.update_parameter(&provider_id, &new_config).await,
+                "elasticache.ReplicationGroup" => {
+                    self.update_replication_group(&provider_id, &new_config)
+                        .await
+                }
+                "efs.FileSystem" => self.update_file_system(&provider_id, &new_config).await,
+                "apigateway.Api" => self.update_api(&provider_id, &new_config).await,
+                "apigateway.Stage" => self.update_stage(&provider_id, &new_config).await,
+                "sfn.StateMachine" => self.update_state_machine(&provider_id, &new_config).await,
+                "eventbridge.Rule" => {
+                    self.update_eventbridge_rule(&provider_id, &new_config)
+                        .await
+                }
+                "cloudwatch.Alarm" => self.update_alarm(&provider_id, &new_config).await,
+                "autoscaling.Group" => self.update_asg(&provider_id, &new_config).await,
+                "eks.Cluster" => self.update_eks_cluster(&provider_id, &new_config).await,
+                "eks.NodeGroup" => self.update_node_group(&provider_id, &new_config).await,
+                "wafv2.WebACL" => self.update_web_acl(&provider_id, &new_config).await,
+                "cognito.UserPool" => self.update_user_pool(&provider_id, &new_config).await,
+                // Requires replacement
+                "ec2.Subnet"
+                | "ec2.InternetGateway"
+                | "ec2.NatGateway"
+                | "ec2.ElasticIp"
+                | "ec2.KeyPair"
+                | "ec2.SecurityGroup"
+                | "iam.InstanceProfile"
+                | "ecs.Cluster"
+                | "ecs.TaskDefinition"
+                | "ecr.Repository"
+                | "rds.DBInstance"
+                | "rds.DBSubnetGroup"
+                | "route53.HostedZone"
+                | "acm.Certificate"
+                | "efs.MountTarget"
+                | "ses.EmailIdentity" => Err(ProviderError::RequiresReplacement(
+                    "resource changes require replacement".into(),
                 )),
-                "ec2.SecurityGroup" => {
-                    // Could implement incremental ingress/egress updates here
-                    Err(ProviderError::RequiresReplacement(
-                        "security group changes require replacement".into(),
-                    ))
-                }
                 _ => Err(ProviderError::ApiError(format!(
                     "unsupported resource type: {resource_type}"
                 ))),
@@ -803,9 +502,68 @@ impl Provider for AwsProvider {
         let provider_id = provider_id.to_string();
         Box::pin(async move {
             match resource_type.as_str() {
+                // EC2
                 "ec2.Vpc" => self.delete_vpc(&provider_id).await,
                 "ec2.Subnet" => self.delete_subnet(&provider_id).await,
                 "ec2.SecurityGroup" => self.delete_security_group(&provider_id).await,
+                "ec2.InternetGateway" => self.delete_internet_gateway(&provider_id).await,
+                "ec2.RouteTable" => self.delete_route_table(&provider_id).await,
+                "ec2.NatGateway" => self.delete_nat_gateway(&provider_id).await,
+                "ec2.ElasticIp" => self.delete_elastic_ip(&provider_id).await,
+                "ec2.KeyPair" => self.delete_key_pair(&provider_id).await,
+                "ec2.Instance" => self.delete_instance(&provider_id).await,
+                // IAM
+                "iam.Role" => self.delete_role(&provider_id).await,
+                "iam.Policy" => self.delete_policy(&provider_id).await,
+                "iam.InstanceProfile" => self.delete_instance_profile(&provider_id).await,
+                // S3
+                "s3.Bucket" => self.delete_bucket(&provider_id).await,
+                // ELBv2
+                "elbv2.LoadBalancer" => self.delete_load_balancer(&provider_id).await,
+                "elbv2.TargetGroup" => self.delete_target_group(&provider_id).await,
+                "elbv2.Listener" => self.delete_listener(&provider_id).await,
+                // ECS
+                "ecs.Cluster" => self.delete_cluster(&provider_id).await,
+                "ecs.Service" => self.delete_ecs_service(&provider_id).await,
+                "ecs.TaskDefinition" => self.delete_task_definition(&provider_id).await,
+                // ECR
+                "ecr.Repository" => self.delete_repository(&provider_id).await,
+                // RDS
+                "rds.DBInstance" => self.delete_db_instance(&provider_id).await,
+                "rds.DBSubnetGroup" => self.delete_db_subnet_group(&provider_id).await,
+                // Lambda
+                "lambda.Function" => self.delete_lambda_function(&provider_id).await,
+                // Route53
+                "route53.HostedZone" => self.delete_hosted_zone(&provider_id).await,
+                "route53.RecordSet" => self.delete_record_set(&provider_id).await,
+                // CloudWatch Logs
+                "logs.LogGroup" => self.delete_log_group(&provider_id).await,
+                // SQS
+                "sqs.Queue" => self.delete_queue(&provider_id).await,
+                // SNS
+                "sns.Topic" => self.delete_topic(&provider_id).await,
+                // KMS
+                "kms.Key" => self.delete_kms_key(&provider_id).await,
+                // Extended services
+                "dynamodb.Table" => self.delete_dynamodb_table(&provider_id).await,
+                "cloudfront.Distribution" => self.delete_distribution(&provider_id).await,
+                "acm.Certificate" => self.delete_certificate(&provider_id).await,
+                "secretsmanager.Secret" => self.delete_secret(&provider_id).await,
+                "ssm.Parameter" => self.delete_parameter(&provider_id).await,
+                "elasticache.ReplicationGroup" => self.delete_replication_group(&provider_id).await,
+                "efs.FileSystem" => self.delete_file_system(&provider_id).await,
+                "efs.MountTarget" => self.delete_mount_target(&provider_id).await,
+                "apigateway.Api" => self.delete_api(&provider_id).await,
+                "apigateway.Stage" => self.delete_stage(&provider_id).await,
+                "sfn.StateMachine" => self.delete_state_machine(&provider_id).await,
+                "eventbridge.Rule" => self.delete_eventbridge_rule(&provider_id).await,
+                "cloudwatch.Alarm" => self.delete_alarm(&provider_id).await,
+                "autoscaling.Group" => self.delete_asg(&provider_id).await,
+                "eks.Cluster" => self.delete_eks_cluster(&provider_id).await,
+                "eks.NodeGroup" => self.delete_node_group(&provider_id).await,
+                "wafv2.WebACL" => self.delete_web_acl(&provider_id).await,
+                "cognito.UserPool" => self.delete_user_pool(&provider_id).await,
+                "ses.EmailIdentity" => self.delete_email_identity(&provider_id).await,
                 _ => Err(ProviderError::ApiError(format!(
                     "unsupported resource type: {resource_type}"
                 ))),
@@ -822,32 +580,78 @@ impl Provider for AwsProvider {
         let mut changes = Vec::new();
         diff_values("", desired, actual, &mut changes);
 
-        // Mark fields that force replacement per resource type
         for change in &mut changes {
             change.forces_replacement = match resource_type {
                 "ec2.Vpc" => change.path == "network.cidr_block",
-                "ec2.Subnet" => {
-                    matches!(
-                        change.path.as_str(),
-                        "network.cidr_block" | "network.availability_zone" | "network.vpc_id"
-                    )
-                }
+                "ec2.Subnet" => matches!(
+                    change.path.as_str(),
+                    "network.cidr_block" | "network.availability_zone" | "network.vpc_id"
+                ),
                 "ec2.SecurityGroup" => change.path == "identity.name",
+                "ec2.InternetGateway" => false,
+                "ec2.RouteTable" => change.path == "network.vpc_id",
+                "ec2.NatGateway" | "ec2.ElasticIp" | "ec2.KeyPair" => true,
+                "ec2.Instance" => matches!(
+                    change.path.as_str(),
+                    "sizing.ami_id" | "network.subnet_id" | "network.availability_zone"
+                ),
+                "iam.Role" => change.path == "identity.name",
+                "iam.Policy" => change.path == "identity.name",
+                "iam.InstanceProfile" => change.path == "identity.name",
+                "s3.Bucket" => change.path == "identity.name",
+                "elbv2.LoadBalancer" => change.path == "identity.name",
+                "elbv2.TargetGroup" => change.path == "identity.name",
+                "elbv2.Listener" => false,
+                "ecs.Cluster" => change.path == "identity.name",
+                "ecs.Service" => false,
+                "ecs.TaskDefinition" => true, // immutable revisions
+                "ecr.Repository" => change.path == "identity.name",
+                "rds.DBInstance" => matches!(
+                    change.path.as_str(),
+                    "sizing.engine" | "sizing.engine_version"
+                ),
+                "rds.DBSubnetGroup" => change.path == "identity.name",
+                "lambda.Function" => change.path == "identity.name",
+                "route53.HostedZone" => true,
+                "route53.RecordSet" => {
+                    matches!(change.path.as_str(), "network.name" | "network.record_type")
+                }
+                "logs.LogGroup" => change.path == "identity.name",
+                "sqs.Queue" | "sns.Topic" | "kms.Key" => change.path == "identity.name",
+                // Extended services
+                "dynamodb.Table" => matches!(
+                    change.path.as_str(),
+                    "identity.name" | "sizing.partition_key" | "sizing.sort_key"
+                ),
+                "cloudfront.Distribution" => false, // all fields updatable
+                "acm.Certificate" => true,          // domain changes = replacement
+                "secretsmanager.Secret" => change.path == "identity.name",
+                "ssm.Parameter" => false, // all fields updatable via overwrite
+                "elasticache.ReplicationGroup" => {
+                    matches!(change.path.as_str(), "identity.name" | "sizing.engine")
+                }
+                "efs.FileSystem" => change.path == "identity.name",
+                "efs.MountTarget" => true, // immutable
+                "apigateway.Api" => change.path == "identity.name",
+                "apigateway.Stage" => false,
+                "sfn.StateMachine" => change.path == "identity.name",
+                "eventbridge.Rule" => change.path == "identity.name",
+                "cloudwatch.Alarm" => change.path == "identity.name",
+                "autoscaling.Group" => change.path == "identity.name",
+                "eks.Cluster" => change.path == "identity.name",
+                "eks.NodeGroup" => matches!(
+                    change.path.as_str(),
+                    "identity.name" | "sizing.instance_types"
+                ),
+                "wafv2.WebACL" => change.path == "identity.name",
+                "cognito.UserPool" => change.path == "identity.name",
+                "ses.EmailIdentity" => true, // identity changes = replacement
                 _ => false,
             };
         }
 
         changes
     }
-}
-
-/// Extract the "Name" tag value from a list of tags.
-fn extract_name_tag(tags: &[Tag]) -> String {
-    tags.iter()
-        .find(|t| t.key().unwrap_or("") == "Name")
-        .and_then(|t| t.value())
-        .unwrap_or("")
-        .to_string()
 }
 
 pub fn diff_values(
@@ -910,34 +714,80 @@ pub fn diff_values(
 }
 
 #[cfg(test)]
+impl AwsProvider {
+    pub(crate) fn for_testing() -> Self {
+        macro_rules! test_client {
+            ($sdk:ident) => {{
+                let config = $sdk::Config::builder()
+                    .behavior_version($sdk::config::BehaviorVersion::latest())
+                    .region($sdk::config::Region::new("us-east-1"))
+                    .build();
+                $sdk::Client::from_conf(config)
+            }};
+        }
+        Self {
+            ec2_client: test_client!(aws_sdk_ec2),
+            iam_client: test_client!(aws_sdk_iam),
+            s3_client: test_client!(aws_sdk_s3),
+            elbv2_client: test_client!(aws_sdk_elasticloadbalancingv2),
+            ecs_client: test_client!(aws_sdk_ecs),
+            ecr_client: test_client!(aws_sdk_ecr),
+            rds_client: test_client!(aws_sdk_rds),
+            lambda_client: test_client!(aws_sdk_lambda),
+            route53_client: test_client!(aws_sdk_route53),
+            logs_client: test_client!(aws_sdk_cloudwatchlogs),
+            sqs_client: test_client!(aws_sdk_sqs),
+            sns_client: test_client!(aws_sdk_sns),
+            kms_client: test_client!(aws_sdk_kms),
+            dynamodb_client: test_client!(aws_sdk_dynamodb),
+            cloudfront_client: test_client!(aws_sdk_cloudfront),
+            acm_client: test_client!(aws_sdk_acm),
+            secretsmanager_client: test_client!(aws_sdk_secretsmanager),
+            ssm_client: test_client!(aws_sdk_ssm),
+            elasticache_client: test_client!(aws_sdk_elasticache),
+            efs_client: test_client!(aws_sdk_efs),
+            apigateway_client: test_client!(aws_sdk_apigatewayv2),
+            sfn_client: test_client!(aws_sdk_sfn),
+            eventbridge_client: test_client!(aws_sdk_eventbridge),
+            cloudwatch_client: test_client!(aws_sdk_cloudwatch),
+            autoscaling_client: test_client!(aws_sdk_autoscaling),
+            eks_client: test_client!(aws_sdk_eks),
+            wafv2_client: test_client!(aws_sdk_wafv2),
+            cognito_client: test_client!(aws_sdk_cognitoidentityprovider),
+            ses_client: test_client!(aws_sdk_sesv2),
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn aws_provider_has_resource_types() {
-        // Use a dummy client — we won't call any APIs
-        let config = ec2::Config::builder()
-            .behavior_version(ec2::config::BehaviorVersion::latest())
-            .region(ec2::config::Region::new("us-east-1"))
-            .build();
-        let client = ec2::Client::from_conf(config);
-        let provider = AwsProvider::from_client(client);
-
+    fn aws_provider_has_all_resource_types() {
+        let provider = AwsProvider::for_testing();
         let types = provider.resource_types();
-        assert_eq!(types.len(), 3);
-        assert_eq!(types[0].type_path, "ec2.Vpc");
-        assert_eq!(types[1].type_path, "ec2.Subnet");
-        assert_eq!(types[2].type_path, "ec2.SecurityGroup");
+        assert_eq!(types.len(), 48);
+
+        let paths: Vec<_> = types.iter().map(|t| t.type_path.as_str()).collect();
+        assert!(paths.contains(&"ec2.Vpc"));
+        assert!(paths.contains(&"ec2.Instance"));
+        assert!(paths.contains(&"iam.Role"));
+        assert!(paths.contains(&"s3.Bucket"));
+        assert!(paths.contains(&"elbv2.LoadBalancer"));
+        assert!(paths.contains(&"ecs.Cluster"));
+        assert!(paths.contains(&"rds.DBInstance"));
+        assert!(paths.contains(&"lambda.Function"));
+        assert!(paths.contains(&"route53.HostedZone"));
+        assert!(paths.contains(&"logs.LogGroup"));
+        assert!(paths.contains(&"sqs.Queue"));
+        assert!(paths.contains(&"sns.Topic"));
+        assert!(paths.contains(&"kms.Key"));
     }
 
     #[test]
     fn aws_provider_diff() {
-        let config = ec2::Config::builder()
-            .behavior_version(ec2::config::BehaviorVersion::latest())
-            .region(ec2::config::Region::new("us-east-1"))
-            .build();
-        let client = ec2::Client::from_conf(config);
-        let provider = AwsProvider::from_client(client);
+        let provider = AwsProvider::for_testing();
 
         let desired = serde_json::json!({
             "network": { "cidr_block": "10.0.0.0/16", "dns_support": true }
@@ -968,12 +818,7 @@ mod tests {
 
     #[test]
     fn diff_marks_replacement_fields() {
-        let config = ec2::Config::builder()
-            .behavior_version(ec2::config::BehaviorVersion::latest())
-            .region(ec2::config::Region::new("us-east-1"))
-            .build();
-        let client = ec2::Client::from_conf(config);
-        let provider = AwsProvider::from_client(client);
+        let provider = AwsProvider::for_testing();
 
         let desired = serde_json::json!({
             "network": { "cidr_block": "10.0.0.0/16", "availability_zone": "us-east-1b" }
