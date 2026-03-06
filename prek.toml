@@ -1,0 +1,46 @@
+#:schema: https://www.schemastore.org/prek.json
+
+[[repos]]
+repo = "builtin"
+hooks = [
+    { id = "trailing-whitespace" },
+    { id = "end-of-file-fixer" },
+    { id = "check-added-large-files", args = ["--maxkb=500"] },
+]
+
+[[repos]]
+repo = "local"
+hooks = [
+    {
+        id = "preflight",
+        name = "preflight (fmt + clippy)",
+        entry = "bash -c 'PATH=\"$HOME/.claude/bin:$PATH\" preflight'",
+        language = "system",
+        pass_filenames = false,
+        always_run = true,
+    },
+    {
+        id = "cargo-test",
+        name = "cargo test",
+        entry = "cargo test",
+        language = "system",
+        pass_filenames = false,
+        always_run = true,
+    },
+    {
+        id = "cargo-deny",
+        name = "cargo deny check",
+        entry = "cargo deny check",
+        language = "system",
+        pass_filenames = false,
+        always_run = true,
+    },
+    {
+        id = "smelt-fmt",
+        name = "smelt fmt --check",
+        entry = "bash -c 'if find . -name \"*.smelt\" -not -path \"./.smelt/*\" | grep -q .; then cargo run --quiet -- fmt --check; fi'",
+        language = "system",
+        pass_filenames = false,
+        always_run = true,
+    },
+]

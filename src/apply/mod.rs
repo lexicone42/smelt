@@ -60,10 +60,7 @@ pub fn execute_plan(
         .build()
         .expect("tokio runtime");
 
-    let previous_root = store
-        .get_ref(&plan.environment)
-        .ok()
-        .map(|h| h.0.clone());
+    let previous_root = store.get_ref(&plan.environment).ok().map(|h| h.0.clone());
 
     // Load existing tree or start fresh
     let mut current_tree = match &previous_root {
@@ -138,9 +135,9 @@ pub fn execute_plan(
     }
 
     // Build new tree and update ref
-    let new_tree_hash = store.put_tree(&current_tree).unwrap_or_else(|_| {
-        ContentHash("error".to_string())
-    });
+    let new_tree_hash = store
+        .put_tree(&current_tree)
+        .unwrap_or_else(|_| ContentHash("error".to_string()));
     let _ = store.set_ref(&plan.environment, &new_tree_hash);
 
     // Sign the transition
@@ -171,15 +168,24 @@ pub fn execute_plan(
 
     let created = results
         .iter()
-        .filter(|r| matches!(r.action, ActionType::Create) && matches!(r.outcome, ApplyOutcome::Success { .. }))
+        .filter(|r| {
+            matches!(r.action, ActionType::Create)
+                && matches!(r.outcome, ApplyOutcome::Success { .. })
+        })
         .count();
     let updated = results
         .iter()
-        .filter(|r| matches!(r.action, ActionType::Update) && matches!(r.outcome, ApplyOutcome::Success { .. }))
+        .filter(|r| {
+            matches!(r.action, ActionType::Update)
+                && matches!(r.outcome, ApplyOutcome::Success { .. })
+        })
         .count();
     let deleted = results
         .iter()
-        .filter(|r| matches!(r.action, ActionType::Delete) && matches!(r.outcome, ApplyOutcome::Success { .. }))
+        .filter(|r| {
+            matches!(r.action, ActionType::Delete)
+                && matches!(r.outcome, ApplyOutcome::Success { .. })
+        })
         .count();
     let failed = results
         .iter()
@@ -402,9 +408,7 @@ fn apply_delete(
 /// Look up the provider_id for a resource from the current tree.
 fn get_provider_id_from_tree(store: &Store, tree: &TreeNode, resource_id: &str) -> Option<String> {
     match tree.children.get(resource_id) {
-        Some(TreeEntry::Object(hash)) => {
-            store.get_object(hash).ok().and_then(|s| s.provider_id)
-        }
+        Some(TreeEntry::Object(hash)) => store.get_object(hash).ok().and_then(|s| s.provider_id),
         _ => None,
     }
 }
@@ -438,12 +442,10 @@ pub fn format_summary(summary: &ApplySummary) -> String {
         };
 
         let status = match &result.outcome {
-            ApplyOutcome::Success { provider_id, .. } => {
-                provider_id
-                    .as_deref()
-                    .map(|id| format!(" [{id}]"))
-                    .unwrap_or_default()
-            }
+            ApplyOutcome::Success { provider_id, .. } => provider_id
+                .as_deref()
+                .map(|id| format!(" [{id}]"))
+                .unwrap_or_default(),
             ApplyOutcome::Failed { error } => format!(" FAILED: {error}"),
             ApplyOutcome::Skipped { reason } => format!(" SKIPPED: {reason}"),
         };

@@ -271,11 +271,11 @@ fn cmd_graph(files: &[std::path::PathBuf], dot: bool) -> Result<()> {
 }
 
 fn build_registry() -> smelt::provider::ProviderRegistry {
+    use smelt::provider::ProviderRegistry;
     use smelt::provider::aws::AwsProvider;
     use smelt::provider::cloudflare::CloudflareProvider;
     use smelt::provider::gcp::GcpProvider;
     use smelt::provider::google_workspace::GoogleWorkspaceProvider;
-    use smelt::provider::ProviderRegistry;
 
     let mut registry = ProviderRegistry::new();
     // Register providers with placeholder config — real config will come from project settings
@@ -351,7 +351,10 @@ fn cmd_destroy(environment: &str, files: &[std::path::PathBuf], yes: bool) -> Re
     eprint!("{}", plan::format_plan(&p));
 
     if !yes {
-        eprint!("\nThis will DESTROY {} resource(s). Proceed? [y/N] ", p.summary.delete);
+        eprint!(
+            "\nThis will DESTROY {} resource(s). Proceed? [y/N] ",
+            p.summary.delete
+        );
         let mut input = String::new();
         std::io::stdin().read_line(&mut input).into_diagnostic()?;
         if !input.trim().eq_ignore_ascii_case("y") {

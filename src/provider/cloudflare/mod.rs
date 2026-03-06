@@ -72,7 +72,8 @@ impl CloudflareProvider {
                             },
                             FieldSchema {
                                 name: "proxied".to_string(),
-                                description: "Whether traffic is proxied through Cloudflare".to_string(),
+                                description: "Whether traffic is proxied through Cloudflare"
+                                    .to_string(),
                                 field_type: FieldType::Bool,
                                 required: false,
                                 default: Some(serde_json::json!(false)),
