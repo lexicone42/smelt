@@ -1,0 +1,68 @@
+# cargo-deny configuration for smelt
+# Run with: cargo deny check
+
+[graph]
+targets = []
+all-features = false
+no-default-features = false
+
+# ============================================================================
+# Licenses — only allow permissive licenses
+# ============================================================================
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "BSL-1.0",
+    "CC0-1.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "OpenSSL",
+]
+confidence-threshold = 0.8
+exceptions = []
+
+[licenses.private]
+ignore = false
+registries = []
+
+# ============================================================================
+# Bans — prevent known-bad or duplicate crates
+# ============================================================================
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+
+deny = [
+    # Prefer rustls over openssl
+    { crate = "openssl", use-instead = "rustls" },
+    { crate = "openssl-sys", use-instead = "rustls" },
+    # Prefer aws-lc-rs over ring for crypto
+    { crate = "ring", use-instead = "aws-lc-rs" },
+]
+
+# ============================================================================
+# Advisories — check for known security vulnerabilities
+# ============================================================================
+[advisories]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+ignore = []
+
+# ============================================================================
+# Sources — only allow crates from crates.io
+# ============================================================================
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

@@ -1,0 +1,35 @@
+[package]
+name = "smelt"
+version = "0.1.0"
+edition = "2024"
+description = "Declarative infrastructure-as-code with semantic backing"
+license = "MIT"
+
+[dependencies]
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Parsing & error reporting
+chumsky = "0.9"
+miette = { version = "7", features = ["fancy"] }
+thiserror = "2"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Content-addressable store
+blake3 = "1"
+
+# Dependency graph
+petgraph = "0.7"
+
+# Diffing
+similar = { version = "2", features = ["text"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# AWS crypto — FIPS-validated, use instead of ring
+# We'll use this for signing state transitions and future TLS needs
+aws-lc-rs = "1"

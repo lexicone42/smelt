@@ -1,0 +1,71 @@
+resource vpc "main" : aws.ec2.Vpc {
+  @intent "Primary VPC for production workloads"
+  @owner "platform-team"
+
+  identity {
+    name = "prod-vpc"
+    tags = { environment = "production", managed_by = "smelt" }
+  }
+
+  network {
+    cidr_block = "10.0.0.0/16"
+    dns_hostnames = true
+    dns_support = true
+  }
+}
+
+resource subnet "public_a" : aws.ec2.Subnet {
+  @intent "Public subnet in AZ-a for load balancers"
+
+  needs vpc.main -> vpc_id
+
+  identity {
+    name = "pub-a"
+    tags = { tier = "public" }
+  }
+
+  network {
+    availability_zone = "us-east-1a"
+    cidr_block = "10.0.1.0/24"
+    public_ip_on_launch = true
+  }
+}
+
+resource subnet "public_b" : aws.ec2.Subnet {
+  @intent "Public subnet in AZ-b for load balancers"
+
+  needs vpc.main -> vpc_id
+
+  identity {
+    name = "pub-b"
+    tags = { tier = "public" }
+  }
+
+  network {
+    availability_zone = "us-east-1b"
+    cidr_block = "10.0.2.0/24"
+    public_ip_on_launch = true
+  }
+}
+
+resource security_group "web" : aws.ec2.SecurityGroup {
+  @intent "Allow HTTP/HTTPS traffic to web tier"
+  @constraint "Must not allow 0.0.0.0/0 on port 22"
+
+  needs vpc.main -> vpc_id
+
+  identity {
+    name = "web-sg"
+    tags = { tier = "web" }
+  }
+
+  security {
+    egress = [
+      { cidr = "0.0.0.0/0", port = 0, protocol = "-1" }
+    ]
+    ingress = [
+      { cidr = "0.0.0.0/0", port = 80, protocol = "tcp" },
+      { cidr = "0.0.0.0/0", port = 443, protocol = "tcp" }
+    ]
+  }
+}
