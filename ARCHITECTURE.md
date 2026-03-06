@@ -24,8 +24,12 @@ src/
 ├── graph/           # petgraph-backed dependency DAG
 ├── plan/            # Diff engine: desired state vs current state
 ├── explain/         # AI-friendly resource analysis (blast radius, etc.)
+├── apply/           # Apply engine (plan execution, state recording, signing)
 ├── provider/        # Provider trait + registry
-│   └── aws/         # AWS provider (EC2 schemas, JSON diff)
+│   ├── aws/         # AWS provider (real EC2 SDK: VPC, Subnet, SecurityGroup)
+│   ├── gcp/         # GCP provider stub (compute, network, firewall)
+│   ├── cloudflare/  # Cloudflare provider stub (DNS, workers)
+│   └── google_workspace/  # Google Workspace provider stub
 ├── store/           # Content-addressable state (BLAKE3 Merkle tree)
 └── signing/         # Ed25519 signing via aws-lc-rs
 ```

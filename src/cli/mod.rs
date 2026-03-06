@@ -116,6 +116,53 @@ pub enum Command {
         yes: bool,
     },
 
+    /// Detect drift between stored state and live cloud resources
+    Drift {
+        /// Environment name
+        #[arg(default_value = "default")]
+        environment: String,
+
+        /// Files describing resources
+        #[arg(value_name = "FILE")]
+        files: Vec<PathBuf>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Import an existing cloud resource into smelt state
+    Import {
+        /// Resource identifier (kind.name, e.g., "vpc.main")
+        resource: String,
+
+        /// Provider ID (e.g., "vpc-abc123")
+        provider_id: String,
+
+        /// Files describing the resource
+        #[arg(value_name = "FILE")]
+        files: Vec<PathBuf>,
+
+        /// Environment name
+        #[arg(long, default_value = "default")]
+        environment: String,
+    },
+
+    /// Query stored state
+    Query {
+        /// Environment name
+        #[arg(default_value = "default")]
+        environment: String,
+
+        /// Optional resource filter (kind.name or just kind)
+        #[arg(long)]
+        filter: Option<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Parse a .smelt file and dump the AST as JSON
     Debug {
         /// File to parse

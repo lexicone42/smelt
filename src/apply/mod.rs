@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::path::Path;
 
+use crate::ast::{Declaration, SmeltFile, Value};
 use crate::plan::{ActionType, Plan, PlannedAction};
 use crate::provider::ProviderRegistry;
 use crate::signing::{SigningKeyStore, TransitionChange, TransitionData};
@@ -55,6 +57,19 @@ pub fn execute_plan(
     store: &Store,
     project_root: &Path,
 ) -> ApplySummary {
+    execute_plan_with_config(plan, registry, store, project_root, &[])
+}
+
+/// Execute a plan with resource configs extracted from parsed files.
+pub fn execute_plan_with_config(
+    plan: &Plan,
+    registry: &ProviderRegistry,
+    store: &Store,
+    project_root: &Path,
+    parsed_files: &[SmeltFile],
+) -> ApplySummary {
+    // Build a config lookup from parsed files
+    let config_map = build_config_map(parsed_files);
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -85,10 +100,34 @@ pub fn execute_plan(
     for action in &ordered_actions {
         let result = match action.action {
             ActionType::Create => {
-                apply_create(action, registry, store, &mut current_tree, &rt, seq)
+                let config = config_map
+                    .get(&action.resource_id)
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({}));
+                apply_create(
+                    action,
+                    registry,
+                    store,
+                    &mut current_tree,
+                    &rt,
+                    seq,
+                    &config,
+                )
             }
             ActionType::Update => {
-                apply_update(action, registry, store, &mut current_tree, &rt, seq)
+                let config = config_map
+                    .get(&action.resource_id)
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({}));
+                apply_update(
+                    action,
+                    registry,
+                    store,
+                    &mut current_tree,
+                    &rt,
+                    seq,
+                    &config,
+                )
             }
             ActionType::Delete => {
                 apply_delete(action, registry, store, &mut current_tree, &rt, seq)
@@ -214,6 +253,7 @@ fn apply_create(
     tree: &mut TreeNode,
     rt: &tokio::runtime::Runtime,
     _seq: u64,
+    config: &serde_json::Value,
 ) -> ApplyResult {
     let Some((provider, resource_type)) = registry.resolve(&action.type_path) else {
         return ApplyResult {
@@ -225,16 +265,12 @@ fn apply_create(
         };
     };
 
-    // Build config from the plan
-    // For now, we pass an empty config — full implementation would reconstruct from AST
-    let config = serde_json::json!({});
-
-    match rt.block_on(provider.create(&resource_type, &config)) {
+    match rt.block_on(provider.create(&resource_type, config)) {
         Ok(output) => {
             let state = ResourceState {
                 resource_id: action.resource_id.clone(),
                 type_path: action.type_path.clone(),
-                config,
+                config: config.clone(),
                 actual: Some(output.state),
                 provider_id: Some(output.provider_id.clone()),
                 intent: action.intent.clone(),
@@ -279,6 +315,7 @@ fn apply_update(
     tree: &mut TreeNode,
     rt: &tokio::runtime::Runtime,
     _seq: u64,
+    new_config: &serde_json::Value,
 ) -> ApplyResult {
     let Some((provider, resource_type)) = registry.resolve(&action.type_path) else {
         return ApplyResult {
@@ -305,15 +342,21 @@ fn apply_update(
         }
     };
 
-    let old_config = serde_json::json!({});
-    let new_config = serde_json::json!({});
+    // Get old config from stored state
+    let old_config = match tree.children.get(&action.resource_id) {
+        Some(TreeEntry::Object(hash)) => store
+            .get_object(hash)
+            .map(|s| s.config)
+            .unwrap_or_else(|_| serde_json::json!({})),
+        _ => serde_json::json!({}),
+    };
 
-    match rt.block_on(provider.update(&resource_type, &provider_id, &old_config, &new_config)) {
+    match rt.block_on(provider.update(&resource_type, &provider_id, &old_config, new_config)) {
         Ok(output) => {
             let state = ResourceState {
                 resource_id: action.resource_id.clone(),
                 type_path: action.type_path.clone(),
-                config: new_config,
+                config: new_config.clone(),
                 actual: Some(output.state),
                 provider_id: Some(output.provider_id.clone()),
                 intent: action.intent.clone(),
@@ -402,6 +445,55 @@ fn apply_delete(
                 error: format!("provider error: {e}"),
             },
         },
+    }
+}
+
+/// Build a map of resource_id -> JSON config from parsed files.
+fn build_config_map(files: &[SmeltFile]) -> HashMap<String, serde_json::Value> {
+    let mut map = HashMap::new();
+    for file in files {
+        for decl in &file.declarations {
+            if let Declaration::Resource(resource) = decl {
+                let resource_id = format!("{}.{}", resource.kind, resource.name);
+                let config = resource_to_json(resource);
+                map.insert(resource_id, config);
+            }
+        }
+    }
+    map
+}
+
+/// Convert a resource declaration's sections/fields to a JSON value.
+fn resource_to_json(resource: &crate::ast::ResourceDecl) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    for section in &resource.sections {
+        let mut section_map = serde_json::Map::new();
+        for field in &section.fields {
+            section_map.insert(field.name.clone(), value_to_json(&field.value));
+        }
+        map.insert(section.name.clone(), serde_json::Value::Object(section_map));
+    }
+    for field in &resource.fields {
+        map.insert(field.name.clone(), value_to_json(&field.value));
+    }
+    serde_json::Value::Object(map)
+}
+
+fn value_to_json(value: &Value) -> serde_json::Value {
+    match value {
+        Value::String(s) => serde_json::Value::String(s.clone()),
+        Value::Number(n) => serde_json::json!(*n),
+        Value::Integer(n) => serde_json::json!(*n),
+        Value::Bool(b) => serde_json::Value::Bool(*b),
+        Value::Array(items) => serde_json::Value::Array(items.iter().map(value_to_json).collect()),
+        Value::Record(fields) => {
+            let mut map = serde_json::Map::new();
+            for f in fields {
+                map.insert(f.name.clone(), value_to_json(&f.value));
+            }
+            serde_json::Value::Object(map)
+        }
+        Value::Ref(r) => serde_json::Value::String(format!("ref({})", r)),
     }
 }
 
@@ -581,5 +673,85 @@ mod tests {
         assert!(output.contains("! subnet.pub FAILED: timeout"));
         assert!(output.contains("1 created"));
         assert!(output.contains("1 failed"));
+    }
+
+    #[test]
+    fn build_config_map_extracts_resource_json() {
+        use crate::parser;
+
+        let file = parser::parse(
+            r#"
+            resource vpc "main" : aws.ec2.Vpc {
+                @intent "Primary VPC"
+                network {
+                    cidr_block = "10.0.0.0/16"
+                    dns_hostnames = true
+                }
+            }
+            resource subnet "pub" : aws.ec2.Subnet {
+                needs vpc.main -> vpc_id
+                network { cidr_block = "10.0.1.0/24" }
+            }
+        "#,
+        )
+        .unwrap();
+
+        let config_map = build_config_map(&[file]);
+        assert_eq!(config_map.len(), 2);
+
+        let vpc_config = &config_map["vpc.main"];
+        assert_eq!(
+            vpc_config.pointer("/network/cidr_block"),
+            Some(&serde_json::json!("10.0.0.0/16"))
+        );
+        assert_eq!(
+            vpc_config.pointer("/network/dns_hostnames"),
+            Some(&serde_json::json!(true))
+        );
+
+        let subnet_config = &config_map["subnet.pub"];
+        assert_eq!(
+            subnet_config.pointer("/network/cidr_block"),
+            Some(&serde_json::json!("10.0.1.0/24"))
+        );
+    }
+
+    #[test]
+    fn execute_plan_with_config_passes_real_config() {
+        let project = temp_project();
+        let store = Store::open(&project).unwrap();
+        let registry = ProviderRegistry::new();
+
+        use crate::parser;
+        let file = parser::parse(
+            r#"
+            resource vpc "main" : aws.ec2.Vpc {
+                network { cidr_block = "10.0.0.0/16" }
+            }
+        "#,
+        )
+        .unwrap();
+
+        let plan = Plan {
+            environment: "test".to_string(),
+            actions: vec![PlannedAction {
+                resource_id: "vpc.main".to_string(),
+                type_path: "aws.ec2.Vpc".to_string(),
+                action: ActionType::Create,
+                intent: None,
+                changes: vec![],
+                order: 0,
+            }],
+            summary: PlanSummary {
+                create: 1,
+                update: 0,
+                delete: 0,
+                unchanged: 0,
+            },
+        };
+
+        // Will fail (no provider registered) but exercises the config path
+        let summary = execute_plan_with_config(&plan, &registry, &store, &project, &[file]);
+        assert_eq!(summary.failed, 1);
     }
 }
