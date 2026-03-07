@@ -30,8 +30,9 @@ We will acknowledge your report within 48 hours and aim to provide a fix within 
 
 - Ed25519 signing keys for state transition integrity (via `aws-lc-rs`)
 - BLAKE3 content hashing for the state store Merkle tree
-- No plaintext secrets stored in state objects
-- Key material stored in `.smelt/keys/` — add this to `.gitignore`
+- No plaintext secrets stored in state objects — fields marked `sensitive` are automatically redacted to `<redacted>` before storage
+- Key material stored in `.smelt/keys/` with `0600` permissions (owner-only read/write on Unix)
+- Signature verification returns `Err` on failure (not `Ok(false)`) to prevent silent acceptance of invalid signatures
 
 ### State Store
 
@@ -44,7 +45,7 @@ We will acknowledge your report within 48 hours and aim to provide a fix within 
 Smelt manages infrastructure configuration locally. The primary threats are:
 
 1. **Tampered state** — Mitigated by content-addressable hashing and signed transitions
-2. **Leaked secrets** — Mitigated by not storing plaintext secrets in state (secrets should come from external secret managers)
+2. **Leaked secrets** — Mitigated by sensitive field redaction (passwords/secrets stripped from state) and safe deletion defaults (recovery windows instead of force-delete)
 3. **Supply chain** — Mitigated by cargo-deny license, advisory, and source enforcement
 4. **Malicious configuration** — Mitigated by schema validation and contract checking before any apply operation
 

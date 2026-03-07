@@ -26,7 +26,7 @@ src/
 ├── explain/         # AI-friendly resource analysis (blast radius, etc.)
 ├── apply/           # Apply engine (plan execution, state recording, signing)
 ├── provider/        # Provider trait + registry
-│   ├── aws/         # AWS provider (real EC2 SDK: VPC, Subnet, SecurityGroup)
+│   ├── aws/         # AWS provider (48 resource types across 28 services)
 │   ├── gcp/         # GCP provider stub (compute, network, firewall)
 │   ├── cloudflare/  # Cloudflare provider stub (DNS, workers)
 │   └── google_workspace/  # Google Workspace provider stub
@@ -139,5 +139,14 @@ Resource schemas define:
 - **Sections** with human-readable descriptions
 - **Fields** with types (String, Integer, Bool, Enum, Ref, Array, Record)
 - Required/optional status and defaults
+- **Sensitive marking** — Fields marked `sensitive: true` are automatically redacted from stored state
 
 This allows tools to validate configuration, generate documentation, and provide intelligent completions without hard-coding knowledge of every resource type.
+
+## Testing Strategy
+
+The codebase uses three testing layers:
+
+1. **Unit tests** — Example-based tests for each module (parser, formatter, store, signing, providers)
+2. **Property-based tests** — [proptest](https://docs.rs/proptest) generates random inputs to verify invariants (roundtrip idempotency, hash determinism, diff symmetry, signing integrity)
+3. **Schema invariant tests** — Verify structural consistency across all resource types (identity sections, required fields, enum variants, uniqueness)
