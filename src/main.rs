@@ -264,9 +264,8 @@ fn load_current_state(environment: &str) -> BTreeMap<String, serde_json::Value> 
 
 /// Load live state by reading from cloud providers.
 ///
-/// For each resource in the graph that has a stored provider_id,
-/// reads the current live state from the cloud. This gives an accurate
-/// picture of what actually exists, not just what smelt last stored.
+/// All reads are dispatched concurrently — there's no dependency ordering
+/// for reads, so we can fire them all at once and collect results.
 ///
 /// Returns a map of resource_id -> live config JSON.
 fn load_live_state(
@@ -287,13 +286,20 @@ fn load_live_state(
         .build()
         .expect("tokio runtime");
 
-    let mut state = BTreeMap::new();
+    // Collect all readable resources with their provider info
+    struct ReadTarget<'a> {
+        resource_id: String,
+        provider: &'a dyn smelt::provider::Provider,
+        resource_type: String,
+        provider_id: String,
+    }
+
     let apply_order = graph.apply_order();
+    let mut targets = Vec::new();
 
     for node in &apply_order {
         let resource_id = node.id.to_string();
 
-        // Get provider_id from stored state
         let provider_id = match tree.children.get(&resource_id) {
             Some(store::TreeEntry::Object(hash)) => {
                 s.get_object(hash).ok().and_then(|obj| obj.provider_id)
@@ -309,23 +315,59 @@ fn load_live_state(
             continue;
         };
 
-        match rt.block_on(provider.read(&resource_type, &provider_id)) {
+        targets.push(ReadTarget {
+            resource_id,
+            provider,
+            resource_type,
+            provider_id,
+        });
+    }
+
+    if targets.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+
+    eprintln!("  refreshing {} resources from cloud...", targets.len());
+
+    // Fire all reads concurrently
+    let results: Vec<(
+        String,
+        Result<smelt::provider::ResourceOutput, smelt::provider::ProviderError>,
+    )> = rt.block_on(async {
+        let futs = targets.iter().map(|t| {
+            let resource_id = t.resource_id.clone();
+            async move {
+                let result = t.provider.read(&t.resource_type, &t.provider_id).await;
+                (resource_id, result)
+            }
+        });
+        futures::future::join_all(futs).await
+    });
+
+    let mut state = BTreeMap::new();
+    for (resource_id, result) in results {
+        match result {
             Ok(output) => {
                 state.insert(resource_id, output.state);
             }
             Err(smelt::provider::ProviderError::NotFound(_)) => {
-                // Resource was deleted outside smelt — show as absent
-                // so plan will detect it needs recreation
+                let pid = targets
+                    .iter()
+                    .find(|t| t.resource_id == resource_id)
+                    .map(|t| t.provider_id.as_str())
+                    .unwrap_or("?");
                 eprintln!(
                     "  warning: {} [{}] not found in cloud — may need recreation",
-                    resource_id, provider_id
+                    resource_id, pid
                 );
             }
             Err(e) => {
-                eprintln!(
-                    "  warning: failed to read {} [{}]: {}",
-                    resource_id, provider_id, e
-                );
+                let pid = targets
+                    .iter()
+                    .find(|t| t.resource_id == resource_id)
+                    .map(|t| t.provider_id.as_str())
+                    .unwrap_or("?");
+                eprintln!("  warning: failed to read {} [{}]: {}", resource_id, pid, e);
                 // Fall back to stored state for this resource
                 if let Some(store::TreeEntry::Object(hash)) = tree.children.get(&resource_id)
                     && let Ok(obj) = s.get_object(hash)
@@ -613,18 +655,26 @@ fn cmd_drift(environment: &str, files: &[std::path::PathBuf], json: bool) -> Res
     let tree_hash = store.get_ref(environment).map_err(|e| miette!("{e}"))?;
     let tree = store.get_tree(&tree_hash).map_err(|e| miette!("{e}"))?;
 
-    let mut drifts: Vec<DriftEntry> = Vec::new();
+    // Collect targets for concurrent reads
+    struct DriftTarget<'a> {
+        resource_id: String,
+        type_path: String,
+        provider: &'a dyn smelt::provider::Provider,
+        resource_type: String,
+        provider_id: String,
+        stored_config: &'a serde_json::Value,
+    }
+
     let apply_order = graph.apply_order();
+    let mut targets = Vec::new();
 
     for node in &apply_order {
         let resource_id = node.id.to_string();
 
-        // Skip resources that aren't in stored state
         let Some(stored_config) = current_state.get(&resource_id) else {
             continue;
         };
 
-        // Get provider_id from tree
         let provider_id = match tree.children.get(&resource_id) {
             Some(store::TreeEntry::Object(hash)) => {
                 store.get_object(hash).ok().and_then(|s| s.provider_id)
@@ -640,16 +690,51 @@ fn cmd_drift(environment: &str, files: &[std::path::PathBuf], json: bool) -> Res
             continue;
         };
 
-        // Read live state from the cloud
-        match rt.block_on(provider.read(&resource_type, &provider_id)) {
+        targets.push(DriftTarget {
+            resource_id,
+            type_path: node.type_path.clone(),
+            provider,
+            resource_type,
+            provider_id,
+            stored_config,
+        });
+    }
+
+    if targets.is_empty() {
+        eprintln!("no drift detected — live state matches stored state");
+        return Ok(());
+    }
+
+    eprintln!("  checking {} resources for drift...", targets.len());
+
+    // Fire all reads concurrently
+    let read_results: Vec<(
+        usize,
+        Result<smelt::provider::ResourceOutput, smelt::provider::ProviderError>,
+    )> = rt.block_on(async {
+        let futs = targets.iter().enumerate().map(|(i, t)| async move {
+            let result = t.provider.read(&t.resource_type, &t.provider_id).await;
+            (i, result)
+        });
+        futures::future::join_all(futs).await
+    });
+
+    // Process results and compute diffs (sync)
+    let mut drifts: Vec<DriftEntry> = Vec::new();
+    for (i, result) in read_results {
+        let target = &targets[i];
+        match result {
             Ok(output) => {
-                // Compare live state against stored config
-                let changes = provider.diff(&resource_type, stored_config, &output.state);
+                let changes = target.provider.diff(
+                    &target.resource_type,
+                    target.stored_config,
+                    &output.state,
+                );
                 if !changes.is_empty() {
                     drifts.push(DriftEntry {
-                        resource_id: resource_id.clone(),
-                        type_path: node.type_path.clone(),
-                        provider_id: provider_id.clone(),
+                        resource_id: target.resource_id.clone(),
+                        type_path: target.type_path.clone(),
+                        provider_id: target.provider_id.clone(),
                         changes: changes
                             .iter()
                             .map(|c| DriftChange {
@@ -663,9 +748,9 @@ fn cmd_drift(environment: &str, files: &[std::path::PathBuf], json: bool) -> Res
             }
             Err(e) => {
                 drifts.push(DriftEntry {
-                    resource_id: resource_id.clone(),
-                    type_path: node.type_path.clone(),
-                    provider_id: provider_id.clone(),
+                    resource_id: target.resource_id.clone(),
+                    type_path: target.type_path.clone(),
+                    provider_id: target.provider_id.clone(),
                     changes: vec![DriftChange {
                         path: "<error>".to_string(),
                         expected: None,
