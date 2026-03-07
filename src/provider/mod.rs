@@ -77,6 +77,54 @@ pub struct ResourceSchema {
     pub sections: Vec<SectionSchema>,
 }
 
+impl ResourceSchema {
+    /// Returns JSON pointer paths for all fields marked `sensitive: true`.
+    /// E.g., `["/security/master_password", "/security/secret_string"]`.
+    pub fn sensitive_paths(&self) -> Vec<String> {
+        let mut paths = Vec::new();
+        for section in &self.sections {
+            for field in &section.fields {
+                if field.sensitive {
+                    paths.push(format!("/{}/{}", section.name, field.name));
+                }
+            }
+        }
+        paths
+    }
+
+    /// Validate a config JSON value against this schema.
+    /// Returns a list of validation errors (empty = valid).
+    pub fn validate(&self, config: &serde_json::Value) -> Vec<String> {
+        let mut errors = Vec::new();
+        for section in &self.sections {
+            let section_val = config.get(&section.name);
+            for field in &section.fields {
+                let field_val = section_val.and_then(|s| s.get(&field.name));
+                // Check required fields
+                if field.required && field_val.is_none() {
+                    errors.push(format!("{}.{} is required", section.name, field.name));
+                    continue;
+                }
+                // Validate enum values
+                if let Some(val) = field_val
+                    && let FieldType::Enum(variants) = &field.field_type
+                    && let Some(s) = val.as_str()
+                    && !variants.iter().any(|v| v == s)
+                {
+                    errors.push(format!(
+                        "{}.{}: '{}' is not a valid value (expected one of: {})",
+                        section.name,
+                        field.name,
+                        s,
+                        variants.join(", ")
+                    ));
+                }
+            }
+        }
+        errors
+    }
+}
+
 /// Schema for a semantic section within a resource.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SectionSchema {
@@ -86,18 +134,24 @@ pub struct SectionSchema {
 }
 
 /// Schema for a single field.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FieldSchema {
     pub name: String,
     pub description: String,
+    #[serde(default)]
     pub field_type: FieldType,
+    #[serde(default)]
     pub required: bool,
     pub default: Option<serde_json::Value>,
+    /// If true, this field's value will be redacted from stored state and plan output.
+    #[serde(default)]
+    pub sensitive: bool,
 }
 
 /// Field types in the schema.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub enum FieldType {
+    #[default]
     String,
     Integer,
     Float,

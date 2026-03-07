@@ -58,9 +58,11 @@ impl AwsProvider {
                         .key(k)
                         .value(v)
                         .build()
-                        .unwrap()
+                        .map_err(|e| {
+                            ProviderError::InvalidConfig(format!("failed to build SSM Tag: {e}"))
+                        })
                 })
-                .collect();
+                .collect::<Result<Vec<_>, _>>()?;
             self.ssm_client
                 .add_tags_to_resource()
                 .resource_type(aws_sdk_ssm::types::ResourceTypeForTagging::Parameter)
@@ -194,6 +196,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "description".into(),
@@ -201,6 +204,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },
@@ -218,6 +222,7 @@ impl AwsProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("String")),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "value".into(),
@@ -225,6 +230,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "tier".into(),
@@ -235,6 +241,7 @@ impl AwsProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("Standard")),
+                                sensitive: false,
                             },
                         ],
                     },

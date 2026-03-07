@@ -42,7 +42,9 @@ impl AwsProvider {
                     .key(k)
                     .value(v)
                     .build()
-                    .unwrap(),
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!("failed to build ECR Tag: {e}"))
+                    })?,
             );
         }
 
@@ -130,6 +132,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -142,6 +145,7 @@ impl AwsProvider {
                                 field_type: FieldType::Bool,
                                 required: false,
                                 default: Some(serde_json::json!(true)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "image_tag_mutability".into(),
@@ -152,6 +156,7 @@ impl AwsProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("MUTABLE")),
+                                sensitive: false,
                             },
                         ],
                     },

@@ -132,6 +132,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -143,6 +144,7 @@ impl AwsProvider {
                             field_type: FieldType::Integer,
                             required: false,
                             default: Some(serde_json::json!(0)),
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -154,6 +156,7 @@ impl AwsProvider {
                             field_type: FieldType::Ref("kms.Key".into()),
                             required: false,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                 ],

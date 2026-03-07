@@ -22,9 +22,11 @@ impl AwsProvider {
                     .key(k)
                     .value(v)
                     .build()
-                    .unwrap()
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!("failed to build SES Tag: {e}"))
+                    })
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
         self.ses_client
             .create_email_identity()
@@ -99,6 +101,7 @@ impl AwsProvider {
                         field_type: FieldType::String,
                         required: true,
                         default: None,
+                        sensitive: false,
                     }],
                 }],
             },

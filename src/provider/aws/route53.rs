@@ -185,7 +185,11 @@ impl AwsProvider {
                         .hosted_zone_id(hz_id)
                         .evaluate_target_health(true)
                         .build()
-                        .unwrap(),
+                        .map_err(|e| {
+                            ProviderError::InvalidConfig(format!(
+                                "failed to build AliasTarget: {e}"
+                            ))
+                        })?,
                 )
                 .set_ttl(None); // Alias records don't have TTL
         } else {
@@ -197,7 +201,11 @@ impl AwsProvider {
                             aws_sdk_route53::types::ResourceRecord::builder()
                                 .value(v)
                                 .build()
-                                .unwrap(),
+                                .map_err(|e| {
+                                    ProviderError::InvalidConfig(format!(
+                                        "failed to build ResourceRecord: {e}"
+                                    ))
+                                })?,
                         );
                     }
                 }
@@ -206,9 +214,11 @@ impl AwsProvider {
 
         let change = aws_sdk_route53::types::Change::builder()
             .action(aws_sdk_route53::types::ChangeAction::Upsert)
-            .resource_record_set(rr_set.build().unwrap())
+            .resource_record_set(rr_set.build().map_err(|e| {
+                ProviderError::InvalidConfig(format!("failed to build ResourceRecordSet: {e}"))
+            })?)
             .build()
-            .unwrap();
+            .map_err(|e| ProviderError::InvalidConfig(format!("failed to build Change: {e}")))?;
 
         self.route53_client
             .change_resource_record_sets()
@@ -217,7 +227,9 @@ impl AwsProvider {
                 aws_sdk_route53::types::ChangeBatch::builder()
                     .changes(change)
                     .build()
-                    .unwrap(),
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!("failed to build ChangeBatch: {e}"))
+                    })?,
             )
             .send()
             .await
@@ -333,15 +345,19 @@ impl AwsProvider {
                 aws_sdk_route53::types::ResourceRecord::builder()
                     .value(*v)
                     .build()
-                    .unwrap(),
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!("failed to build ResourceRecord: {e}"))
+                    })?,
             );
         }
 
         let change = aws_sdk_route53::types::Change::builder()
             .action(aws_sdk_route53::types::ChangeAction::Delete)
-            .resource_record_set(rr_set.build().unwrap())
+            .resource_record_set(rr_set.build().map_err(|e| {
+                ProviderError::InvalidConfig(format!("failed to build ResourceRecordSet: {e}"))
+            })?)
             .build()
-            .unwrap();
+            .map_err(|e| ProviderError::InvalidConfig(format!("failed to build Change: {e}")))?;
 
         self.route53_client
             .change_resource_record_sets()
@@ -350,7 +366,9 @@ impl AwsProvider {
                 aws_sdk_route53::types::ChangeBatch::builder()
                     .changes(change)
                     .build()
-                    .unwrap(),
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!("failed to build ChangeBatch: {e}"))
+                    })?,
             )
             .send()
             .await
@@ -378,6 +396,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         },
                         FieldSchema {
                             name: "description".into(),
@@ -385,6 +404,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: false,
                             default: None,
+                            sensitive: false,
                         },
                     ],
                 }],
@@ -397,71 +417,84 @@ impl AwsProvider {
             type_path: "route53.RecordSet".into(),
             description: "Route53 DNS record".into(),
             schema: ResourceSchema {
-                sections: vec![SectionSchema {
-                    name: "network".into(),
-                    description: "DNS record configuration".into(),
-                    fields: vec![
-                        FieldSchema {
+                sections: vec![
+                    SectionSchema {
+                        name: "identity".into(),
+                        description: "Record identification".into(),
+                        fields: vec![FieldSchema {
                             name: "name".into(),
                             description: "Record name (FQDN)".into(),
                             field_type: FieldType::String,
                             required: true,
                             default: None,
-                        },
-                        FieldSchema {
-                            name: "record_type".into(),
-                            description: "Record type (A, AAAA, CNAME, MX, TXT, etc.)".into(),
-                            field_type: FieldType::Enum(vec![
-                                "A".into(),
-                                "AAAA".into(),
-                                "CNAME".into(),
-                                "MX".into(),
-                                "TXT".into(),
-                                "NS".into(),
-                                "SOA".into(),
-                                "SRV".into(),
-                            ]),
-                            required: true,
-                            default: None,
-                        },
-                        FieldSchema {
-                            name: "ttl".into(),
-                            description: "Time to live in seconds".into(),
-                            field_type: FieldType::Integer,
-                            required: false,
-                            default: Some(serde_json::json!(300)),
-                        },
-                        FieldSchema {
-                            name: "values".into(),
-                            description: "Record values".into(),
-                            field_type: FieldType::Array(Box::new(FieldType::String)),
-                            required: false,
-                            default: None,
-                        },
-                        FieldSchema {
-                            name: "alias".into(),
-                            description: "Alias target (for ALB, CloudFront, etc.)".into(),
-                            field_type: FieldType::Record(vec![
-                                FieldSchema {
-                                    name: "dns_name".into(),
-                                    description: "Target DNS name".into(),
-                                    field_type: FieldType::String,
-                                    required: true,
-                                    default: None,
-                                },
-                                FieldSchema {
-                                    name: "hosted_zone_id".into(),
-                                    description: "Target hosted zone ID".into(),
-                                    field_type: FieldType::String,
-                                    required: true,
-                                    default: None,
-                                },
-                            ]),
-                            required: false,
-                            default: None,
-                        },
-                    ],
-                }],
+                            sensitive: false,
+                        }],
+                    },
+                    SectionSchema {
+                        name: "network".into(),
+                        description: "DNS record configuration".into(),
+                        fields: vec![
+                            FieldSchema {
+                                name: "record_type".into(),
+                                description: "Record type (A, AAAA, CNAME, MX, TXT, etc.)".into(),
+                                field_type: FieldType::Enum(vec![
+                                    "A".into(),
+                                    "AAAA".into(),
+                                    "CNAME".into(),
+                                    "MX".into(),
+                                    "TXT".into(),
+                                    "NS".into(),
+                                    "SOA".into(),
+                                    "SRV".into(),
+                                ]),
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                            FieldSchema {
+                                name: "ttl".into(),
+                                description: "Time to live in seconds".into(),
+                                field_type: FieldType::Integer,
+                                required: false,
+                                default: Some(serde_json::json!(300)),
+                                sensitive: false,
+                            },
+                            FieldSchema {
+                                name: "values".into(),
+                                description: "Record values".into(),
+                                field_type: FieldType::Array(Box::new(FieldType::String)),
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
+                            FieldSchema {
+                                name: "alias".into(),
+                                description: "Alias target (for ALB, CloudFront, etc.)".into(),
+                                field_type: FieldType::Record(vec![
+                                    FieldSchema {
+                                        name: "dns_name".into(),
+                                        description: "Target DNS name".into(),
+                                        field_type: FieldType::String,
+                                        required: true,
+                                        default: None,
+                                        sensitive: false,
+                                    },
+                                    FieldSchema {
+                                        name: "hosted_zone_id".into(),
+                                        description: "Target hosted zone ID".into(),
+                                        field_type: FieldType::String,
+                                        required: true,
+                                        default: None,
+                                        sensitive: false,
+                                    },
+                                ]),
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
+                    },
+                ],
             },
         }
     }

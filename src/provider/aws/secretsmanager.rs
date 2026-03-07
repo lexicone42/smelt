@@ -139,10 +139,11 @@ impl AwsProvider {
     }
 
     pub(super) async fn delete_secret(&self, arn: &str) -> Result<(), ProviderError> {
+        // Use 30-day recovery window (safe default) instead of force-delete
         self.secretsmanager_client
             .delete_secret()
             .secret_id(arn)
-            .force_delete_without_recovery(true)
+            .recovery_window_in_days(30)
             .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("DeleteSecret: {e}")))?;
@@ -165,6 +166,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "description".into(),
@@ -172,6 +174,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },
@@ -185,6 +188,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: true,
                             },
                             FieldSchema {
                                 name: "kms_key_id".into(),
@@ -192,6 +196,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },

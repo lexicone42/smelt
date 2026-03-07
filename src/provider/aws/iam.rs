@@ -24,7 +24,12 @@ impl AwsProvider {
                 })?;
 
         let policy_doc = if assume_role_policy.is_string() {
-            assume_role_policy.as_str().unwrap().to_string()
+            assume_role_policy
+                .as_str()
+                .ok_or_else(|| {
+                    ProviderError::InvalidConfig("assume_role_policy is not a valid string".into())
+                })?
+                .to_string()
         } else {
             serde_json::to_string(assume_role_policy)
                 .map_err(|e| ProviderError::InvalidConfig(format!("invalid policy JSON: {e}")))?
@@ -57,7 +62,9 @@ impl AwsProvider {
                     .key(k)
                     .value(v)
                     .build()
-                    .unwrap(),
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!("failed to build IAM Tag: {e}"))
+                    })?,
             );
         }
 
@@ -129,7 +136,14 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         if let Some(policy) = config.pointer("/security/assume_role_policy") {
             let doc = if policy.is_string() {
-                policy.as_str().unwrap().to_string()
+                policy
+                    .as_str()
+                    .ok_or_else(|| {
+                        ProviderError::InvalidConfig(
+                            "assume_role_policy is not a valid string".into(),
+                        )
+                    })?
+                    .to_string()
             } else {
                 serde_json::to_string(policy).unwrap_or_default()
             };
@@ -222,7 +236,12 @@ impl AwsProvider {
         })?;
 
         let doc = if policy_doc.is_string() {
-            policy_doc.as_str().unwrap().to_string()
+            policy_doc
+                .as_str()
+                .ok_or_else(|| {
+                    ProviderError::InvalidConfig("policy_document is not a valid string".into())
+                })?
+                .to_string()
         } else {
             serde_json::to_string(policy_doc)
                 .map_err(|e| ProviderError::InvalidConfig(format!("invalid policy JSON: {e}")))?
@@ -304,7 +323,11 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         if let Some(doc) = config.pointer("/security/policy_document") {
             let doc_str = if doc.is_string() {
-                doc.as_str().unwrap().to_string()
+                doc.as_str()
+                    .ok_or_else(|| {
+                        ProviderError::InvalidConfig("policy_document is not a valid string".into())
+                    })?
+                    .to_string()
             } else {
                 serde_json::to_string(doc).unwrap_or_default()
             };
@@ -492,6 +515,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "description".into(),
@@ -499,6 +523,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "path".into(),
@@ -506,6 +531,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: Some(serde_json::json!("/")),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -519,6 +545,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "managed_policy_arns".into(),
@@ -526,6 +553,7 @@ impl AwsProvider {
                                 field_type: FieldType::Array(Box::new(FieldType::String)),
                                 required: false,
                                 default: Some(serde_json::json!([])),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -550,6 +578,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "description".into(),
@@ -557,6 +586,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },
@@ -569,6 +599,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                 ],
@@ -591,6 +622,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -602,6 +634,7 @@ impl AwsProvider {
                             field_type: FieldType::Ref("iam.Role".into()),
                             required: false,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                 ],

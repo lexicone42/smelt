@@ -36,6 +36,7 @@ impl GoogleWorkspaceProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "given_name".to_string(),
@@ -43,6 +44,7 @@ impl GoogleWorkspaceProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "family_name".to_string(),
@@ -50,6 +52,7 @@ impl GoogleWorkspaceProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },
@@ -63,6 +66,7 @@ impl GoogleWorkspaceProvider {
                                 field_type: FieldType::Bool,
                                 required: false,
                                 default: Some(serde_json::json!(false)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "suspended".to_string(),
@@ -70,6 +74,7 @@ impl GoogleWorkspaceProvider {
                                 field_type: FieldType::Bool,
                                 required: false,
                                 default: Some(serde_json::json!(false)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "org_unit_path".to_string(),
@@ -77,6 +82,7 @@ impl GoogleWorkspaceProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: Some(serde_json::json!("/")),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -101,6 +107,7 @@ impl GoogleWorkspaceProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "name".to_string(),
@@ -108,6 +115,7 @@ impl GoogleWorkspaceProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "description".to_string(),
@@ -115,6 +123,7 @@ impl GoogleWorkspaceProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: Some(serde_json::json!("")),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -132,6 +141,7 @@ impl GoogleWorkspaceProvider {
                             ]),
                             required: false,
                             default: Some(serde_json::json!("INVITED_CAN_JOIN")),
+                            sensitive: false,
                         }],
                     },
                 ],

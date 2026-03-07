@@ -185,6 +185,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -196,6 +197,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: false,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -208,6 +210,7 @@ impl AwsProvider {
                                 field_type: FieldType::Ref("iam.Role".into()),
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "security_group_ids".into(),
@@ -215,6 +218,7 @@ impl AwsProvider {
                                 field_type: FieldType::Array(Box::new(FieldType::String)),
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },
@@ -228,6 +232,7 @@ impl AwsProvider {
                                 field_type: FieldType::Array(Box::new(FieldType::String)),
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "endpoint_public_access".into(),
@@ -235,6 +240,7 @@ impl AwsProvider {
                                 field_type: FieldType::Bool,
                                 required: false,
                                 default: Some(serde_json::json!(true)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "endpoint_private_access".into(),
@@ -242,6 +248,7 @@ impl AwsProvider {
                                 field_type: FieldType::Bool,
                                 required: false,
                                 default: Some(serde_json::json!(false)),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -485,6 +492,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -497,6 +505,7 @@ impl AwsProvider {
                                 field_type: FieldType::Array(Box::new(FieldType::String)),
                                 required: false,
                                 default: Some(serde_json::json!(["t3.medium"])),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "disk_size".into(),
@@ -504,6 +513,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(20)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "desired_size".into(),
@@ -511,6 +521,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(2)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "min_size".into(),
@@ -518,6 +529,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(1)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "max_size".into(),
@@ -525,6 +537,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(3)),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -537,6 +550,7 @@ impl AwsProvider {
                             field_type: FieldType::Ref("iam.Role".into()),
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -549,6 +563,7 @@ impl AwsProvider {
                                 field_type: FieldType::Ref("eks.Cluster".into()),
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "subnet_ids".into(),
@@ -556,6 +571,7 @@ impl AwsProvider {
                                 field_type: FieldType::Array(Box::new(FieldType::String)),
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },

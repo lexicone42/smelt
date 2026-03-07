@@ -40,7 +40,7 @@ impl AwsProvider {
                     .build(),
             )
             .build()
-            .unwrap();
+            .map_err(|e| ProviderError::InvalidConfig(format!("failed to build Origin: {e}")))?;
 
         let default_cache = aws_sdk_cloudfront::types::DefaultCacheBehavior::builder()
             .target_origin_id(origin_id)
@@ -48,7 +48,9 @@ impl AwsProvider {
                 aws_sdk_cloudfront::types::ViewerProtocolPolicy::RedirectToHttps,
             )
             .build()
-            .unwrap();
+            .map_err(|e| {
+                ProviderError::InvalidConfig(format!("failed to build DefaultCacheBehavior: {e}"))
+            })?;
 
         let caller_ref = format!("smelt-{}", chrono::Utc::now().timestamp());
 
@@ -58,14 +60,18 @@ impl AwsProvider {
                     .quantity(1)
                     .items(origin)
                     .build()
-                    .unwrap(),
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!("failed to build Origins: {e}"))
+                    })?,
             )
             .default_cache_behavior(default_cache)
             .comment(comment)
             .enabled(enabled)
             .caller_reference(&caller_ref)
             .build()
-            .unwrap();
+            .map_err(|e| {
+                ProviderError::InvalidConfig(format!("failed to build DistributionConfig: {e}"))
+            })?;
 
         let result = self
             .cloudfront_client
@@ -163,13 +169,24 @@ impl AwsProvider {
                     SectionSchema {
                         name: "identity".into(),
                         description: "Distribution identification".into(),
-                        fields: vec![FieldSchema {
-                            name: "description".into(),
-                            description: "Distribution comment".into(),
-                            field_type: FieldType::String,
-                            required: false,
-                            default: None,
-                        }],
+                        fields: vec![
+                            FieldSchema {
+                                name: "name".into(),
+                                description: "Distribution name (for smelt tracking)".into(),
+                                field_type: FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                            FieldSchema {
+                                name: "description".into(),
+                                description: "Distribution comment".into(),
+                                field_type: FieldType::String,
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     SectionSchema {
                         name: "network".into(),
@@ -181,6 +198,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "origin_id".into(),
@@ -188,6 +206,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: Some(serde_json::json!("default-origin")),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "enabled".into(),
@@ -195,6 +214,7 @@ impl AwsProvider {
                                 field_type: FieldType::Bool,
                                 required: false,
                                 default: Some(serde_json::json!(true)),
+                                sensitive: false,
                             },
                         ],
                     },

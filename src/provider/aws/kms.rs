@@ -40,7 +40,9 @@ impl AwsProvider {
                     .tag_key(k)
                     .tag_value(v)
                     .build()
-                    .unwrap(),
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!("failed to build KMS Tag: {e}"))
+                    })?,
             );
         }
 
@@ -160,11 +162,11 @@ impl AwsProvider {
     }
 
     pub(super) async fn delete_kms_key(&self, key_id: &str) -> Result<(), ProviderError> {
-        // KMS keys are scheduled for deletion (minimum 7 days)
+        // Schedule for deletion with 30-day window (safe default, max protection)
         self.kms_client
             .schedule_key_deletion()
             .key_id(key_id)
-            .pending_window_in_days(7)
+            .pending_window_in_days(30)
             .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("ScheduleKeyDeletion: {e}")))?;
@@ -187,6 +189,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "description".into(),
@@ -194,6 +197,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },
@@ -211,6 +215,7 @@ impl AwsProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("ENCRYPT_DECRYPT")),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "key_spec".into(),
@@ -224,6 +229,7 @@ impl AwsProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("SYMMETRIC_DEFAULT")),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "key_policy".into(),
@@ -231,6 +237,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "enabled".into(),
@@ -238,6 +245,7 @@ impl AwsProvider {
                                 field_type: FieldType::Bool,
                                 required: false,
                                 default: Some(serde_json::json!(true)),
+                                sensitive: false,
                             },
                         ],
                     },

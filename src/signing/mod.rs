@@ -78,6 +78,13 @@ impl SigningKeyStore {
         let key_file = self.keys_dir.join(format!("{public_key_hex}.key"));
         fs::write(&key_file, pkcs8_doc.as_ref())?;
 
+        // Restrict key file permissions to owner-only on Unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&key_file, std::fs::Permissions::from_mode(0o600))?;
+        }
+
         // Store the identity mapping
         let identity_file = self.keys_dir.join(format!("{public_key_hex}.identity"));
         fs::write(&identity_file, identity)?;
@@ -125,7 +132,7 @@ impl SigningKeyStore {
     }
 
     /// Verify a signed state transition.
-    pub fn verify_transition(signed: &SignedTransition) -> Result<bool, SigningError> {
+    pub fn verify_transition(signed: &SignedTransition) -> Result<(), SigningError> {
         let public_key_bytes = hex_decode(&signed.signer_public_key).map_err(|e| {
             SigningError::VerificationFailed(format!("invalid public key hex: {e}"))
         })?;
@@ -137,8 +144,10 @@ impl SigningKeyStore {
             .map_err(|e| SigningError::VerificationFailed(format!("invalid signature hex: {e}")))?;
 
         match public_key.verify(canonical.as_bytes(), &sig_bytes) {
-            Ok(()) => Ok(true),
-            Err(_) => Ok(false),
+            Ok(()) => Ok(()),
+            Err(_) => Err(SigningError::VerificationFailed(
+                "signature mismatch".into(),
+            )),
         }
     }
 }
@@ -213,8 +222,7 @@ mod tests {
         };
 
         let signed = store.sign_transition(transition).unwrap();
-        let is_valid = SigningKeyStore::verify_transition(&signed).unwrap();
-        assert!(is_valid);
+        SigningKeyStore::verify_transition(&signed).unwrap();
     }
 
     #[test]
@@ -235,7 +243,9 @@ mod tests {
         // Tamper with the transition data
         signed.transition.new_root = "tampered".to_string();
 
-        let is_valid = SigningKeyStore::verify_transition(&signed).unwrap();
-        assert!(!is_valid, "tampered transition should fail verification");
+        assert!(
+            SigningKeyStore::verify_transition(&signed).is_err(),
+            "tampered transition should fail verification"
+        );
     }
 }

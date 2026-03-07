@@ -278,6 +278,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "description".into(),
@@ -285,6 +286,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },
@@ -298,6 +300,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "metric_name".into(),
@@ -305,6 +308,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "statistic".into(),
@@ -318,6 +322,7 @@ impl AwsProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("Average")),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "period".into(),
@@ -325,6 +330,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(300)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "evaluation_periods".into(),
@@ -332,6 +338,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(1)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "threshold".into(),
@@ -339,6 +346,7 @@ impl AwsProvider {
                                 field_type: FieldType::Float,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "comparison_operator".into(),
@@ -347,6 +355,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },

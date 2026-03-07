@@ -622,7 +622,9 @@ fn cmd_import(
         prev_hash: None,
         new_hash: Some(hash),
     };
-    let _ = s.append_event(&event);
+    if let Err(e) = s.append_event(&event) {
+        eprintln!("warning: failed to write audit event: {e}");
+    }
 
     eprintln!("imported {} from {}", resource, provider_id);
     eprintln!("  type: {}", node.type_path);
@@ -759,7 +761,9 @@ fn cmd_rollback(environment: &str, target: &str, yes: bool) -> Result<()> {
         prev_hash: None,
         new_hash: Some(resolved_hash.clone()),
     };
-    let _ = s.append_event(&event);
+    if let Err(e) = s.append_event(&event) {
+        eprintln!("warning: failed to write audit event: {e}");
+    }
 
     eprintln!("rolled back to {}", resolved_hash.short());
     Ok(())

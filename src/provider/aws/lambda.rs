@@ -253,6 +253,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "description".into(),
@@ -260,6 +261,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },
@@ -273,6 +275,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "handler".into(),
@@ -280,6 +283,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: Some(serde_json::json!("index.handler")),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "memory_size".into(),
@@ -287,6 +291,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(128)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "timeout".into(),
@@ -294,6 +299,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(30)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "environment".into(),
@@ -301,6 +307,7 @@ impl AwsProvider {
                                 field_type: FieldType::Record(vec![]),
                                 required: false,
                                 default: Some(serde_json::json!({})),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "code_s3_bucket".into(),
@@ -308,6 +315,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "code_s3_key".into(),
@@ -315,6 +323,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },
@@ -328,6 +337,7 @@ impl AwsProvider {
                                 field_type: FieldType::Ref("iam.Role".into()),
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "security_group_ids".into(),
@@ -337,6 +347,7 @@ impl AwsProvider {
                                 ))),
                                 required: false,
                                 default: Some(serde_json::json!([])),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -351,6 +362,7 @@ impl AwsProvider {
                             ))),
                             required: false,
                             default: Some(serde_json::json!([])),
+                            sensitive: false,
                         }],
                     },
                 ],

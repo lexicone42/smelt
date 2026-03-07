@@ -60,12 +60,20 @@ impl AwsProvider {
                                     aws_sdk_s3::types::ServerSideEncryptionByDefault::builder()
                                         .sse_algorithm(sse)
                                         .build()
-                                        .unwrap(),
+                                        .map_err(|e| {
+                                            ProviderError::InvalidConfig(format!(
+                                                "failed to build ServerSideEncryptionByDefault: {e}"
+                                            ))
+                                        })?,
                                 )
                                 .build(),
                         )
                         .build()
-                        .unwrap(),
+                        .map_err(|e| {
+                            ProviderError::InvalidConfig(format!(
+                                "failed to build ServerSideEncryptionConfiguration: {e}"
+                            ))
+                        })?,
                 )
                 .send()
                 .await
@@ -82,9 +90,11 @@ impl AwsProvider {
                         .key(k)
                         .value(v)
                         .build()
-                        .unwrap()
+                        .map_err(|e| {
+                            ProviderError::InvalidConfig(format!("failed to build S3 Tag: {e}"))
+                        })
                 })
-                .collect();
+                .collect::<Result<Vec<_>, _>>()?;
             self.s3_client
                 .put_bucket_tagging()
                 .bucket(name)
@@ -92,7 +102,9 @@ impl AwsProvider {
                     aws_sdk_s3::types::Tagging::builder()
                         .set_tag_set(Some(tag_set))
                         .build()
-                        .unwrap(),
+                        .map_err(|e| {
+                            ProviderError::InvalidConfig(format!("failed to build Tagging: {e}"))
+                        })?,
                 )
                 .send()
                 .await
@@ -196,6 +208,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "tags".into(),
@@ -203,6 +216,7 @@ impl AwsProvider {
                                 field_type: FieldType::Record(vec![]),
                                 required: false,
                                 default: Some(serde_json::json!({})),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -215,6 +229,7 @@ impl AwsProvider {
                             field_type: FieldType::Bool,
                             required: false,
                             default: Some(serde_json::json!(false)),
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -226,6 +241,7 @@ impl AwsProvider {
                             field_type: FieldType::Enum(vec!["AES256".into(), "aws:kms".into()]),
                             required: false,
                             default: Some(serde_json::json!("AES256")),
+                            sensitive: false,
                         }],
                     },
                 ],

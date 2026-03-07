@@ -68,3 +68,6 @@ aws-sdk-sesv2 = "1"
 # AWS crypto — FIPS-validated, use instead of ring
 # We'll use this for signing state transitions and future TLS needs
 aws-lc-rs = "1"
+
+[dev-dependencies]
+proptest = "1"
