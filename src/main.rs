@@ -7,7 +7,7 @@ use clap::Parser;
 use miette::{IntoDiagnostic, Result, miette};
 
 use smelt::ast::SmeltFile;
-use smelt::cli::{Cli, Command};
+use smelt::cli::{Cli, Command, StateAction};
 use smelt::graph::{DependencyGraph, ResourceId};
 use smelt::{apply, explain, formatter, parser, plan, signing, store};
 
@@ -22,7 +22,8 @@ fn main() -> Result<()> {
             environment,
             files,
             json,
-        } => cmd_plan(&environment, &files, json),
+            live,
+        } => cmd_plan(&environment, &files, json, live),
         Command::Explain {
             resource,
             files,
@@ -34,7 +35,8 @@ fn main() -> Result<()> {
             files,
             yes,
             json,
-        } => cmd_apply(&environment, &files, yes, json),
+            refresh,
+        } => cmd_apply(&environment, &files, yes, json, refresh),
         Command::Destroy {
             environment,
             files,
@@ -71,8 +73,22 @@ fn main() -> Result<()> {
             tree_hash,
             yes,
         } => cmd_recover(&environment, &tree_hash, yes),
+        Command::Diff { env_a, env_b, json } => cmd_diff(&env_a, &env_b, json),
         Command::Envs => cmd_envs(),
         Command::History { environment } => cmd_history(&environment),
+        Command::State { action } => match action {
+            StateAction::Rm {
+                environment,
+                resource,
+                yes,
+            } => cmd_state_rm(&environment, &resource, yes),
+            StateAction::Mv {
+                environment,
+                from,
+                to,
+            } => cmd_state_mv(&environment, &from, &to),
+            StateAction::Ls { environment, json } => cmd_state_ls(&environment, json),
+        },
         Command::Debug { file } => cmd_debug(&file),
     }
 }
@@ -188,14 +204,19 @@ fn cmd_validate(files: &[std::path::PathBuf]) -> Result<()> {
     Ok(())
 }
 
-fn cmd_plan(environment: &str, files: &[std::path::PathBuf], json: bool) -> Result<()> {
+fn cmd_plan(environment: &str, files: &[std::path::PathBuf], json: bool, live: bool) -> Result<()> {
     let files = resolve_files(files)?;
     let parsed = parse_files(&files)?;
 
     let graph = DependencyGraph::build(&parsed).map_err(|e| miette!("{e}"))?;
 
-    // Load current state from store (if it exists)
-    let current_state = load_current_state(environment);
+    let current_state = if live {
+        eprintln!("reading live state from cloud providers...");
+        let registry = build_registry();
+        load_live_state(environment, &graph, &registry)?
+    } else {
+        load_current_state(environment)
+    };
 
     let p = plan::build_plan(environment, &parsed, &current_state, &graph);
 
@@ -203,6 +224,9 @@ fn cmd_plan(environment: &str, files: &[std::path::PathBuf], json: bool) -> Resu
         let json_str = serde_json::to_string_pretty(&p).into_diagnostic()?;
         println!("{json_str}");
     } else {
+        if live {
+            eprintln!();
+        }
         print!("{}", plan::format_plan(&p));
     }
 
@@ -236,6 +260,83 @@ fn load_current_state(environment: &str) -> BTreeMap<String, serde_json::Value> 
         }
     }
     state
+}
+
+/// Load live state by reading from cloud providers.
+///
+/// For each resource in the graph that has a stored provider_id,
+/// reads the current live state from the cloud. This gives an accurate
+/// picture of what actually exists, not just what smelt last stored.
+///
+/// Returns a map of resource_id -> live config JSON.
+fn load_live_state(
+    environment: &str,
+    graph: &DependencyGraph,
+    registry: &smelt::provider::ProviderRegistry,
+) -> Result<BTreeMap<String, serde_json::Value>> {
+    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+
+    let tree_hash = match s.get_ref(environment) {
+        Ok(h) => h,
+        Err(_) => return Ok(BTreeMap::new()),
+    };
+    let tree = s.get_tree(&tree_hash).map_err(|e| miette!("{e}"))?;
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    let mut state = BTreeMap::new();
+    let apply_order = graph.apply_order();
+
+    for node in &apply_order {
+        let resource_id = node.id.to_string();
+
+        // Get provider_id from stored state
+        let provider_id = match tree.children.get(&resource_id) {
+            Some(store::TreeEntry::Object(hash)) => {
+                s.get_object(hash).ok().and_then(|obj| obj.provider_id)
+            }
+            _ => None,
+        };
+
+        let Some(provider_id) = provider_id else {
+            continue;
+        };
+
+        let Some((provider, resource_type)) = registry.resolve(&node.type_path) else {
+            continue;
+        };
+
+        match rt.block_on(provider.read(&resource_type, &provider_id)) {
+            Ok(output) => {
+                state.insert(resource_id, output.state);
+            }
+            Err(smelt::provider::ProviderError::NotFound(_)) => {
+                // Resource was deleted outside smelt — show as absent
+                // so plan will detect it needs recreation
+                eprintln!(
+                    "  warning: {} [{}] not found in cloud — may need recreation",
+                    resource_id, provider_id
+                );
+            }
+            Err(e) => {
+                eprintln!(
+                    "  warning: failed to read {} [{}]: {}",
+                    resource_id, provider_id, e
+                );
+                // Fall back to stored state for this resource
+                if let Some(store::TreeEntry::Object(hash)) = tree.children.get(&resource_id)
+                    && let Ok(obj) = s.get_object(hash)
+                {
+                    state.insert(resource_id, obj.config);
+                }
+            }
+        }
+    }
+
+    Ok(state)
 }
 
 fn cmd_explain(resource: &str, files: &[std::path::PathBuf], json: bool) -> Result<()> {
@@ -327,12 +428,25 @@ fn build_registry() -> smelt::provider::ProviderRegistry {
     registry
 }
 
-fn cmd_apply(environment: &str, files: &[std::path::PathBuf], yes: bool, json: bool) -> Result<()> {
+fn cmd_apply(
+    environment: &str,
+    files: &[std::path::PathBuf],
+    yes: bool,
+    json: bool,
+    refresh: bool,
+) -> Result<()> {
     let files = resolve_files(files)?;
     let parsed = parse_files(&files)?;
 
     let graph = DependencyGraph::build(&parsed).map_err(|e| miette!("{e}"))?;
-    let current_state = load_current_state(environment);
+    let registry = build_registry();
+
+    let current_state = if refresh {
+        eprintln!("refreshing live state from cloud providers...");
+        load_live_state(environment, &graph, &registry)?
+    } else {
+        load_current_state(environment)
+    };
     let p = plan::build_plan(environment, &parsed, &current_state, &graph);
 
     if p.summary.create == 0 && p.summary.update == 0 && p.summary.delete == 0 {
@@ -353,7 +467,6 @@ fn cmd_apply(environment: &str, files: &[std::path::PathBuf], yes: bool, json: b
         }
     }
 
-    let registry = build_registry();
     let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
 
     let summary = apply::execute_plan_with_config(&p, &registry, &s, Path::new("."), &parsed);
@@ -994,6 +1107,193 @@ fn cmd_recover(environment: &str, tree_hash: &str, yes: bool) -> Result<()> {
     Ok(())
 }
 
+#[derive(serde::Serialize)]
+struct EnvDiffEntry {
+    resource_id: String,
+    diff_type: String, // "only_in_a", "only_in_b", "differs"
+    type_path_a: Option<String>,
+    type_path_b: Option<String>,
+    changes: Vec<EnvFieldDiff>,
+}
+
+#[derive(serde::Serialize)]
+struct EnvFieldDiff {
+    path: String,
+    value_a: Option<serde_json::Value>,
+    value_b: Option<serde_json::Value>,
+}
+
+/// Recursively diff two JSON values, producing field-level diffs with raw values.
+fn diff_env_json(path: &str, a: &serde_json::Value, b: &serde_json::Value) -> Vec<EnvFieldDiff> {
+    if a == b {
+        return vec![];
+    }
+
+    let mut diffs = Vec::new();
+
+    match (a, b) {
+        (serde_json::Value::Object(map_a), serde_json::Value::Object(map_b)) => {
+            for (k, v_a) in map_a {
+                let field_path = if path.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{path}.{k}")
+                };
+                match map_b.get(k) {
+                    None => diffs.push(EnvFieldDiff {
+                        path: field_path,
+                        value_a: Some(v_a.clone()),
+                        value_b: None,
+                    }),
+                    Some(v_b) => {
+                        diffs.extend(diff_env_json(&field_path, v_a, v_b));
+                    }
+                }
+            }
+            for (k, v_b) in map_b {
+                if !map_a.contains_key(k) {
+                    let field_path = if path.is_empty() {
+                        k.clone()
+                    } else {
+                        format!("{path}.{k}")
+                    };
+                    diffs.push(EnvFieldDiff {
+                        path: field_path,
+                        value_a: None,
+                        value_b: Some(v_b.clone()),
+                    });
+                }
+            }
+        }
+        _ => {
+            let display_path = if path.is_empty() { "<root>" } else { path };
+            diffs.push(EnvFieldDiff {
+                path: display_path.to_string(),
+                value_a: Some(a.clone()),
+                value_b: Some(b.clone()),
+            });
+        }
+    }
+
+    diffs
+}
+
+fn cmd_diff(env_a: &str, env_b: &str, json: bool) -> Result<()> {
+    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+
+    // Load tree for env_a
+    let tree_hash_a = s
+        .get_ref(env_a)
+        .map_err(|_| miette!("no state for environment '{env_a}'"))?;
+    let tree_a = s.get_tree(&tree_hash_a).map_err(|e| miette!("{e}"))?;
+
+    // Load tree for env_b
+    let tree_hash_b = s
+        .get_ref(env_b)
+        .map_err(|_| miette!("no state for environment '{env_b}'"))?;
+    let tree_b = s.get_tree(&tree_hash_b).map_err(|e| miette!("{e}"))?;
+
+    // Build unified set of all resource IDs
+    let mut all_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for name in tree_a.children.keys() {
+        all_ids.insert(name.clone());
+    }
+    for name in tree_b.children.keys() {
+        all_ids.insert(name.clone());
+    }
+
+    let mut entries: Vec<EnvDiffEntry> = Vec::new();
+
+    for resource_id in &all_ids {
+        let entry_a = tree_a.children.get(resource_id);
+        let entry_b = tree_b.children.get(resource_id);
+
+        match (entry_a, entry_b) {
+            (Some(store::TreeEntry::Object(hash_a)), Some(store::TreeEntry::Object(hash_b))) => {
+                // In both — compare hashes
+                if hash_a == hash_b {
+                    continue; // identical
+                }
+                // Different hashes — load objects and diff configs
+                let obj_a = s.get_object(hash_a).map_err(|e| miette!("{e}"))?;
+                let obj_b = s.get_object(hash_b).map_err(|e| miette!("{e}"))?;
+                let changes = diff_env_json("", &obj_a.config, &obj_b.config);
+                entries.push(EnvDiffEntry {
+                    resource_id: resource_id.clone(),
+                    diff_type: "differs".to_string(),
+                    type_path_a: Some(obj_a.type_path),
+                    type_path_b: Some(obj_b.type_path),
+                    changes,
+                });
+            }
+            (Some(store::TreeEntry::Object(hash_a)), None) => {
+                let obj_a = s.get_object(hash_a).ok();
+                entries.push(EnvDiffEntry {
+                    resource_id: resource_id.clone(),
+                    diff_type: "only_in_a".to_string(),
+                    type_path_a: obj_a.map(|o| o.type_path),
+                    type_path_b: None,
+                    changes: vec![],
+                });
+            }
+            (None, Some(store::TreeEntry::Object(hash_b))) => {
+                let obj_b = s.get_object(hash_b).ok();
+                entries.push(EnvDiffEntry {
+                    resource_id: resource_id.clone(),
+                    diff_type: "only_in_b".to_string(),
+                    type_path_a: None,
+                    type_path_b: obj_b.map(|o| o.type_path),
+                    changes: vec![],
+                });
+            }
+            _ => {
+                // Both are trees or mixed — skip for now
+            }
+        }
+    }
+
+    if json {
+        let json_str = serde_json::to_string_pretty(&entries).into_diagnostic()?;
+        println!("{json_str}");
+    } else if entries.is_empty() {
+        eprintln!("environments '{}' and '{}' are identical", env_a, env_b);
+    } else {
+        eprintln!("Comparing '{}' vs '{}':\n", env_a, env_b);
+        for entry in &entries {
+            match entry.diff_type.as_str() {
+                "only_in_a" => {
+                    eprintln!("  - {} : only in {}", entry.resource_id, env_a);
+                }
+                "only_in_b" => {
+                    eprintln!("  + {} : only in {}", entry.resource_id, env_b);
+                }
+                "differs" => {
+                    eprintln!("  ~ {} : differs", entry.resource_id);
+                    for change in &entry.changes {
+                        let val_a = change
+                            .value_a
+                            .as_ref()
+                            .map(format_json_compact)
+                            .unwrap_or_else(|| "<absent>".to_string());
+                        let val_b = change
+                            .value_b
+                            .as_ref()
+                            .map(format_json_compact)
+                            .unwrap_or_else(|| "<absent>".to_string());
+                        eprintln!(
+                            "      {} : {} ({}) vs {} ({})",
+                            change.path, val_a, env_a, val_b, env_b
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn cmd_envs() -> Result<()> {
     let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
     let refs = s.list_refs().map_err(|e| miette!("{e}"))?;
@@ -1041,6 +1341,228 @@ fn cmd_history(environment: &str) -> Result<()> {
             event.actor,
             hash_str,
         );
+    }
+
+    Ok(())
+}
+
+fn cmd_state_rm(environment: &str, resource: &str, yes: bool) -> Result<()> {
+    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+
+    let tree_hash = s
+        .get_ref(environment)
+        .map_err(|_| miette!("no state for environment '{environment}'"))?;
+    let mut tree = s.get_tree(&tree_hash).map_err(|e| miette!("{e}"))?;
+
+    let entry = tree.children.get(resource).ok_or_else(|| {
+        miette!(
+            "resource '{}' not found in environment '{}'",
+            resource,
+            environment
+        )
+    })?;
+
+    // Show what will be removed
+    let (type_path, provider_id, old_hash) = match entry {
+        store::TreeEntry::Object(hash) => {
+            let obj = s.get_object(hash).map_err(|e| miette!("{e}"))?;
+            (
+                obj.type_path,
+                obj.provider_id.unwrap_or_else(|| "<none>".to_string()),
+                hash.clone(),
+            )
+        }
+        store::TreeEntry::Tree(hash) => {
+            ("<subtree>".to_string(), "<none>".to_string(), hash.clone())
+        }
+    };
+
+    eprintln!("Will remove from state:");
+    eprintln!("  resource:    {resource}");
+    eprintln!("  type:        {type_path}");
+    eprintln!("  provider_id: {provider_id}");
+    eprintln!();
+    eprintln!(
+        "WARNING: This removes the resource from smelt's state only. \
+         The cloud resource will NOT be deleted."
+    );
+
+    if !yes {
+        eprint!("\nProceed? [y/N] ");
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).into_diagnostic()?;
+        if !input.trim().eq_ignore_ascii_case("y") {
+            eprintln!("cancelled");
+            return Ok(());
+        }
+    }
+
+    tree.children.remove(resource);
+    let new_tree_hash = s.put_tree(&tree).map_err(|e| miette!("{e}"))?;
+    s.set_ref(environment, &new_tree_hash)
+        .map_err(|e| miette!("{e}"))?;
+
+    // Record audit event
+    let event = store::Event {
+        seq: s.next_seq().map_err(|e| miette!("{e}"))?,
+        timestamp: chrono::Utc::now(),
+        event_type: store::EventType::ResourceDeleted,
+        resource_id: resource.to_string(),
+        actor: "state-rm".to_string(),
+        intent: Some("removed from state (cloud resource untouched)".to_string()),
+        prev_hash: Some(old_hash),
+        new_hash: None,
+    };
+    if let Err(e) = s.append_event(&event) {
+        eprintln!("warning: failed to write audit event: {e}");
+    }
+
+    eprintln!("removed '{}' from environment '{}'", resource, environment);
+    Ok(())
+}
+
+fn cmd_state_mv(environment: &str, from: &str, to: &str) -> Result<()> {
+    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+
+    let tree_hash = s
+        .get_ref(environment)
+        .map_err(|_| miette!("no state for environment '{environment}'"))?;
+    let mut tree = s.get_tree(&tree_hash).map_err(|e| miette!("{e}"))?;
+
+    // Check `from` exists
+    let entry = tree
+        .children
+        .get(from)
+        .ok_or_else(|| {
+            miette!(
+                "resource '{}' not found in environment '{}'",
+                from,
+                environment
+            )
+        })?
+        .clone();
+
+    // Check `to` doesn't exist
+    if tree.children.contains_key(to) {
+        return Err(miette!(
+            "resource '{}' already exists in environment '{}'",
+            to,
+            environment
+        ));
+    }
+
+    // Get the object, update resource_id, put new object
+    let new_entry = match &entry {
+        store::TreeEntry::Object(hash) => {
+            let mut obj = s.get_object(hash).map_err(|e| miette!("{e}"))?;
+            let old_hash = hash.clone();
+            obj.resource_id = to.to_string();
+            let new_hash = s.put_object(&obj).map_err(|e| miette!("{e}"))?;
+
+            // Record audit event
+            let event = store::Event {
+                seq: s.next_seq().map_err(|e| miette!("{e}"))?,
+                timestamp: chrono::Utc::now(),
+                event_type: store::EventType::ResourceUpdated,
+                resource_id: from.to_string(),
+                actor: "state-mv".to_string(),
+                intent: Some(format!("renamed to {to}")),
+                prev_hash: Some(old_hash),
+                new_hash: Some(new_hash.clone()),
+            };
+            if let Err(e) = s.append_event(&event) {
+                eprintln!("warning: failed to write audit event: {e}");
+            }
+
+            store::TreeEntry::Object(new_hash)
+        }
+        store::TreeEntry::Tree(hash) => store::TreeEntry::Tree(hash.clone()),
+    };
+
+    // Remove old entry, insert new entry
+    tree.children.remove(from);
+    tree.children.insert(to.to_string(), new_entry);
+
+    let new_tree_hash = s.put_tree(&tree).map_err(|e| miette!("{e}"))?;
+    s.set_ref(environment, &new_tree_hash)
+        .map_err(|e| miette!("{e}"))?;
+
+    eprintln!(
+        "moved '{}' -> '{}' in environment '{}'",
+        from, to, environment
+    );
+    Ok(())
+}
+
+fn cmd_state_ls(environment: &str, json: bool) -> Result<()> {
+    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+
+    let tree_hash = s
+        .get_ref(environment)
+        .map_err(|_| miette!("no state for environment '{environment}'"))?;
+    let tree = s.get_tree(&tree_hash).map_err(|e| miette!("{e}"))?;
+
+    if tree.children.is_empty() {
+        if json {
+            println!("[]");
+        } else {
+            eprintln!("no resources in environment '{environment}'");
+        }
+        return Ok(());
+    }
+
+    #[derive(serde::Serialize)]
+    struct StateEntry {
+        resource_id: String,
+        type_path: String,
+        provider_id: Option<String>,
+        hash: String,
+    }
+
+    let mut entries: Vec<StateEntry> = Vec::new();
+
+    for (name, entry) in &tree.children {
+        match entry {
+            store::TreeEntry::Object(hash) => {
+                if let Ok(obj) = s.get_object(hash) {
+                    entries.push(StateEntry {
+                        resource_id: obj.resource_id,
+                        type_path: obj.type_path,
+                        provider_id: obj.provider_id,
+                        hash: hash.short().to_string(),
+                    });
+                }
+            }
+            store::TreeEntry::Tree(hash) => {
+                entries.push(StateEntry {
+                    resource_id: name.clone(),
+                    type_path: "<subtree>".to_string(),
+                    provider_id: None,
+                    hash: hash.short().to_string(),
+                });
+            }
+        }
+    }
+
+    entries.sort_by(|a, b| a.resource_id.cmp(&b.resource_id));
+
+    if json {
+        let json_str = serde_json::to_string_pretty(&entries).into_diagnostic()?;
+        println!("{json_str}");
+    } else {
+        eprintln!("Resources in environment '{environment}':\n");
+        for entry in &entries {
+            let pid = entry
+                .provider_id
+                .as_deref()
+                .map(|id| format!(" [{id}]"))
+                .unwrap_or_default();
+            eprintln!(
+                "  {} : {}{} ({})",
+                entry.resource_id, entry.type_path, pid, entry.hash
+            );
+        }
+        eprintln!("\n{} resource(s)", entries.len());
     }
 
     Ok(())

@@ -30,6 +30,9 @@ pub enum ApplyOutcome {
     },
     Failed {
         error: String,
+        /// Machine-readable recovery hint for AI consumers
+        #[serde(skip_serializing_if = "Option::is_none")]
+        suggested_action: Option<String>,
     },
     Skipped {
         reason: String,
@@ -324,6 +327,10 @@ fn apply_create(
             action: ActionType::Create,
             outcome: ApplyOutcome::Failed {
                 error: format!("no provider for type '{}'", action.type_path),
+                suggested_action: Some(
+                    "check that the provider is registered and the type_path is correct"
+                        .to_string(),
+                ),
             },
         };
     };
@@ -336,6 +343,9 @@ fn apply_create(
             action: ActionType::Create,
             outcome: ApplyOutcome::Failed {
                 error: format!("config validation failed: {}", validation_errors.join("; ")),
+                suggested_action: Some(
+                    "fix the config fields listed above and re-run apply".to_string(),
+                ),
             },
         };
     }
@@ -383,6 +393,9 @@ fn apply_create(
                     action: ActionType::Create,
                     outcome: ApplyOutcome::Failed {
                         error: format!("failed to store state: {e}"),
+                        suggested_action: Some(
+                            "check disk space and permissions on .smelt/ directory".to_string(),
+                        ),
                     },
                 },
             }
@@ -392,6 +405,9 @@ fn apply_create(
             action: ActionType::Create,
             outcome: ApplyOutcome::Failed {
                 error: format!("provider error: {e}"),
+                suggested_action: Some(
+                    "check cloud permissions and resource limits, then retry".to_string(),
+                ),
             },
         },
     }
@@ -413,6 +429,10 @@ fn apply_update(
             action: ActionType::Update,
             outcome: ApplyOutcome::Failed {
                 error: format!("no provider for type '{}'", action.type_path),
+                suggested_action: Some(
+                    "check that the provider is registered and the type_path is correct"
+                        .to_string(),
+                ),
             },
         };
     };
@@ -427,6 +447,10 @@ fn apply_update(
                 action: ActionType::Update,
                 outcome: ApplyOutcome::Failed {
                     error: "no provider_id found for existing resource".to_string(),
+                    suggested_action: Some(
+                        "the resource may not have been created yet — try `smelt apply` first"
+                            .to_string(),
+                    ),
                 },
             };
         }
@@ -484,6 +508,9 @@ fn apply_update(
                     action: ActionType::Update,
                     outcome: ApplyOutcome::Failed {
                         error: format!("failed to store state: {e}"),
+                        suggested_action: Some(
+                            "check disk space and permissions on .smelt/ directory".to_string(),
+                        ),
                     },
                 },
             }
@@ -501,6 +528,7 @@ fn apply_update(
                     action: ActionType::Update,
                     outcome: ApplyOutcome::Failed {
                         error: format!("replacement delete failed: {e}"),
+                        suggested_action: Some("resource may be in an inconsistent state — use `smelt recover` with the partial tree hash".to_string()),
                     },
                 };
             }
@@ -549,6 +577,7 @@ fn apply_update(
                             action: ActionType::Update,
                             outcome: ApplyOutcome::Failed {
                                 error: format!("failed to store state after replacement: {e}"),
+                                suggested_action: Some("check disk space and permissions on .smelt/ directory".to_string()),
                             },
                         },
                     }
@@ -558,6 +587,7 @@ fn apply_update(
                     action: ActionType::Update,
                     outcome: ApplyOutcome::Failed {
                         error: format!("replacement create failed: {e}"),
+                        suggested_action: Some("resource may be in an inconsistent state — use `smelt recover` with the partial tree hash".to_string()),
                     },
                 },
             }
@@ -567,6 +597,9 @@ fn apply_update(
             action: ActionType::Update,
             outcome: ApplyOutcome::Failed {
                 error: format!("provider error: {e}"),
+                suggested_action: Some(
+                    "verify the resource still exists with `smelt drift`, then retry".to_string(),
+                ),
             },
         },
     }
@@ -586,6 +619,10 @@ fn apply_delete(
             action: ActionType::Delete,
             outcome: ApplyOutcome::Failed {
                 error: format!("no provider for type '{}'", action.type_path),
+                suggested_action: Some(
+                    "check that the provider is registered and the type_path is correct"
+                        .to_string(),
+                ),
             },
         };
     };
@@ -599,6 +636,10 @@ fn apply_delete(
                 action: ActionType::Delete,
                 outcome: ApplyOutcome::Failed {
                     error: "no provider_id found for resource to delete".to_string(),
+                    suggested_action: Some(
+                        "the resource may not have been created yet — try `smelt apply` first"
+                            .to_string(),
+                    ),
                 },
             };
         }
@@ -622,6 +663,10 @@ fn apply_delete(
             action: ActionType::Delete,
             outcome: ApplyOutcome::Failed {
                 error: format!("provider error: {e}"),
+                suggested_action: Some(
+                    "verify the resource exists, or use `smelt state rm` to remove it from state"
+                        .to_string(),
+                ),
             },
         },
     }
@@ -883,11 +928,20 @@ pub fn format_summary(summary: &ApplySummary) -> String {
                 .as_deref()
                 .map(|id| format!(" [{id}]"))
                 .unwrap_or_default(),
-            ApplyOutcome::Failed { error } => format!(" FAILED: {error}"),
+            ApplyOutcome::Failed { error, .. } => format!(" FAILED: {error}"),
             ApplyOutcome::Skipped { reason } => format!(" SKIPPED: {reason}"),
         };
 
         out.push_str(&format!("  {symbol} {}{status}\n", result.resource_id));
+
+        // Show suggested recovery action for failed resources
+        if let ApplyOutcome::Failed {
+            suggested_action: Some(action),
+            ..
+        } = &result.outcome
+        {
+            out.push_str(&format!("      → {action}\n"));
+        }
 
         // Show resource outputs (IPs, endpoints, ARNs, etc.)
         if let ApplyOutcome::Success {
@@ -1018,6 +1072,7 @@ mod tests {
                     action: ActionType::Create,
                     outcome: ApplyOutcome::Failed {
                         error: "timeout".to_string(),
+                        suggested_action: None,
                     },
                 },
             ],

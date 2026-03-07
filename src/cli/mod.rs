@@ -52,6 +52,10 @@ pub enum Command {
         /// Output as JSON (for AI consumption)
         #[arg(long)]
         json: bool,
+
+        /// Read live state from cloud providers instead of stored state
+        #[arg(long)]
+        live: bool,
     },
 
     /// Explain a resource — show intent, dependencies, blast radius
@@ -103,6 +107,10 @@ pub enum Command {
         /// Output results as JSON (for AI consumption)
         #[arg(long)]
         json: bool,
+
+        /// Read live state from cloud before planning (catches manual changes)
+        #[arg(long)]
+        refresh: bool,
     },
 
     /// Destroy all resources in an environment
@@ -206,13 +214,62 @@ pub enum Command {
         yes: bool,
     },
 
+    /// Compare resources between two environments
+    Diff {
+        /// First environment (base)
+        env_a: String,
+        /// Second environment (to compare against)
+        env_b: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// List all environments with state
     Envs,
+
+    /// Manage stored state directly
+    State {
+        #[command(subcommand)]
+        action: StateAction,
+    },
 
     /// Parse a .smelt file and dump the AST as JSON
     Debug {
         /// File to parse
         #[arg(value_name = "FILE")]
         file: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum StateAction {
+    /// Remove a resource from stored state (does NOT delete the cloud resource)
+    Rm {
+        /// Environment name
+        environment: String,
+        /// Resource identifier (kind.name, e.g., "vpc.main")
+        resource: String,
+        /// Skip confirmation prompt
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Move/rename a resource in stored state
+    Mv {
+        /// Environment name
+        environment: String,
+        /// Current resource identifier
+        from: String,
+        /// New resource identifier
+        to: String,
+    },
+    /// List all resources in stored state with their provider IDs
+    Ls {
+        /// Environment name
+        #[arg(default_value = "default")]
+        environment: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
 }
