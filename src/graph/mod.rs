@@ -162,6 +162,36 @@ impl DependencyGraph {
             .collect()
     }
 
+    /// Get the topological apply order with tier depths for parallel execution.
+    ///
+    /// Returns `(node, tier)` pairs where `tier` is the longest path from any root.
+    /// Resources at the same tier have no mutual dependencies and can run in parallel.
+    pub fn tiered_apply_order(&self) -> Vec<(&ResourceNode, usize)> {
+        let sorted = toposort(&self.graph, None).expect("already verified acyclic");
+        let mut depths: HashMap<NodeIndex, usize> = HashMap::new();
+
+        // Process in reverse topological order (dependencies before dependents)
+        for &idx in sorted.iter().rev() {
+            // Tier = max(tier of all dependencies) + 1, or 0 if no dependencies
+            let max_dep_tier = self
+                .graph
+                .edges_directed(idx, petgraph::Direction::Outgoing)
+                .map(|e| depths.get(&e.target()).copied().unwrap_or(0))
+                .max();
+            let tier = match max_dep_tier {
+                Some(t) => t + 1,
+                None => 0,
+            };
+            depths.insert(idx, tier);
+        }
+
+        sorted
+            .into_iter()
+            .rev()
+            .map(|idx| (&self.graph[idx], depths[&idx]))
+            .collect()
+    }
+
     /// Get the topological order for destroying resources (dependents first).
     pub fn destroy_order(&self) -> Vec<&ResourceNode> {
         let sorted = toposort(&self.graph, None).expect("already verified acyclic");
@@ -358,6 +388,48 @@ mod tests {
 
         // Changing VPC affects both subnets and the instance
         assert_eq!(blast.len(), 3);
+    }
+
+    #[test]
+    fn tiered_order_groups_independent_resources() {
+        let file = parse_file(
+            r#"
+            resource vpc "main" : aws.ec2.Vpc {
+                network { cidr_block = "10.0.0.0/16" }
+            }
+            resource subnet "a" : aws.ec2.Subnet {
+                needs vpc.main -> vpc_id
+                network { cidr_block = "10.0.1.0/24" }
+            }
+            resource subnet "b" : aws.ec2.Subnet {
+                needs vpc.main -> vpc_id
+                network { cidr_block = "10.0.2.0/24" }
+            }
+            resource instance "web" : aws.ec2.Instance {
+                needs subnet.a -> subnet_id
+                compute { instance_type = "t3.micro" }
+            }
+        "#,
+        );
+
+        let graph = DependencyGraph::build(&[file]).unwrap();
+        let tiered = graph.tiered_apply_order();
+
+        let tier_of = |kind: &str, name: &str| -> usize {
+            tiered
+                .iter()
+                .find(|(n, _)| n.id == ResourceId::new(kind, name))
+                .unwrap()
+                .1
+        };
+
+        // VPC is tier 0 (no dependencies)
+        assert_eq!(tier_of("vpc", "main"), 0);
+        // Both subnets depend only on VPC — same tier
+        assert_eq!(tier_of("subnet", "a"), 1);
+        assert_eq!(tier_of("subnet", "b"), 1);
+        // Instance depends on subnet.a — tier 2
+        assert_eq!(tier_of("instance", "web"), 2);
     }
 
     #[test]

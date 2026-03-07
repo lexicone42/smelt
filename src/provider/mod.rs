@@ -2,6 +2,7 @@ pub mod aws;
 pub mod cloudflare;
 pub mod gcp;
 pub mod google_workspace;
+pub mod mock;
 
 use std::collections::HashMap;
 use std::future::Future;

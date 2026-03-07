@@ -85,13 +85,13 @@ pub fn build_plan(
     // Find layer overrides for this environment
     let layer = find_layer(environment, desired_files);
 
-    let apply_order = graph.apply_order();
+    let tiered_order = graph.tiered_apply_order();
     let mut actions = Vec::new();
 
     // Track which current resources are accounted for
     let mut seen_current: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    for (order, node) in apply_order.iter().enumerate() {
+    for &(node, order) in &tiered_order {
         let resource_id = node.id.to_string();
         seen_current.insert(resource_id.clone());
 
