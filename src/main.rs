@@ -33,7 +33,8 @@ fn main() -> Result<()> {
             environment,
             files,
             yes,
-        } => cmd_apply(&environment, &files, yes),
+            json,
+        } => cmd_apply(&environment, &files, yes, json),
         Command::Destroy {
             environment,
             files,
@@ -65,6 +66,11 @@ fn main() -> Result<()> {
             resource,
             json,
         } => cmd_show(&environment, &resource, json),
+        Command::Recover {
+            environment,
+            tree_hash,
+            yes,
+        } => cmd_recover(&environment, &tree_hash, yes),
         Command::Envs => cmd_envs(),
         Command::History { environment } => cmd_history(&environment),
         Command::Debug { file } => cmd_debug(&file),
@@ -321,7 +327,7 @@ fn build_registry() -> smelt::provider::ProviderRegistry {
     registry
 }
 
-fn cmd_apply(environment: &str, files: &[std::path::PathBuf], yes: bool) -> Result<()> {
+fn cmd_apply(environment: &str, files: &[std::path::PathBuf], yes: bool, json: bool) -> Result<()> {
     let files = resolve_files(files)?;
     let parsed = parse_files(&files)?;
 
@@ -351,7 +357,13 @@ fn cmd_apply(environment: &str, files: &[std::path::PathBuf], yes: bool) -> Resu
     let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
 
     let summary = apply::execute_plan_with_config(&p, &registry, &s, Path::new("."), &parsed);
-    eprint!("{}", apply::format_summary(&summary));
+
+    if json {
+        let json_str = serde_json::to_string_pretty(&summary).into_diagnostic()?;
+        println!("{json_str}");
+    } else {
+        eprint!("{}", apply::format_summary(&summary));
+    }
 
     if summary.failed > 0 {
         return Err(miette!("{} resource(s) failed to apply", summary.failed));
@@ -363,20 +375,78 @@ fn cmd_apply(environment: &str, files: &[std::path::PathBuf], yes: bool) -> Resu
 fn cmd_destroy(environment: &str, files: &[std::path::PathBuf], yes: bool) -> Result<()> {
     let files = resolve_files(files)?;
     let parsed = parse_files(&files)?;
-
     let graph = DependencyGraph::build(&parsed).map_err(|e| miette!("{e}"))?;
 
-    // Build a plan where all resources are marked for deletion
-    let mut all_state = BTreeMap::new();
-    let destroy_order = graph.destroy_order();
-    for node in &destroy_order {
-        // Mark each resource as existing so plan sees them as deletions
-        all_state.insert(node.id.to_string(), serde_json::json!({}));
+    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+
+    // Load the stored state tree for this environment
+    let tree_hash = match s.get_ref(environment) {
+        Ok(h) => h,
+        Err(_) => {
+            eprintln!("no stored state for environment '{environment}' — nothing to destroy");
+            return Ok(());
+        }
+    };
+    let tree = s.get_tree(&tree_hash).map_err(|e| miette!("{e}"))?;
+
+    if tree.children.is_empty() {
+        eprintln!("nothing to destroy");
+        return Ok(());
     }
 
-    // Build plan with empty desired state (no files) to get all deletions
-    let empty_files: Vec<smelt::ast::SmeltFile> = vec![];
-    let p = plan::build_plan(environment, &empty_files, &all_state, &graph);
+    // Build delete actions from stored state in reverse dependency order
+    let destroy_order = graph.destroy_order();
+    let mut actions = Vec::new();
+    let mut order = 0;
+
+    // First: resources that are in the graph (preserving destroy ordering)
+    let mut seen = std::collections::HashSet::new();
+    for node in &destroy_order {
+        let resource_id = node.id.to_string();
+        if tree.children.contains_key(&resource_id) {
+            actions.push(plan::PlannedAction {
+                resource_id: resource_id.clone(),
+                type_path: node.type_path.clone(),
+                action: plan::ActionType::Delete,
+                intent: node.intent.clone(),
+                changes: vec![],
+                order,
+                forces_replacement: false,
+            });
+            order += 1;
+            seen.insert(resource_id);
+        }
+    }
+
+    // Then: orphaned resources (in stored state but not in the graph)
+    for (resource_id, entry) in &tree.children {
+        if !seen.contains(resource_id)
+            && let store::TreeEntry::Object(hash) = entry
+            && let Ok(obj) = s.get_object(hash)
+        {
+            actions.push(plan::PlannedAction {
+                resource_id: resource_id.clone(),
+                type_path: obj.type_path,
+                action: plan::ActionType::Delete,
+                intent: obj.intent,
+                changes: vec![],
+                order,
+                forces_replacement: false,
+            });
+            order += 1;
+        }
+    }
+
+    let p = plan::Plan {
+        environment: environment.to_string(),
+        actions,
+        summary: plan::PlanSummary {
+            create: 0,
+            update: 0,
+            delete: order,
+            unchanged: 0,
+        },
+    };
 
     if p.summary.delete == 0 {
         eprintln!("nothing to destroy");
@@ -399,8 +469,6 @@ fn cmd_destroy(environment: &str, files: &[std::path::PathBuf], yes: bool) -> Re
     }
 
     let registry = build_registry();
-    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
-
     let summary = apply::execute_plan(&p, &registry, &s, Path::new("."));
     eprint!("{}", apply::format_summary(&summary));
 
@@ -593,6 +661,11 @@ fn cmd_import(
         Err(_) => store::TreeNode::new(),
     };
 
+    let stored_outputs = if output.outputs.is_empty() {
+        None
+    } else {
+        Some(output.outputs)
+    };
     let state = store::ResourceState {
         resource_id: resource.to_string(),
         type_path: node.type_path.clone(),
@@ -600,6 +673,7 @@ fn cmd_import(
         actual: Some(output.state),
         provider_id: Some(provider_id.to_string()),
         intent: node.intent.clone(),
+        outputs: stored_outputs,
     };
 
     let hash = s.put_object(&state).map_err(|e| miette!("{e}"))?;
@@ -830,8 +904,93 @@ fn cmd_show(environment: &str, resource: &str, json: bool) -> Result<()> {
                 eprintln!("  {line}");
             }
         }
+
+        if let Some(outputs) = &obj.outputs {
+            eprintln!();
+            eprintln!("Outputs:");
+            let mut keys: Vec<_> = outputs.keys().collect();
+            keys.sort();
+            for key in keys {
+                let val = &outputs[key];
+                let val_str = match val {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                eprintln!("  {key} = {val_str}");
+            }
+        }
     }
 
+    Ok(())
+}
+
+fn cmd_recover(environment: &str, tree_hash: &str, yes: bool) -> Result<()> {
+    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+
+    // Resolve by full hash or short-hash prefix
+    let target_hash = store::ContentHash(tree_hash.to_string());
+    let resolved_hash = if s.get_tree(&target_hash).is_ok() {
+        target_hash
+    } else {
+        find_tree_by_prefix(&s, tree_hash)?
+    };
+
+    let tree = s.get_tree(&resolved_hash).map_err(|e| miette!("{e}"))?;
+
+    eprintln!(
+        "Recover environment '{}' to partial tree {}",
+        environment,
+        resolved_hash.short()
+    );
+    eprintln!("  {} resource(s) in tree", tree.children.len());
+
+    // Show what's in the tree
+    for (name, entry) in &tree.children {
+        if let store::TreeEntry::Object(hash) = entry
+            && let Ok(obj) = s.get_object(hash)
+        {
+            let pid = obj
+                .provider_id
+                .as_deref()
+                .map(|id| format!(" [{id}]"))
+                .unwrap_or_default();
+            eprintln!("    {} : {}{}", name, obj.type_path, pid);
+        }
+    }
+
+    if !yes {
+        eprint!("\nAdopt this tree as environment '{environment}'? [y/N] ");
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).into_diagnostic()?;
+        if !input.trim().eq_ignore_ascii_case("y") {
+            eprintln!("recover cancelled");
+            return Ok(());
+        }
+    }
+
+    s.set_ref(environment, &resolved_hash)
+        .map_err(|e| miette!("{e}"))?;
+
+    // Record recovery event
+    let event = store::Event {
+        seq: s.next_seq().map_err(|e| miette!("{e}"))?,
+        timestamp: chrono::Utc::now(),
+        event_type: store::EventType::Rollback,
+        resource_id: format!("env:{environment}"),
+        actor: "recover".to_string(),
+        intent: Some(format!("recovered partial tree {}", resolved_hash.short())),
+        prev_hash: None,
+        new_hash: Some(resolved_hash.clone()),
+    };
+    if let Err(e) = s.append_event(&event) {
+        eprintln!("warning: failed to write audit event: {e}");
+    }
+
+    eprintln!(
+        "recovered — environment '{}' now points to {}",
+        environment,
+        resolved_hash.short()
+    );
     Ok(())
 }
 

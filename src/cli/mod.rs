@@ -99,6 +99,10 @@ pub enum Command {
         /// Skip confirmation prompt
         #[arg(long)]
         yes: bool,
+
+        /// Output results as JSON (for AI consumption)
+        #[arg(long)]
+        json: bool,
     },
 
     /// Destroy all resources in an environment
@@ -166,7 +170,6 @@ pub enum Command {
     /// Rollback to a previous state
     Rollback {
         /// Environment name
-        #[arg(default_value = "default")]
         environment: String,
 
         /// Tree hash to rollback to (from history output)
@@ -179,8 +182,7 @@ pub enum Command {
 
     /// Show detailed state for a specific resource
     Show {
-        /// Environment name
-        #[arg(default_value = "default")]
+        /// Environment name (e.g., "production")
         environment: String,
 
         /// Resource identifier (kind.name, e.g., "vpc.main")
@@ -189,6 +191,19 @@ pub enum Command {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+    },
+
+    /// Recover from a partial apply failure by adopting an orphaned tree
+    Recover {
+        /// Environment name
+        environment: String,
+
+        /// Tree hash to recover (from the partial failure message)
+        tree_hash: String,
+
+        /// Skip confirmation prompt
+        #[arg(long)]
+        yes: bool,
     },
 
     /// List all environments with state

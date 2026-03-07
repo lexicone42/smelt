@@ -58,6 +58,9 @@ pub struct ResourceState {
     pub provider_id: Option<String>,
     /// Intent annotation
     pub intent: Option<String>,
+    /// Provider outputs (endpoints, IPs, ARNs, etc.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outputs: Option<std::collections::HashMap<String, serde_json::Value>>,
 }
 
 /// A Merkle tree node representing a group of resources.
@@ -408,6 +411,7 @@ mod tests {
             actual: None,
             provider_id: None,
             intent: Some("Primary VPC".to_string()),
+            outputs: None,
         };
 
         let hash = store.put_object(&state).unwrap();
@@ -427,6 +431,7 @@ mod tests {
             actual: None,
             provider_id: None,
             intent: None,
+            outputs: None,
         };
 
         let hash1 = store.put_object(&state).unwrap();
@@ -446,6 +451,7 @@ mod tests {
             actual: None,
             provider_id: None,
             intent: None,
+            outputs: None,
         };
         let obj_hash = store.put_object(&state).unwrap();
         tree.children

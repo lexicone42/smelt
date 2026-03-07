@@ -12,18 +12,21 @@ use crate::store::{ContentHash, Event, EventType, ResourceState, Store, TreeEntr
 type ProviderIdMap = HashMap<String, String>;
 
 /// Result of applying a single resource action.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub struct ApplyResult {
     pub resource_id: String,
     pub action: ActionType,
     pub outcome: ApplyOutcome,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub enum ApplyOutcome {
     Success {
         provider_id: Option<String>,
         new_hash: Option<ContentHash>,
+        /// Provider outputs (endpoints, IPs, ARNs, etc.)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        outputs: Option<std::collections::HashMap<String, serde_json::Value>>,
     },
     Failed {
         error: String,
@@ -34,7 +37,7 @@ pub enum ApplyOutcome {
 }
 
 /// Summary of an apply operation.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub struct ApplySummary {
     pub environment: String,
     pub results: Vec<ApplyResult>,
@@ -116,6 +119,12 @@ pub fn execute_plan_with_config(
     ordered_actions.sort_by_key(|a| a.order);
 
     for action in &ordered_actions {
+        // Collect binding key names for this resource (used to strip from stored config)
+        let binding_keys: Vec<String> = dep_map
+            .get(&action.resource_id)
+            .map(|deps| deps.iter().map(|d| d.binding.clone()).collect())
+            .unwrap_or_default();
+
         let result = match action.action {
             ActionType::Create => {
                 let mut config = config_map
@@ -132,6 +141,7 @@ pub fn execute_plan_with_config(
                     &rt,
                     seq,
                     &config,
+                    &binding_keys,
                 )
             }
             ActionType::Update => {
@@ -148,6 +158,7 @@ pub fn execute_plan_with_config(
                     &rt,
                     seq,
                     &config,
+                    &binding_keys,
                 )
             }
             ActionType::Delete => {
@@ -305,6 +316,7 @@ fn apply_create(
     rt: &tokio::runtime::Runtime,
     _seq: u64,
     config: &serde_json::Value,
+    binding_keys: &[String],
 ) -> ApplyResult {
     let Some((provider, resource_type)) = registry.resolve(&action.type_path) else {
         return ApplyResult {
@@ -330,7 +342,13 @@ fn apply_create(
 
     match rt.block_on(provider.create(&resource_type, config)) {
         Ok(output) => {
-            let redacted_config = redact_sensitive(config, provider, &resource_type);
+            let clean_config = strip_binding_keys(config, binding_keys);
+            let redacted_config = redact_sensitive(&clean_config, provider, &resource_type);
+            let stored_outputs = if output.outputs.is_empty() {
+                None
+            } else {
+                Some(output.outputs.clone())
+            };
             let state = ResourceState {
                 resource_id: action.resource_id.clone(),
                 type_path: action.type_path.clone(),
@@ -338,18 +356,25 @@ fn apply_create(
                 actual: Some(output.state),
                 provider_id: Some(output.provider_id.clone()),
                 intent: action.intent.clone(),
+                outputs: stored_outputs,
             };
 
             match store.put_object(&state) {
                 Ok(hash) => {
                     tree.children
                         .insert(action.resource_id.clone(), TreeEntry::Object(hash.clone()));
+                    let outputs = if output.outputs.is_empty() {
+                        None
+                    } else {
+                        Some(output.outputs)
+                    };
                     ApplyResult {
                         resource_id: action.resource_id.clone(),
                         action: ActionType::Create,
                         outcome: ApplyOutcome::Success {
                             provider_id: Some(output.provider_id),
                             new_hash: Some(hash),
+                            outputs,
                         },
                     }
                 }
@@ -380,6 +405,7 @@ fn apply_update(
     rt: &tokio::runtime::Runtime,
     _seq: u64,
     new_config: &serde_json::Value,
+    binding_keys: &[String],
 ) -> ApplyResult {
     let Some((provider, resource_type)) = registry.resolve(&action.type_path) else {
         return ApplyResult {
@@ -417,7 +443,13 @@ fn apply_update(
 
     match rt.block_on(provider.update(&resource_type, &provider_id, &old_config, new_config)) {
         Ok(output) => {
-            let redacted_config = redact_sensitive(new_config, provider, &resource_type);
+            let clean_config = strip_binding_keys(new_config, binding_keys);
+            let redacted_config = redact_sensitive(&clean_config, provider, &resource_type);
+            let stored_outputs = if output.outputs.is_empty() {
+                None
+            } else {
+                Some(output.outputs.clone())
+            };
             let state = ResourceState {
                 resource_id: action.resource_id.clone(),
                 type_path: action.type_path.clone(),
@@ -425,18 +457,25 @@ fn apply_update(
                 actual: Some(output.state),
                 provider_id: Some(output.provider_id.clone()),
                 intent: action.intent.clone(),
+                outputs: stored_outputs,
             };
 
             match store.put_object(&state) {
                 Ok(hash) => {
                     tree.children
                         .insert(action.resource_id.clone(), TreeEntry::Object(hash.clone()));
+                    let outputs = if output.outputs.is_empty() {
+                        None
+                    } else {
+                        Some(output.outputs)
+                    };
                     ApplyResult {
                         resource_id: action.resource_id.clone(),
                         action: ActionType::Update,
                         outcome: ApplyOutcome::Success {
                             provider_id: Some(output.provider_id),
                             new_hash: Some(hash),
+                            outputs,
                         },
                     }
                 }
@@ -468,7 +507,13 @@ fn apply_update(
             // Create with new config
             match rt.block_on(provider.create(&resource_type, new_config)) {
                 Ok(output) => {
-                    let redacted_config = redact_sensitive(new_config, provider, &resource_type);
+                    let clean_config = strip_binding_keys(new_config, binding_keys);
+                    let redacted_config = redact_sensitive(&clean_config, provider, &resource_type);
+                    let stored_outputs = if output.outputs.is_empty() {
+                        None
+                    } else {
+                        Some(output.outputs.clone())
+                    };
                     let state = ResourceState {
                         resource_id: action.resource_id.clone(),
                         type_path: action.type_path.clone(),
@@ -476,6 +521,7 @@ fn apply_update(
                         actual: Some(output.state),
                         provider_id: Some(output.provider_id.clone()),
                         intent: action.intent.clone(),
+                        outputs: stored_outputs,
                     };
                     match store.put_object(&state) {
                         Ok(hash) => {
@@ -483,12 +529,18 @@ fn apply_update(
                                 action.resource_id.clone(),
                                 TreeEntry::Object(hash.clone()),
                             );
+                            let outputs = if output.outputs.is_empty() {
+                                None
+                            } else {
+                                Some(output.outputs)
+                            };
                             ApplyResult {
                                 resource_id: action.resource_id.clone(),
                                 action: ActionType::Update,
                                 outcome: ApplyOutcome::Success {
                                     provider_id: Some(output.provider_id),
                                     new_hash: Some(hash),
+                                    outputs,
                                 },
                             }
                         }
@@ -561,6 +613,7 @@ fn apply_delete(
                 outcome: ApplyOutcome::Success {
                     provider_id: None,
                     new_hash: None,
+                    outputs: None,
                 },
             }
         }
@@ -710,6 +763,24 @@ fn value_to_json(value: &Value) -> serde_json::Value {
     }
 }
 
+/// Strip top-level binding keys (injected by `resolve_refs`) from a config
+/// before storing. This prevents drift false positives: bindings are stored at
+/// the top level of the config, but live state returns them inside sections
+/// (e.g., `network.vpc_id`).
+fn strip_binding_keys(config: &serde_json::Value, binding_keys: &[String]) -> serde_json::Value {
+    if binding_keys.is_empty() {
+        return config.clone();
+    }
+    let Some(obj) = config.as_object() else {
+        return config.clone();
+    };
+    let mut cleaned = obj.clone();
+    for key in binding_keys {
+        cleaned.remove(key);
+    }
+    serde_json::Value::Object(cleaned)
+}
+
 /// Validate a config JSON against a provider's schema for a given resource type.
 /// Returns a list of validation errors (empty = valid).
 fn validate_config_against_schema(
@@ -817,6 +888,24 @@ pub fn format_summary(summary: &ApplySummary) -> String {
         };
 
         out.push_str(&format!("  {symbol} {}{status}\n", result.resource_id));
+
+        // Show resource outputs (IPs, endpoints, ARNs, etc.)
+        if let ApplyOutcome::Success {
+            outputs: Some(outputs),
+            ..
+        } = &result.outcome
+        {
+            let mut keys: Vec<_> = outputs.keys().collect();
+            keys.sort();
+            for key in keys {
+                let val = &outputs[key];
+                let val_str = match val {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                out.push_str(&format!("      {key} = {val_str}\n"));
+            }
+        }
     }
 
     out.push_str(&format!(
@@ -921,6 +1010,7 @@ mod tests {
                     outcome: ApplyOutcome::Success {
                         provider_id: Some("vpc-12345".to_string()),
                         new_hash: Some(ContentHash("abc".to_string())),
+                        outputs: None,
                     },
                 },
                 ApplyResult {
@@ -1160,5 +1250,44 @@ mod tests {
         let sg_deps = &dep_map["sg.web"];
         assert_eq!(sg_deps.len(), 1);
         assert_eq!(sg_deps[0].target, "vpc.main");
+    }
+
+    #[test]
+    fn strip_binding_keys_removes_top_level_refs() {
+        let config = serde_json::json!({
+            "identity": { "name": "test-subnet" },
+            "network": { "cidr_block": "10.0.1.0/24" },
+            "vpc_id": "vpc-abc123",
+            "group_id": "sg-def456"
+        });
+
+        let binding_keys = vec!["vpc_id".to_string(), "group_id".to_string()];
+        let stripped = strip_binding_keys(&config, &binding_keys);
+
+        assert!(
+            stripped.get("vpc_id").is_none(),
+            "vpc_id should be stripped"
+        );
+        assert!(
+            stripped.get("group_id").is_none(),
+            "group_id should be stripped"
+        );
+        assert_eq!(
+            stripped.pointer("/identity/name"),
+            Some(&serde_json::json!("test-subnet")),
+            "sections should be preserved"
+        );
+        assert_eq!(
+            stripped.pointer("/network/cidr_block"),
+            Some(&serde_json::json!("10.0.1.0/24")),
+            "sections should be preserved"
+        );
+    }
+
+    #[test]
+    fn strip_binding_keys_noop_when_empty() {
+        let config = serde_json::json!({ "identity": { "name": "test" } });
+        let stripped = strip_binding_keys(&config, &[]);
+        assert_eq!(stripped, config);
     }
 }

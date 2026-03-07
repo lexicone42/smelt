@@ -220,6 +220,7 @@ mod store_properties {
                 actual: Some(serde_json::json!({"status": "ok"})),
                 provider_id: Some("test-id-123".to_string()),
                 intent: Some("test intent".to_string()),
+                outputs: None,
             };
 
             let hash = store.put_object(&state).expect("put_object");
@@ -241,6 +242,7 @@ mod store_properties {
                 actual: None,
                 provider_id: None,
                 intent: None,
+                outputs: None,
             };
 
             let h1 = store.put_object(&state).expect("put 1");
