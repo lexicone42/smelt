@@ -283,6 +283,65 @@ fn partial_failure_preserves_successful_resources() {
 }
 
 #[test]
+fn cascading_failure_blocks_dependents() {
+    let (project, store, _) = setup();
+
+    let mock = MockProvider::new();
+    // VPC creation will fail
+    mock.fail_create("test.Vpc", "simulated quota exceeded");
+    let mut registry = ProviderRegistry::new();
+    registry.register(Box::new(mock));
+
+    let file = parser::parse(
+        r#"
+        resource vpc "main" : mock.test.Vpc {
+            network { cidr_block = "10.0.0.0/16" }
+        }
+        resource subnet "a" : mock.test.Subnet {
+            needs vpc.main -> vpc_id
+            network { cidr_block = "10.0.1.0/24" }
+        }
+    "#,
+    )
+    .unwrap();
+
+    let graph = DependencyGraph::build(&[file.clone()]).unwrap();
+    let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
+
+    let summary = apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file]);
+
+    assert_eq!(summary.created, 0);
+    assert_eq!(summary.failed, 2);
+
+    // VPC failed with the provider error
+    let vpc_result = summary
+        .results
+        .iter()
+        .find(|r| r.resource_id == "vpc.main")
+        .unwrap();
+    if let ApplyOutcome::Failed { error, .. } = &vpc_result.outcome {
+        assert!(error.contains("quota exceeded"));
+    } else {
+        panic!("expected VPC failure, got {:?}", vpc_result.outcome);
+    }
+
+    // Subnet failed because its binding couldn't resolve
+    let subnet_result = summary
+        .results
+        .iter()
+        .find(|r| r.resource_id == "subnet.a")
+        .unwrap();
+    if let ApplyOutcome::Failed { error, .. } = &subnet_result.outcome {
+        assert!(
+            error.contains("unresolved bindings"),
+            "expected binding error, got: {error}"
+        );
+    } else {
+        panic!("expected subnet failure, got {:?}", subnet_result.outcome);
+    }
+}
+
+#[test]
 fn update_existing_resource() {
     let (project, store, registry) = setup();
 

@@ -178,13 +178,30 @@ pub fn execute_plan_with_config(
                         .get(&action.resource_id)
                         .cloned()
                         .unwrap_or_else(|| serde_json::json!({}));
-                    resolve_refs(
+                    if let Err(binding_errors) = resolve_refs(
                         &action.resource_id,
                         &mut config,
                         &dep_map,
                         &provider_ids,
                         &output_map,
-                    );
+                    ) {
+                        let error_msgs: Vec<String> =
+                            binding_errors.iter().map(|e| e.to_string()).collect();
+                        early_results.push(ApplyResult {
+                            resource_id: action.resource_id.clone(),
+                            action: ActionType::Create,
+                            outcome: ApplyOutcome::Failed {
+                                error: format!(
+                                    "unresolved bindings: {}",
+                                    error_msgs.join("; ")
+                                ),
+                                suggested_action: Some(
+                                    "ensure all dependencies were created successfully before this resource".to_string(),
+                                ),
+                            },
+                        });
+                        continue;
+                    }
 
                     let Some((provider, resource_type)) = registry.resolve(&action.type_path)
                     else {
@@ -232,13 +249,30 @@ pub fn execute_plan_with_config(
                         .get(&action.resource_id)
                         .cloned()
                         .unwrap_or_else(|| serde_json::json!({}));
-                    resolve_refs(
+                    if let Err(binding_errors) = resolve_refs(
                         &action.resource_id,
                         &mut config,
                         &dep_map,
                         &provider_ids,
                         &output_map,
-                    );
+                    ) {
+                        let error_msgs: Vec<String> =
+                            binding_errors.iter().map(|e| e.to_string()).collect();
+                        early_results.push(ApplyResult {
+                            resource_id: action.resource_id.clone(),
+                            action: ActionType::Update,
+                            outcome: ApplyOutcome::Failed {
+                                error: format!(
+                                    "unresolved bindings: {}",
+                                    error_msgs.join("; ")
+                                ),
+                                suggested_action: Some(
+                                    "ensure all dependencies were created successfully before this resource".to_string(),
+                                ),
+                            },
+                        });
+                        continue;
+                    }
 
                     let Some((provider, resource_type)) = registry.resolve(&action.type_path)
                     else {
@@ -714,19 +748,39 @@ fn build_dependency_map(files: &[SmeltFile]) -> HashMap<String, Vec<DepBinding>>
 /// For each dependency binding:
 /// - `needs vpc.main -> vpc_id` → injects provider_id as `vpc_id`
 /// - `needs vpc.main.arn -> vpc_arn` → injects the "arn" output as `vpc_arn`
+/// Errors from resolving dependency bindings.
+#[derive(Debug)]
+struct BindingError {
+    binding: String,
+    target: String,
+    detail: String,
+}
+
+impl std::fmt::Display for BindingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "binding '{}' from '{}': {}",
+            self.binding, self.target, self.detail
+        )
+    }
+}
+
 fn resolve_refs(
     resource_id: &str,
     config: &mut serde_json::Value,
     dep_map: &HashMap<String, Vec<DepBinding>>,
     provider_ids: &ProviderIdMap,
     output_map: &OutputMap,
-) {
+) -> Result<(), Vec<BindingError>> {
     let Some(bindings) = dep_map.get(resource_id) else {
-        return;
+        return Ok(());
     };
     let Some(obj) = config.as_object_mut() else {
-        return;
+        return Ok(());
     };
+
+    let mut errors = Vec::new();
 
     for binding in bindings {
         match &binding.output_key {
@@ -737,6 +791,13 @@ fn resolve_refs(
                         binding.binding.clone(),
                         serde_json::Value::String(pid.clone()),
                     );
+                } else {
+                    errors.push(BindingError {
+                        binding: binding.binding.clone(),
+                        target: binding.target.clone(),
+                        detail: "dependency has no provider_id (was it created successfully?)"
+                            .to_string(),
+                    });
                 }
             }
             Some(output_key) => {
@@ -745,16 +806,30 @@ fn resolve_refs(
                     if let Some(value) = outputs.get(output_key) {
                         obj.insert(binding.binding.clone(), value.clone());
                     } else {
-                        eprintln!(
-                            "warning: {resource_id}: output '{output_key}' not found on '{}' \
-                             (available: {})",
-                            binding.target,
-                            outputs.keys().cloned().collect::<Vec<_>>().join(", ")
-                        );
+                        let available = outputs.keys().cloned().collect::<Vec<_>>().join(", ");
+                        errors.push(BindingError {
+                            binding: binding.binding.clone(),
+                            target: binding.target.clone(),
+                            detail: format!(
+                                "output '{output_key}' not found (available: {available})"
+                            ),
+                        });
                     }
+                } else {
+                    errors.push(BindingError {
+                        binding: binding.binding.clone(),
+                        target: binding.target.clone(),
+                        detail: format!("dependency has no outputs (needed '{output_key}')"),
+                    });
                 }
             }
         }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
     }
 }
 
@@ -1198,7 +1273,8 @@ mod tests {
             &dep_map,
             &provider_ids,
             &output_map,
-        );
+        )
+        .unwrap();
 
         // vpc_id should be injected as a top-level field
         assert_eq!(
@@ -1210,6 +1286,90 @@ mod tests {
             subnet_config.pointer("/network/cidr_block"),
             Some(&serde_json::json!("10.0.1.0/24"))
         );
+    }
+
+    #[test]
+    fn resolve_refs_fails_on_missing_dependency() {
+        use crate::parser;
+
+        let file = parser::parse(
+            r#"
+            resource vpc "main" : aws.ec2.Vpc {
+                network { cidr_block = "10.0.0.0/16" }
+            }
+            resource subnet "pub" : aws.ec2.Subnet {
+                needs vpc.main -> vpc_id
+                network { cidr_block = "10.0.1.0/24" }
+            }
+        "#,
+        )
+        .unwrap();
+
+        let config_map = build_config_map(&[file.clone()]);
+        let dep_map = build_dependency_map(&[file]);
+
+        // No provider_ids populated — vpc.main hasn't been created
+        let provider_ids: ProviderIdMap = HashMap::new();
+        let output_map: OutputMap = HashMap::new();
+
+        let mut subnet_config = config_map["subnet.pub"].clone();
+        let result = resolve_refs(
+            "subnet.pub",
+            &mut subnet_config,
+            &dep_map,
+            &provider_ids,
+            &output_map,
+        );
+
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].detail.contains("no provider_id"));
+    }
+
+    #[test]
+    fn resolve_refs_fails_on_missing_output() {
+        use crate::parser;
+
+        let file = parser::parse(
+            r#"
+            resource vpc "main" : aws.ec2.Vpc {
+                network { cidr_block = "10.0.0.0/16" }
+            }
+            resource instance "web" : aws.ec2.Instance {
+                needs vpc.main.nonexistent -> bad_ref
+                compute { instance_type = "t3.micro" }
+            }
+        "#,
+        )
+        .unwrap();
+
+        let config_map = build_config_map(&[file.clone()]);
+        let dep_map = build_dependency_map(&[file]);
+
+        let mut provider_ids: ProviderIdMap = HashMap::new();
+        provider_ids.insert("vpc.main".to_string(), "vpc-abc123".to_string());
+
+        // VPC has outputs, but not "nonexistent"
+        let mut output_map: OutputMap = HashMap::new();
+        let mut vpc_outputs = HashMap::new();
+        vpc_outputs.insert("arn".to_string(), serde_json::json!("arn:mock"));
+        output_map.insert("vpc.main".to_string(), vpc_outputs);
+
+        let mut instance_config = config_map["instance.web"].clone();
+        let result = resolve_refs(
+            "instance.web",
+            &mut instance_config,
+            &dep_map,
+            &provider_ids,
+            &output_map,
+        );
+
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].detail.contains("nonexistent"));
+        assert!(errors[0].detail.contains("available: arn"));
     }
 
     #[test]
@@ -1389,7 +1549,8 @@ mod tests {
             &dep_map,
             &provider_ids,
             &output_map,
-        );
+        )
+        .unwrap();
 
         // vpc_id should be the provider_id (2-segment ref)
         assert_eq!(
