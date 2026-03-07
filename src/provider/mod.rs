@@ -100,8 +100,10 @@ impl ResourceSchema {
             let section_val = config.get(&section.name);
             for field in &section.fields {
                 let field_val = section_val.and_then(|s| s.get(&field.name));
-                // Check required fields
-                if field.required && field_val.is_none() {
+                // Check required fields — skip Ref types (populated by needs bindings at apply-time)
+                let is_ref = matches!(field.field_type, FieldType::Ref(_))
+                    || matches!(&field.field_type, FieldType::Array(inner) if matches!(**inner, FieldType::Ref(_)));
+                if field.required && field_val.is_none() && !is_ref {
                     errors.push(format!("{}.{} is required", section.name, field.name));
                     continue;
                 }

@@ -1073,6 +1073,8 @@ impl AwsProvider {
             .instance_id()
             .ok_or_else(|| ProviderError::ApiError("Instance has no ID".into()))?;
 
+        // Wait briefly for instance to be describable (eventual consistency)
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         self.read_instance(instance_id).await
     }
 
