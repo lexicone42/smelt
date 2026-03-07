@@ -198,6 +198,21 @@ impl DependencyGraph {
         sorted.into_iter().map(|idx| &self.graph[idx]).collect()
     }
 
+    /// Get the tiered destroy order for parallel deletion.
+    ///
+    /// Inverts `tiered_apply_order`: tier 0 = leaf resources (no dependents),
+    /// tier 1 = resources whose dependents are all in tier 0, etc.
+    /// Resources at the same tier can be deleted concurrently.
+    pub fn tiered_destroy_order(&self) -> Vec<(&ResourceNode, usize)> {
+        let apply_tiered = self.tiered_apply_order();
+        let max_tier = apply_tiered.iter().map(|(_, t)| *t).max().unwrap_or(0);
+        // Invert: apply tier 0 becomes destroy tier max, apply tier max becomes destroy tier 0
+        apply_tiered
+            .into_iter()
+            .map(|(node, tier)| (node, max_tier - tier))
+            .collect()
+    }
+
     /// Get all resources that directly depend on the given resource.
     pub fn dependents(&self, id: &ResourceId) -> Vec<&ResourceNode> {
         let Some(&idx) = self.index_map.get(id) else {
@@ -430,6 +445,48 @@ mod tests {
         assert_eq!(tier_of("subnet", "b"), 1);
         // Instance depends on subnet.a — tier 2
         assert_eq!(tier_of("instance", "web"), 2);
+    }
+
+    #[test]
+    fn tiered_destroy_order_inverts_apply_order() {
+        let file = parse_file(
+            r#"
+            resource vpc "main" : aws.ec2.Vpc {
+                network { cidr_block = "10.0.0.0/16" }
+            }
+            resource subnet "a" : aws.ec2.Subnet {
+                needs vpc.main -> vpc_id
+                network { cidr_block = "10.0.1.0/24" }
+            }
+            resource subnet "b" : aws.ec2.Subnet {
+                needs vpc.main -> vpc_id
+                network { cidr_block = "10.0.2.0/24" }
+            }
+            resource instance "web" : aws.ec2.Instance {
+                needs subnet.a -> subnet_id
+                compute { instance_type = "t3.micro" }
+            }
+        "#,
+        );
+
+        let graph = DependencyGraph::build(&[file]).unwrap();
+        let tiered = graph.tiered_destroy_order();
+
+        let tier_of = |kind: &str, name: &str| -> usize {
+            tiered
+                .iter()
+                .find(|(n, _)| n.id == ResourceId::new(kind, name))
+                .unwrap()
+                .1
+        };
+
+        // Destroy is inverted: instance (leaf) goes first
+        assert_eq!(tier_of("instance", "web"), 0);
+        // Subnets go next (both at same tier — deletable concurrently)
+        assert_eq!(tier_of("subnet", "a"), 1);
+        assert_eq!(tier_of("subnet", "b"), 1);
+        // VPC goes last
+        assert_eq!(tier_of("vpc", "main"), 2);
     }
 
     #[test]

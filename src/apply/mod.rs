@@ -73,7 +73,6 @@ struct PreparedAction<'a> {
     provider: &'a dyn crate::provider::Provider,
     resource_type: String,
     config: serde_json::Value,
-    binding_keys: Vec<String>,
     /// Provider ID — set for updates and deletes
     provider_id: Option<String>,
     /// Old config — set for updates
@@ -167,13 +166,24 @@ pub fn execute_plan_with_config(
         let mut early_results: Vec<ApplyResult> = Vec::new();
 
         for action in tier_actions {
-            let binding_keys: Vec<String> = dep_map
-                .get(&action.resource_id)
-                .map(|deps| deps.iter().map(|d| d.binding.clone()).collect())
-                .unwrap_or_default();
-
             match action.action {
                 ActionType::Create => {
+                    let Some((provider, resource_type)) = registry.resolve(&action.type_path)
+                    else {
+                        early_results.push(ApplyResult {
+                            resource_id: action.resource_id.clone(),
+                            action: ActionType::Create,
+                            outcome: ApplyOutcome::Failed {
+                                error: format!("no provider for type '{}'", action.type_path),
+                                suggested_action: Some(
+                                    "check that the provider is registered and the type_path is correct".to_string(),
+                                ),
+                            },
+                        });
+                        continue;
+                    };
+
+                    let binding_paths = get_binding_paths(provider, &resource_type);
                     let mut config = config_map
                         .get(&action.resource_id)
                         .cloned()
@@ -184,6 +194,7 @@ pub fn execute_plan_with_config(
                         &dep_map,
                         &provider_ids,
                         &output_map,
+                        &binding_paths,
                     ) {
                         let error_msgs: Vec<String> =
                             binding_errors.iter().map(|e| e.to_string()).collect();
@@ -202,21 +213,6 @@ pub fn execute_plan_with_config(
                         });
                         continue;
                     }
-
-                    let Some((provider, resource_type)) = registry.resolve(&action.type_path)
-                    else {
-                        early_results.push(ApplyResult {
-                            resource_id: action.resource_id.clone(),
-                            action: ActionType::Create,
-                            outcome: ApplyOutcome::Failed {
-                                error: format!("no provider for type '{}'", action.type_path),
-                                suggested_action: Some(
-                                    "check that the provider is registered and the type_path is correct".to_string(),
-                                ),
-                            },
-                        });
-                        continue;
-                    };
 
                     let errors = validate_config_against_schema(&config, provider, &resource_type);
                     if !errors.is_empty() {
@@ -239,12 +235,27 @@ pub fn execute_plan_with_config(
                         provider,
                         resource_type,
                         config,
-                        binding_keys,
                         provider_id: None,
                         old_config: None,
                     });
                 }
                 ActionType::Update => {
+                    let Some((provider, resource_type)) = registry.resolve(&action.type_path)
+                    else {
+                        early_results.push(ApplyResult {
+                            resource_id: action.resource_id.clone(),
+                            action: ActionType::Update,
+                            outcome: ApplyOutcome::Failed {
+                                error: format!("no provider for type '{}'", action.type_path),
+                                suggested_action: Some(
+                                    "check that the provider is registered and the type_path is correct".to_string(),
+                                ),
+                            },
+                        });
+                        continue;
+                    };
+
+                    let binding_paths = get_binding_paths(provider, &resource_type);
                     let mut config = config_map
                         .get(&action.resource_id)
                         .cloned()
@@ -255,6 +266,7 @@ pub fn execute_plan_with_config(
                         &dep_map,
                         &provider_ids,
                         &output_map,
+                        &binding_paths,
                     ) {
                         let error_msgs: Vec<String> =
                             binding_errors.iter().map(|e| e.to_string()).collect();
@@ -273,21 +285,6 @@ pub fn execute_plan_with_config(
                         });
                         continue;
                     }
-
-                    let Some((provider, resource_type)) = registry.resolve(&action.type_path)
-                    else {
-                        early_results.push(ApplyResult {
-                            resource_id: action.resource_id.clone(),
-                            action: ActionType::Update,
-                            outcome: ApplyOutcome::Failed {
-                                error: format!("no provider for type '{}'", action.type_path),
-                                suggested_action: Some(
-                                    "check that the provider is registered and the type_path is correct".to_string(),
-                                ),
-                            },
-                        });
-                        continue;
-                    };
 
                     let pid = get_provider_id_from_tree(store, &current_tree, &action.resource_id);
                     let Some(pid) = pid else {
@@ -317,7 +314,6 @@ pub fn execute_plan_with_config(
                         provider,
                         resource_type,
                         config,
-                        binding_keys,
                         provider_id: Some(pid),
                         old_config: Some(old_config),
                     });
@@ -358,7 +354,6 @@ pub fn execute_plan_with_config(
                         provider,
                         resource_type,
                         config: serde_json::json!({}),
-                        binding_keys: vec![],
                         provider_id: Some(pid),
                         old_config: None,
                     });
@@ -455,7 +450,7 @@ pub fn execute_plan_with_config(
         for (p, outcome) in prepared.iter().zip(outcomes) {
             let result = match outcome {
                 CallOutcome::Output(output) => {
-                    let clean_config = strip_binding_keys(&p.config, &p.binding_keys);
+                    let clean_config = p.config.clone();
                     let redacted = redact_sensitive(&clean_config, p.provider, &p.resource_type);
                     let stored_outputs = if output.outputs.is_empty() {
                         None
@@ -766,31 +761,42 @@ impl std::fmt::Display for BindingError {
     }
 }
 
+/// Mapping from binding name → JSON pointer path (e.g., "vpc_id" → "/network/vpc_id").
+type BindingPathMap = HashMap<String, String>;
+
+/// Get binding paths from a provider's schema for a given resource type.
+fn get_binding_paths(
+    provider: &dyn crate::provider::Provider,
+    resource_type: &str,
+) -> BindingPathMap {
+    provider
+        .resource_types()
+        .iter()
+        .find(|rt| rt.type_path == resource_type)
+        .map(|rt| rt.schema.binding_paths())
+        .unwrap_or_default()
+}
+
 fn resolve_refs(
     resource_id: &str,
     config: &mut serde_json::Value,
     dep_map: &HashMap<String, Vec<DepBinding>>,
     provider_ids: &ProviderIdMap,
     output_map: &OutputMap,
+    binding_paths: &BindingPathMap,
 ) -> Result<(), Vec<BindingError>> {
     let Some(bindings) = dep_map.get(resource_id) else {
-        return Ok(());
-    };
-    let Some(obj) = config.as_object_mut() else {
         return Ok(());
     };
 
     let mut errors = Vec::new();
 
     for binding in bindings {
-        match &binding.output_key {
+        let value = match &binding.output_key {
             None => {
                 // Default: inject provider_id
                 if let Some(pid) = provider_ids.get(&binding.target) {
-                    obj.insert(
-                        binding.binding.clone(),
-                        serde_json::Value::String(pid.clone()),
-                    );
+                    serde_json::Value::String(pid.clone())
                 } else {
                     errors.push(BindingError {
                         binding: binding.binding.clone(),
@@ -798,13 +804,14 @@ fn resolve_refs(
                         detail: "dependency has no provider_id (was it created successfully?)"
                             .to_string(),
                     });
+                    continue;
                 }
             }
             Some(output_key) => {
                 // Named output: inject from output map
                 if let Some(outputs) = output_map.get(&binding.target) {
                     if let Some(value) = outputs.get(output_key) {
-                        obj.insert(binding.binding.clone(), value.clone());
+                        value.clone()
                     } else {
                         let available = outputs.keys().cloned().collect::<Vec<_>>().join(", ");
                         errors.push(BindingError {
@@ -814,6 +821,7 @@ fn resolve_refs(
                                 "output '{output_key}' not found (available: {available})"
                             ),
                         });
+                        continue;
                     }
                 } else {
                     errors.push(BindingError {
@@ -821,7 +829,31 @@ fn resolve_refs(
                         target: binding.target.clone(),
                         detail: format!("dependency has no outputs (needed '{output_key}')"),
                     });
+                    continue;
                 }
+            }
+        };
+
+        // Inject at schema path if known, otherwise at top-level (backward compat)
+        if let Some(path) = binding_paths.get(&binding.binding) {
+            // Path is like "/network/vpc_id" — ensure section object exists
+            let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+            if parts.len() == 2 {
+                let section = parts[0];
+                let field = parts[1];
+                let obj = config.as_object_mut().unwrap();
+                let section_obj = obj
+                    .entry(section)
+                    .or_insert_with(|| serde_json::json!({}))
+                    .as_object_mut();
+                if let Some(section_obj) = section_obj {
+                    section_obj.insert(field.to_string(), value);
+                }
+            }
+        } else {
+            // Fallback: inject at top-level (for bindings not in schema)
+            if let Some(obj) = config.as_object_mut() {
+                obj.insert(binding.binding.clone(), value);
             }
         }
     }
@@ -880,24 +912,6 @@ fn value_to_json(value: &Value) -> serde_json::Value {
         }
         Value::Ref(r) => serde_json::Value::String(format!("ref({})", r)),
     }
-}
-
-/// Strip top-level binding keys (injected by `resolve_refs`) from a config
-/// before storing. This prevents drift false positives: bindings are stored at
-/// the top level of the config, but live state returns them inside sections
-/// (e.g., `network.vpc_id`).
-fn strip_binding_keys(config: &serde_json::Value, binding_keys: &[String]) -> serde_json::Value {
-    if binding_keys.is_empty() {
-        return config.clone();
-    }
-    let Some(obj) = config.as_object() else {
-        return config.clone();
-    };
-    let mut cleaned = obj.clone();
-    for key in binding_keys {
-        cleaned.remove(key);
-    }
-    serde_json::Value::Object(cleaned)
 }
 
 /// Validate a config JSON against a provider's schema for a given resource type.
@@ -1047,7 +1061,7 @@ pub fn format_summary(summary: &ApplySummary) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plan::{PlanSummary, PlannedAction};
+    use crate::plan::PlannedAction;
     use crate::provider::aws::AwsProvider;
     use std::env;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -1068,9 +1082,9 @@ mod tests {
         let store = Store::open(&project).unwrap();
         let registry = ProviderRegistry::new();
 
-        let plan = Plan {
-            environment: "test".to_string(),
-            tiers: vec![vec![PlannedAction {
+        let plan = Plan::new(
+            "test".to_string(),
+            vec![vec![PlannedAction {
                 resource_id: "vpc.main".to_string(),
                 type_path: "aws.ec2.Vpc".to_string(),
                 action: ActionType::Create,
@@ -1078,13 +1092,7 @@ mod tests {
                 changes: vec![],
                 forces_replacement: false,
             }]],
-            summary: PlanSummary {
-                create: 1,
-                update: 0,
-                delete: 0,
-                unchanged: 0,
-            },
-        };
+        );
 
         let summary = execute_plan(&plan, &registry, &store, &project);
         assert_eq!(summary.failed, 1);
@@ -1098,9 +1106,9 @@ mod tests {
         let mut registry = ProviderRegistry::new();
         registry.register(Box::new(AwsProvider::for_testing()));
 
-        let plan = Plan {
-            environment: "test".to_string(),
-            tiers: vec![vec![PlannedAction {
+        let plan = Plan::new(
+            "test".to_string(),
+            vec![vec![PlannedAction {
                 resource_id: "vpc.main".to_string(),
                 type_path: "aws.ec2.Vpc".to_string(),
                 action: ActionType::Create,
@@ -1108,13 +1116,7 @@ mod tests {
                 changes: vec![],
                 forces_replacement: false,
             }]],
-            summary: PlanSummary {
-                create: 1,
-                update: 0,
-                delete: 0,
-                unchanged: 0,
-            },
-        };
+        );
 
         // AWS provider will fail (no credentials/endpoint configured for test)
         let summary = execute_plan(&plan, &registry, &store, &project);
@@ -1219,9 +1221,9 @@ mod tests {
         )
         .unwrap();
 
-        let plan = Plan {
-            environment: "test".to_string(),
-            tiers: vec![vec![PlannedAction {
+        let plan = Plan::new(
+            "test".to_string(),
+            vec![vec![PlannedAction {
                 resource_id: "vpc.main".to_string(),
                 type_path: "aws.ec2.Vpc".to_string(),
                 action: ActionType::Create,
@@ -1229,13 +1231,7 @@ mod tests {
                 changes: vec![],
                 forces_replacement: false,
             }]],
-            summary: PlanSummary {
-                create: 1,
-                update: 0,
-                delete: 0,
-                unchanged: 0,
-            },
-        };
+        );
 
         // Will fail (no provider registered) but exercises the config path
         let summary = execute_plan_with_config(&plan, &registry, &store, &project, &[file]);
@@ -1267,18 +1263,23 @@ mod tests {
         let output_map: OutputMap = HashMap::new();
 
         let mut subnet_config = config_map["subnet.pub"].clone();
+        // Simulate schema: vpc_id belongs in /network/vpc_id
+        let mut binding_paths: BindingPathMap = HashMap::new();
+        binding_paths.insert("vpc_id".to_string(), "/network/vpc_id".to_string());
+
         resolve_refs(
             "subnet.pub",
             &mut subnet_config,
             &dep_map,
             &provider_ids,
             &output_map,
+            &binding_paths,
         )
         .unwrap();
 
-        // vpc_id should be injected as a top-level field
+        // vpc_id should be injected at the schema path
         assert_eq!(
-            subnet_config.get("vpc_id"),
+            subnet_config.pointer("/network/vpc_id"),
             Some(&serde_json::json!("vpc-abc123"))
         );
         // Original config should still be there
@@ -1313,12 +1314,14 @@ mod tests {
         let output_map: OutputMap = HashMap::new();
 
         let mut subnet_config = config_map["subnet.pub"].clone();
+        let binding_paths: BindingPathMap = HashMap::new();
         let result = resolve_refs(
             "subnet.pub",
             &mut subnet_config,
             &dep_map,
             &provider_ids,
             &output_map,
+            &binding_paths,
         );
 
         assert!(result.is_err());
@@ -1357,12 +1360,14 @@ mod tests {
         output_map.insert("vpc.main".to_string(), vpc_outputs);
 
         let mut instance_config = config_map["instance.web"].clone();
+        let binding_paths: BindingPathMap = HashMap::new();
         let result = resolve_refs(
             "instance.web",
             &mut instance_config,
             &dep_map,
             &provider_ids,
             &output_map,
+            &binding_paths,
         );
 
         assert!(result.is_err());
@@ -1471,45 +1476,6 @@ mod tests {
     }
 
     #[test]
-    fn strip_binding_keys_removes_top_level_refs() {
-        let config = serde_json::json!({
-            "identity": { "name": "test-subnet" },
-            "network": { "cidr_block": "10.0.1.0/24" },
-            "vpc_id": "vpc-abc123",
-            "group_id": "sg-def456"
-        });
-
-        let binding_keys = vec!["vpc_id".to_string(), "group_id".to_string()];
-        let stripped = strip_binding_keys(&config, &binding_keys);
-
-        assert!(
-            stripped.get("vpc_id").is_none(),
-            "vpc_id should be stripped"
-        );
-        assert!(
-            stripped.get("group_id").is_none(),
-            "group_id should be stripped"
-        );
-        assert_eq!(
-            stripped.pointer("/identity/name"),
-            Some(&serde_json::json!("test-subnet")),
-            "sections should be preserved"
-        );
-        assert_eq!(
-            stripped.pointer("/network/cidr_block"),
-            Some(&serde_json::json!("10.0.1.0/24")),
-            "sections should be preserved"
-        );
-    }
-
-    #[test]
-    fn strip_binding_keys_noop_when_empty() {
-        let config = serde_json::json!({ "identity": { "name": "test" } });
-        let stripped = strip_binding_keys(&config, &[]);
-        assert_eq!(stripped, config);
-    }
-
-    #[test]
     fn resolve_refs_injects_named_outputs() {
         use crate::parser;
 
@@ -1543,16 +1509,19 @@ mod tests {
         output_map.insert("vpc.main".to_string(), vpc_outputs);
 
         let mut instance_config = config_map["instance.web"].clone();
+        // No binding paths — fallback to top-level injection
+        let binding_paths: BindingPathMap = HashMap::new();
         resolve_refs(
             "instance.web",
             &mut instance_config,
             &dep_map,
             &provider_ids,
             &output_map,
+            &binding_paths,
         )
         .unwrap();
 
-        // vpc_id should be the provider_id (2-segment ref)
+        // With empty binding_paths, values are injected at top-level (fallback)
         assert_eq!(
             instance_config.get("vpc_id"),
             Some(&serde_json::json!("vpc-abc123"))

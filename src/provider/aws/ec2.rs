@@ -24,11 +24,7 @@ impl AwsProvider {
         &self,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let cidr = config
-            .pointer("/network/cidr_block")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ProviderError::InvalidConfig("network.cidr_block is required".into()))?;
-
+        let cidr = config.require_str("/network/cidr_block")?;
         let tag_spec = Self::build_tags(config, AwsResourceType::Vpc);
 
         let result = self
@@ -47,11 +43,7 @@ impl AwsProvider {
             .vpc_id()
             .ok_or_else(|| ProviderError::ApiError("VPC has no ID".into()))?;
 
-        if config
-            .pointer("/network/dns_hostnames")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-        {
+        if config.bool_or("/network/dns_hostnames", false) {
             self.ec2_client
                 .modify_vpc_attribute()
                 .vpc_id(vpc_id)
@@ -67,10 +59,7 @@ impl AwsProvider {
                 })?;
         }
 
-        if let Some(dns_support) = config
-            .pointer("/network/dns_support")
-            .and_then(|v| v.as_bool())
-        {
+        if let Some(dns_support) = config.optional_bool("/network/dns_support") {
             self.ec2_client
                 .modify_vpc_attribute()
                 .vpc_id(vpc_id)
@@ -141,10 +130,7 @@ impl AwsProvider {
         vpc_id: &str,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        if let Some(dns) = config
-            .pointer("/network/dns_hostnames")
-            .and_then(|v| v.as_bool())
-        {
+        if let Some(dns) = config.optional_bool("/network/dns_hostnames") {
             self.ec2_client
                 .modify_vpc_attribute()
                 .vpc_id(vpc_id)
@@ -176,25 +162,9 @@ impl AwsProvider {
         &self,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let cidr = config
-            .pointer("/network/cidr_block")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ProviderError::InvalidConfig("network.cidr_block is required".into()))?;
-        let az = config
-            .pointer("/network/availability_zone")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ProviderError::InvalidConfig("network.availability_zone is required".into())
-            })?;
-        let vpc_id = config
-            .get("vpc_id")
-            .or_else(|| config.pointer("/network/vpc_id"))
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ProviderError::InvalidConfig(
-                    "vpc_id is required (use `needs vpc.name -> vpc_id`)".into(),
-                )
-            })?;
+        let cidr = config.require_str("/network/cidr_block")?;
+        let az = config.require_str("/network/availability_zone")?;
+        let vpc_id = config.require_str("/network/vpc_id")?;
 
         let tag_spec = Self::build_tags(config, AwsResourceType::Subnet);
 
@@ -216,11 +186,7 @@ impl AwsProvider {
             .subnet_id()
             .ok_or_else(|| ProviderError::ApiError("Subnet has no ID".into()))?;
 
-        if config
-            .pointer("/network/public_ip_on_launch")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-        {
+        if config.bool_or("/network/public_ip_on_launch", false) {
             self.ec2_client
                 .modify_subnet_attribute()
                 .subnet_id(subnet_id)
@@ -294,10 +260,7 @@ impl AwsProvider {
         &self,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = config
-            .pointer("/identity/name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ProviderError::InvalidConfig("identity.name is required".into()))?;
+        let name = config.require_str("/identity/name")?;
         let vpc_id = config
             .get("vpc_id")
             .or_else(|| config.pointer("/security/vpc_id"))
@@ -310,8 +273,7 @@ impl AwsProvider {
             })?;
 
         let description = config
-            .pointer("/identity/description")
-            .and_then(|v| v.as_str())
+            .optional_str("/identity/description")
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("Managed by smelt: {name}"));
 
@@ -332,10 +294,7 @@ impl AwsProvider {
             .group_id()
             .ok_or_else(|| ProviderError::ApiError("SecurityGroup has no ID".into()))?;
 
-        if let Some(ingress) = config
-            .pointer("/security/ingress")
-            .and_then(|v| v.as_array())
-        {
+        if let Some(ingress) = config.optional_array("/security/ingress") {
             let permissions: Vec<IpPermission> = ingress
                 .iter()
                 .filter_map(|rule| {
@@ -458,11 +417,7 @@ impl AwsProvider {
             .ok_or_else(|| ProviderError::ApiError("IGW has no ID".into()))?;
 
         // Attach to VPC if vpc_id is provided
-        if let Some(vpc_id) = config
-            .get("vpc_id")
-            .or_else(|| config.pointer("/network/vpc_id"))
-            .and_then(|v| v.as_str())
-        {
+        if let Ok(vpc_id) = config.require_str("/network/vpc_id") {
             self.ec2_client
                 .attach_internet_gateway()
                 .internet_gateway_id(igw_id)
@@ -555,13 +510,7 @@ impl AwsProvider {
         &self,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let vpc_id = config
-            .get("vpc_id")
-            .or_else(|| config.pointer("/network/vpc_id"))
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ProviderError::InvalidConfig("vpc_id is required for RouteTable".into())
-            })?;
+        let vpc_id = config.require_str("/network/vpc_id")?;
 
         let tag_spec = Self::build_tags(config, AwsResourceType::RouteTable);
 
@@ -582,12 +531,9 @@ impl AwsProvider {
             .ok_or_else(|| ProviderError::ApiError("RouteTable has no ID".into()))?;
 
         // Add routes from config
-        if let Some(routes) = config.pointer("/network/routes").and_then(|v| v.as_array()) {
+        if let Some(routes) = config.optional_array("/network/routes") {
             for route in routes {
-                let dest = route
-                    .get("destination_cidr")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("0.0.0.0/0");
+                let dest = route.str_or("/destination_cidr", "0.0.0.0/0");
 
                 let mut req = self
                     .ec2_client
@@ -704,12 +650,9 @@ impl AwsProvider {
         }
 
         // Re-add routes
-        if let Some(routes) = config.pointer("/network/routes").and_then(|v| v.as_array()) {
+        if let Some(routes) = config.optional_array("/network/routes") {
             for route in routes {
-                let dest = route
-                    .get("destination_cidr")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("0.0.0.0/0");
+                let dest = route.str_or("/destination_cidr", "0.0.0.0/0");
                 let mut req = self
                     .ec2_client
                     .create_route()
@@ -753,23 +696,8 @@ impl AwsProvider {
         &self,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let subnet_id = config
-            .get("subnet_id")
-            .or_else(|| config.pointer("/network/subnet_id"))
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ProviderError::InvalidConfig("subnet_id is required for NatGateway".into())
-            })?;
-
-        let allocation_id = config
-            .get("allocation_id")
-            .or_else(|| config.pointer("/network/allocation_id"))
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ProviderError::InvalidConfig(
-                    "allocation_id is required (use `needs eip.name -> allocation_id`)".into(),
-                )
-            })?;
+        let subnet_id = config.require_str("/network/subnet_id")?;
+        let allocation_id = config.require_str("/network/allocation_id")?;
 
         let tag_spec = Self::build_tags(config, AwsResourceType::Natgateway);
 
@@ -920,11 +848,7 @@ impl AwsProvider {
         &self,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = config
-            .pointer("/identity/name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ProviderError::InvalidConfig("identity.name is required".into()))?;
-
+        let name = config.require_str("/identity/name")?;
         let tag_spec = Self::build_tags(config, AwsResourceType::KeyPair);
 
         let result = self
@@ -999,24 +923,9 @@ impl AwsProvider {
         &self,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let ami = config
-            .pointer("/sizing/ami_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ProviderError::InvalidConfig("sizing.ami_id is required".into()))?;
-        let instance_type = config
-            .pointer("/sizing/instance_type")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ProviderError::InvalidConfig("sizing.instance_type is required".into())
-            })?;
-
-        let subnet_id = config
-            .get("subnet_id")
-            .or_else(|| config.pointer("/network/subnet_id"))
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ProviderError::InvalidConfig("subnet_id is required for Instance".into())
-            })?;
+        let ami = config.require_str("/sizing/ami_id")?;
+        let instance_type = config.require_str("/sizing/instance_type")?;
+        let subnet_id = config.require_str("/network/subnet_id")?;
 
         let tag_spec = Self::build_tags(config, AwsResourceType::Instance);
 
@@ -1033,26 +942,15 @@ impl AwsProvider {
             .tag_specifications(tag_spec);
 
         // Key pair
-        if let Some(key) = config
-            .get("key_name")
-            .or_else(|| config.pointer("/security/key_name"))
-            .and_then(|v| v.as_str())
-        {
+        if let Ok(key) = config.require_str("/security/key_name") {
             req = req.key_name(key);
         }
 
         // Security groups
-        if let Some(sg) = config
-            .get("group_id")
-            .or_else(|| config.pointer("/security/security_group_id"))
-            .and_then(|v| v.as_str())
-        {
+        if let Ok(sg) = config.require_str("/security/security_group_id") {
             req = req.security_group_ids(sg);
         }
-        if let Some(sgs) = config
-            .pointer("/security/security_group_ids")
-            .and_then(|v| v.as_array())
-        {
+        if let Some(sgs) = config.optional_array("/security/security_group_ids") {
             for sg in sgs {
                 if let Some(id) = sg.as_str() {
                     req = req.security_group_ids(id);
@@ -1141,10 +1039,7 @@ impl AwsProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Instance type changes require stop → modify → start
-        if let Some(it) = config
-            .pointer("/sizing/instance_type")
-            .and_then(|v| v.as_str())
-        {
+        if let Some(it) = config.optional_str("/sizing/instance_type") {
             self.ec2_client
                 .stop_instances()
                 .instance_ids(instance_id)

@@ -21,9 +21,42 @@ pub struct Plan {
 }
 
 impl Plan {
+    /// Construct a Plan from tiers, computing the summary automatically.
+    pub fn new(environment: String, tiers: Vec<Vec<PlannedAction>>) -> Self {
+        let summary = PlanSummary::from_actions(tiers.iter().flat_map(|t| t.iter()));
+        Self {
+            environment,
+            tiers,
+            summary,
+        }
+    }
+
     /// Iterate over all actions across all tiers, in tier order.
     pub fn actions(&self) -> impl Iterator<Item = &PlannedAction> {
         self.tiers.iter().flat_map(|tier| tier.iter())
+    }
+}
+
+impl PlanSummary {
+    fn from_actions<'a>(actions: impl Iterator<Item = &'a PlannedAction>) -> Self {
+        let mut create = 0;
+        let mut update = 0;
+        let mut delete = 0;
+        let mut unchanged = 0;
+        for a in actions {
+            match a.action {
+                ActionType::Create => create += 1,
+                ActionType::Update => update += 1,
+                ActionType::Delete => delete += 1,
+                ActionType::Unchanged => unchanged += 1,
+            }
+        }
+        Self {
+            create,
+            update,
+            delete,
+            unchanged,
+        }
     }
 }
 
@@ -182,31 +215,7 @@ pub fn build_plan(
     }
 
     let tiers: Vec<Vec<PlannedAction>> = tier_map.into_values().collect();
-
-    let all_actions = tiers.iter().flat_map(|t| t.iter());
-    let summary = PlanSummary {
-        create: all_actions
-            .clone()
-            .filter(|a| a.action == ActionType::Create)
-            .count(),
-        update: all_actions
-            .clone()
-            .filter(|a| a.action == ActionType::Update)
-            .count(),
-        delete: all_actions
-            .clone()
-            .filter(|a| a.action == ActionType::Delete)
-            .count(),
-        unchanged: all_actions
-            .filter(|a| a.action == ActionType::Unchanged)
-            .count(),
-    };
-
-    Plan {
-        environment: environment.to_string(),
-        tiers,
-        summary,
-    }
+    Plan::new(environment.to_string(), tiers)
 }
 
 /// Convert a resource declaration to a JSON value for comparison.

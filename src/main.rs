@@ -549,56 +549,53 @@ fn cmd_destroy(environment: &str, files: &[std::path::PathBuf], yes: bool) -> Re
         return Ok(());
     }
 
-    // Build delete actions from stored state in reverse dependency order.
-    // Each delete gets its own tier to ensure sequential execution (safe teardown).
-    let destroy_order = graph.destroy_order();
-    let mut tiers: Vec<Vec<plan::PlannedAction>> = Vec::new();
-
-    // First: resources that are in the graph (preserving destroy ordering)
+    // Build delete actions in tiered parallel destroy order.
+    // Resources at the same tier have no mutual dependencies and can be deleted concurrently.
+    let tiered_destroy = graph.tiered_destroy_order();
+    let max_tier = tiered_destroy.iter().map(|(_, t)| *t).max().unwrap_or(0);
+    let mut tiers: Vec<Vec<plan::PlannedAction>> = vec![Vec::new(); max_tier + 1];
     let mut seen = std::collections::HashSet::new();
-    for node in &destroy_order {
+
+    for (node, tier) in &tiered_destroy {
         let resource_id = node.id.to_string();
         if tree.children.contains_key(&resource_id) {
-            tiers.push(vec![plan::PlannedAction {
+            tiers[*tier].push(plan::PlannedAction {
                 resource_id: resource_id.clone(),
                 type_path: node.type_path.clone(),
                 action: plan::ActionType::Delete,
                 intent: node.intent.clone(),
                 changes: vec![],
                 forces_replacement: false,
-            }]);
+            });
             seen.insert(resource_id);
         }
     }
 
-    // Then: orphaned resources (in stored state but not in the graph)
+    // Remove empty tiers
+    tiers.retain(|t| !t.is_empty());
+
+    // Orphaned resources (in stored state but not in the graph) — safe to delete in parallel
+    let mut orphans = Vec::new();
     for (resource_id, entry) in &tree.children {
         if !seen.contains(resource_id)
             && let store::TreeEntry::Object(hash) = entry
             && let Ok(obj) = s.get_object(hash)
         {
-            tiers.push(vec![plan::PlannedAction {
+            orphans.push(plan::PlannedAction {
                 resource_id: resource_id.clone(),
                 type_path: obj.type_path,
                 action: plan::ActionType::Delete,
                 intent: obj.intent,
                 changes: vec![],
                 forces_replacement: false,
-            }]);
+            });
         }
     }
+    if !orphans.is_empty() {
+        tiers.push(orphans);
+    }
 
-    let delete_count = tiers.iter().map(|t| t.len()).sum::<usize>();
-    let p = plan::Plan {
-        environment: environment.to_string(),
-        tiers,
-        summary: plan::PlanSummary {
-            create: 0,
-            update: 0,
-            delete: delete_count,
-            unchanged: 0,
-        },
-    };
+    let p = plan::Plan::new(environment.to_string(), tiers);
 
     if p.summary.delete == 0 {
         eprintln!("nothing to destroy");

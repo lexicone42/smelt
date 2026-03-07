@@ -136,11 +136,17 @@ fn format_annotations(out: &mut String, annotations: &[Annotation], indent: usiz
         for ann in annotations {
             if ann.kind == *kind {
                 let pad = "  ".repeat(indent);
-                out.push_str(&format!(
-                    "{pad}@{} \"{}\"\n",
-                    ann.kind,
-                    escape_string(&ann.value)
-                ));
+                if ann.value.contains('\n') {
+                    out.push_str(&format!("{pad}@{} ", ann.kind));
+                    format_multiline_string(out, &ann.value, indent);
+                    out.push('\n');
+                } else {
+                    out.push_str(&format!(
+                        "{pad}@{} \"{}\"\n",
+                        ann.kind,
+                        escape_string(&ann.value)
+                    ));
+                }
             }
         }
     }
@@ -185,7 +191,11 @@ fn format_field(out: &mut String, field: &Field, indent: usize) {
 fn format_value(out: &mut String, value: &Value, indent: usize) {
     match value {
         Value::String(s) => {
-            out.push_str(&format!("\"{}\"", escape_string(s)));
+            if s.contains('\n') {
+                format_multiline_string(out, s, indent);
+            } else {
+                out.push_str(&format!("\"{}\"", escape_string(s)));
+            }
         }
         Value::Number(n) => {
             out.push_str(&format!("{n}"));
@@ -288,6 +298,23 @@ fn is_simple_record(fields: &[Field]) -> bool {
                     | Value::Ref(_)
             )
         })
+}
+
+fn format_multiline_string(out: &mut String, s: &str, indent: usize) {
+    let inner_pad = "  ".repeat(indent + 1);
+    out.push_str("\"\"\"\n");
+    for line in s.lines() {
+        if line.is_empty() {
+            out.push('\n');
+        } else {
+            out.push_str(&inner_pad);
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    let pad = "  ".repeat(indent + 1);
+    out.push_str(&pad);
+    out.push_str("\"\"\"");
 }
 
 fn escape_string(s: &str) -> String {

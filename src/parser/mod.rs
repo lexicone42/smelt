@@ -40,26 +40,37 @@ fn declaration() -> impl Parser<char, Declaration, Error = Simple<char>> {
 }
 
 /// Parse a resource declaration:
-/// `resource kind "name" : type.path { body }`
+/// `resource [kind] "name" : type.path { body }`
+///
+/// When `kind` is omitted, it is derived from the type path's last segment (lowercased).
+/// e.g. `resource "main" : aws.ec2.Vpc { ... }` → kind = "vpc"
 fn resource_decl() -> impl Parser<char, ResourceDecl, Error = Simple<char>> {
     text::keyword("resource")
         .padded()
-        .ignore_then(ident())
-        .padded()
+        .ignore_then(ident().then_ignore(text::whitespace()).or_not())
         .then(string_literal())
         .padded()
         .then_ignore(just(':').padded())
         .then(type_path())
         .padded()
         .then(resource_body().delimited_by(just('{').padded(), just('}').padded()))
-        .map(|(((kind, name), type_path), body)| ResourceDecl {
-            kind,
-            name,
-            type_path,
-            annotations: body.annotations,
-            dependencies: body.dependencies,
-            sections: body.sections,
-            fields: body.fields,
+        .map(|(((kind, name), type_path), body)| {
+            let kind = kind.unwrap_or_else(|| {
+                type_path
+                    .segments
+                    .last()
+                    .map(|s| s.to_lowercase())
+                    .unwrap_or_default()
+            });
+            ResourceDecl {
+                kind,
+                name,
+                type_path,
+                annotations: body.annotations,
+                dependencies: body.dependencies,
+                sections: body.sections,
+                fields: body.fields,
+            }
         })
 }
 
@@ -370,21 +381,56 @@ fn ident() -> impl Parser<char, String, Error = Simple<char>> {
         .map(|(first, rest)| format!("{first}{rest}"))
 }
 
-/// Parse a double-quoted string literal with basic escape support.
+/// Strip leading newline, trailing whitespace, and common indentation from a triple-quoted string.
+fn dedent(s: &str) -> String {
+    let s = s.strip_prefix('\n').unwrap_or(s);
+    let s = s.trim_end();
+
+    let min_indent = s
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| line.len() - line.trim_start().len())
+        .min()
+        .unwrap_or(0);
+
+    s.lines()
+        .map(|line| {
+            if line.trim().is_empty() {
+                ""
+            } else if line.len() >= min_indent {
+                &line[min_indent..]
+            } else {
+                line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Parse a double-quoted string literal (single or triple-quoted) with basic escape support.
 fn string_literal() -> impl Parser<char, String, Error = Simple<char>> {
+    // Triple-quoted raw strings: """content"""
+    // Uses negative lookahead: consume one char at a time as long as we're NOT at """
+    let triple_quoted = just("\"\"\"")
+        .ignore_then(just("\"\"\"").not().repeated().collect::<String>())
+        .then_ignore(just("\"\"\""))
+        .map(|s| dedent(&s));
+
+    // Single-quoted strings with escape support
     let escape = just('\\').ignore_then(choice((
         just('\\').to('\\'),
         just('"').to('"'),
         just('n').to('\n'),
         just('t').to('\t'),
     )));
-
     let string_char = none_of("\\\"").or(escape);
-
-    string_char
+    let single_quoted = string_char
         .repeated()
         .collect::<String>()
-        .delimited_by(just('"'), just('"'))
+        .delimited_by(just('"'), just('"'));
+
+    // Try triple-quoted first (both start with ")
+    triple_quoted.or(single_quoted)
 }
 
 #[cfg(test)]
@@ -401,6 +447,61 @@ mod tests {
     fn parse_string_with_escapes() {
         let result = string_literal().parse("\"hello\\nworld\"");
         assert_eq!(result, Ok("hello\nworld".to_string()));
+    }
+
+    #[test]
+    fn parse_triple_quoted_string() {
+        let input = "\"\"\"hello world\"\"\"";
+        let result = string_literal().parse(input);
+        assert_eq!(result, Ok("hello world".to_string()));
+    }
+
+    #[test]
+    fn parse_triple_quoted_multiline() {
+        let input = "\"\"\"\n            line one\n            line two\n            \"\"\"";
+        let result = string_literal().parse(input);
+        assert_eq!(result, Ok("line one\nline two".to_string()));
+    }
+
+    #[test]
+    fn parse_triple_quoted_preserves_relative_indent() {
+        let input = "\"\"\"\n            {\n              \"key\": \"value\"\n            }\n            \"\"\"";
+        let result = string_literal().parse(input);
+        assert_eq!(result, Ok("{\n  \"key\": \"value\"\n}".to_string()));
+    }
+
+    #[test]
+    fn parse_triple_quoted_in_resource() {
+        let input = r#"resource role "lambda" : aws.iam.Role {
+            security {
+                assume_role_policy = """
+                    {
+                      "Version": "2012-10-17",
+                      "Statement": [{
+                        "Effect": "Allow",
+                        "Principal": {"Service": "lambda.amazonaws.com"},
+                        "Action": "sts:AssumeRole"
+                      }]
+                    }
+                    """
+            }
+        }"#;
+
+        let parsed = parse(input).unwrap();
+        let resource = match &parsed.declarations[0] {
+            Declaration::Resource(r) => r,
+            _ => panic!("expected resource"),
+        };
+        let policy_field = &resource.sections[0].fields[0];
+        assert_eq!(policy_field.name, "assume_role_policy");
+        if let Value::String(s) = &policy_field.value {
+            assert!(s.contains("\"Version\": \"2012-10-17\""));
+            assert!(s.contains("sts:AssumeRole"));
+            // Should be dedented — no leading whitespace on first line
+            assert!(s.starts_with('{'));
+        } else {
+            panic!("expected string value");
+        }
     }
 
     #[test]
@@ -538,6 +639,34 @@ mod tests {
         assert_eq!(r.type_path.to_string(), "aws.ec2.Vpc");
         assert_eq!(r.annotations.len(), 1);
         assert_eq!(r.sections.len(), 1);
+    }
+
+    #[test]
+    fn parse_resource_without_kind() {
+        // kind omitted — derived from type path's last segment (lowercased)
+        let input = r#"resource "main" : aws.ec2.Vpc {
+            @intent "Test VPC"
+            network { cidr_block = "10.0.0.0/16" }
+        }"#;
+        let result = resource_decl().parse(input);
+        assert!(result.is_ok(), "parse error: {:?}", result.err());
+        let r = result.unwrap();
+        assert_eq!(r.kind, "vpc");
+        assert_eq!(r.name, "main");
+        assert_eq!(r.type_path.to_string(), "aws.ec2.Vpc");
+    }
+
+    #[test]
+    fn parse_resource_without_kind_securitygroup() {
+        // Multi-word type → lowercased
+        let input = r#"resource "web-sg" : aws.ec2.SecurityGroup {
+            identity { name = "web-sg" }
+        }"#;
+        let result = resource_decl().parse(input);
+        assert!(result.is_ok(), "parse error: {:?}", result.err());
+        let r = result.unwrap();
+        assert_eq!(r.kind, "securitygroup");
+        assert_eq!(r.name, "web-sg");
     }
 
     #[test]

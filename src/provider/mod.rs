@@ -93,6 +93,26 @@ impl ResourceSchema {
         paths
     }
 
+    /// Returns a map of binding_name → JSON pointer path for all `Ref` fields.
+    /// E.g., `{"vpc_id": "/network/vpc_id", "role_arn": "/security/role_arn"}`.
+    /// This is used by `resolve_refs` to inject binding values at the correct location.
+    pub fn binding_paths(&self) -> HashMap<String, String> {
+        let mut paths = HashMap::new();
+        for section in &self.sections {
+            for field in &section.fields {
+                if matches!(field.field_type, FieldType::Ref(_))
+                    || matches!(&field.field_type, FieldType::Array(inner) if matches!(**inner, FieldType::Ref(_)))
+                {
+                    paths.insert(
+                        field.name.clone(),
+                        format!("/{}/{}", section.name, field.name),
+                    );
+                }
+            }
+        }
+        paths
+    }
+
     /// Validate a config JSON value against this schema.
     /// Returns a list of validation errors (empty = valid).
     pub fn validate(&self, config: &serde_json::Value) -> Vec<String> {
@@ -101,10 +121,7 @@ impl ResourceSchema {
             let section_val = config.get(&section.name);
             for field in &section.fields {
                 let field_val = section_val.and_then(|s| s.get(&field.name));
-                // Check required fields — skip Ref types (populated by needs bindings at apply-time)
-                let is_ref = matches!(field.field_type, FieldType::Ref(_))
-                    || matches!(&field.field_type, FieldType::Array(inner) if matches!(**inner, FieldType::Ref(_)));
-                if field.required && field_val.is_none() && !is_ref {
+                if field.required && field_val.is_none() {
                     errors.push(format!("{}.{} is required", section.name, field.name));
                     continue;
                 }
@@ -273,6 +290,101 @@ impl ProviderRegistry {
 impl Default for ProviderRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Extension trait for typed config extraction from `serde_json::Value`.
+///
+/// Eliminates the repetitive `.pointer("/section/field").and_then(|v| v.as_str()).ok_or_else(...)`
+/// pattern across all provider implementations. Error messages are auto-derived from the path.
+pub trait ConfigExt {
+    /// Extract a required string field. Returns `ProviderError::InvalidConfig` if missing.
+    fn require_str(&self, path: &str) -> Result<&str, ProviderError>;
+
+    /// Extract an optional string field with a default.
+    fn str_or<'a>(&'a self, path: &str, default: &'a str) -> &'a str;
+
+    /// Extract an optional string field.
+    fn optional_str(&self, path: &str) -> Option<&str>;
+
+    /// Extract a required bool field.
+    fn require_bool(&self, path: &str) -> Result<bool, ProviderError>;
+
+    /// Extract an optional bool field with a default.
+    fn bool_or(&self, path: &str, default: bool) -> bool;
+
+    /// Extract a required i64 field.
+    fn require_i64(&self, path: &str) -> Result<i64, ProviderError>;
+
+    /// Extract an optional i64 field with a default.
+    fn i64_or(&self, path: &str, default: i64) -> i64;
+
+    /// Extract an optional bool field (None if absent).
+    fn optional_bool(&self, path: &str) -> Option<bool>;
+
+    /// Extract an optional i64 field (None if absent).
+    fn optional_i64(&self, path: &str) -> Option<i64>;
+
+    /// Extract an optional array field.
+    fn optional_array(&self, path: &str) -> Option<&Vec<serde_json::Value>>;
+}
+
+/// Convert a JSON pointer path like "/network/cidr_block" to a dotted field name "network.cidr_block".
+fn pointer_to_field(path: &str) -> String {
+    path.trim_start_matches('/').replace('/', ".")
+}
+
+impl ConfigExt for serde_json::Value {
+    fn require_str(&self, path: &str) -> Result<&str, ProviderError> {
+        self.pointer(path).and_then(|v| v.as_str()).ok_or_else(|| {
+            ProviderError::InvalidConfig(format!("{} is required", pointer_to_field(path)))
+        })
+    }
+
+    fn str_or<'a>(&'a self, path: &str, default: &'a str) -> &'a str {
+        self.pointer(path)
+            .and_then(|v| v.as_str())
+            .unwrap_or(default)
+    }
+
+    fn optional_str(&self, path: &str) -> Option<&str> {
+        self.pointer(path).and_then(|v| v.as_str())
+    }
+
+    fn require_bool(&self, path: &str) -> Result<bool, ProviderError> {
+        self.pointer(path).and_then(|v| v.as_bool()).ok_or_else(|| {
+            ProviderError::InvalidConfig(format!("{} is required", pointer_to_field(path)))
+        })
+    }
+
+    fn bool_or(&self, path: &str, default: bool) -> bool {
+        self.pointer(path)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(default)
+    }
+
+    fn require_i64(&self, path: &str) -> Result<i64, ProviderError> {
+        self.pointer(path).and_then(|v| v.as_i64()).ok_or_else(|| {
+            ProviderError::InvalidConfig(format!("{} is required", pointer_to_field(path)))
+        })
+    }
+
+    fn i64_or(&self, path: &str, default: i64) -> i64 {
+        self.pointer(path)
+            .and_then(|v| v.as_i64())
+            .unwrap_or(default)
+    }
+
+    fn optional_bool(&self, path: &str) -> Option<bool> {
+        self.pointer(path).and_then(|v| v.as_bool())
+    }
+
+    fn optional_i64(&self, path: &str) -> Option<i64> {
+        self.pointer(path).and_then(|v| v.as_i64())
+    }
+
+    fn optional_array(&self, path: &str) -> Option<&Vec<serde_json::Value>> {
+        self.pointer(path).and_then(|v| v.as_array())
     }
 }
 

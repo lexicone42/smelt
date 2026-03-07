@@ -125,8 +125,9 @@ impl AwsProvider {
 
 /// Extract tag key-value pairs from a smelt resource config JSON.
 pub(crate) fn extract_tags(config: &serde_json::Value) -> HashMap<String, String> {
+    use super::ConfigExt;
     let mut tags = HashMap::new();
-    if let Some(name) = config.pointer("/identity/name").and_then(|v| v.as_str()) {
+    if let Some(name) = config.optional_str("/identity/name") {
         tags.insert("Name".to_string(), name.to_string());
     }
     if let Some(tag_map) = config.pointer("/identity/tags").and_then(|v| v.as_object()) {

@@ -9,46 +9,16 @@ impl AwsProvider {
         &self,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = config
-            .pointer("/identity/name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ProviderError::InvalidConfig("identity.name is required".into()))?;
-
-        let runtime = config
-            .pointer("/sizing/runtime")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ProviderError::InvalidConfig("sizing.runtime is required".into()))?;
-
-        let handler = config
-            .pointer("/sizing/handler")
-            .and_then(|v| v.as_str())
-            .unwrap_or("index.handler");
-
-        let role_arn = config
-            .get("role_arn")
-            .or_else(|| config.pointer("/security/role_arn"))
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ProviderError::InvalidConfig("role_arn is required for Lambda".into())
-            })?;
-
-        let memory = config
-            .pointer("/sizing/memory_size")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(128) as i32;
-
-        let timeout = config
-            .pointer("/sizing/timeout")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(30) as i32;
+        let name = config.require_str("/identity/name")?;
+        let runtime = config.require_str("/sizing/runtime")?;
+        let handler = config.str_or("/sizing/handler", "index.handler");
+        let role_arn = config.require_str("/security/role_arn")?;
+        let memory = config.i64_or("/sizing/memory_size", 128) as i32;
+        let timeout = config.i64_or("/sizing/timeout", 30) as i32;
 
         // Code location — S3 bucket/key or inline zip
-        let s3_bucket = config
-            .pointer("/sizing/code_s3_bucket")
-            .and_then(|v| v.as_str());
-        let s3_key = config
-            .pointer("/sizing/code_s3_key")
-            .and_then(|v| v.as_str());
+        let s3_bucket = config.optional_str("/sizing/code_s3_bucket");
+        let s3_key = config.optional_str("/sizing/code_s3_key");
 
         let code = if let (Some(bucket), Some(key)) = (s3_bucket, s3_key) {
             aws_sdk_lambda::types::FunctionCode::builder()
@@ -74,10 +44,7 @@ impl AwsProvider {
             .timeout(timeout);
 
         // Description
-        if let Some(desc) = config
-            .pointer("/identity/description")
-            .and_then(|v| v.as_str())
-        {
+        if let Some(desc) = config.optional_str("/identity/description") {
             req = req.description(desc);
         }
 
@@ -97,13 +64,11 @@ impl AwsProvider {
 
         // VPC config
         let subnet_ids: Vec<&str> = config
-            .pointer("/network/subnet_ids")
-            .and_then(|v| v.as_array())
+            .optional_array("/network/subnet_ids")
             .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
             .unwrap_or_default();
         let sg_ids: Vec<&str> = config
-            .pointer("/security/security_group_ids")
-            .and_then(|v| v.as_array())
+            .optional_array("/security/security_group_ids")
             .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
             .unwrap_or_default();
 
@@ -189,22 +154,16 @@ impl AwsProvider {
             .update_function_configuration()
             .function_name(name);
 
-        if let Some(handler) = config.pointer("/sizing/handler").and_then(|v| v.as_str()) {
+        if let Some(handler) = config.optional_str("/sizing/handler") {
             req = req.handler(handler);
         }
-        if let Some(mem) = config
-            .pointer("/sizing/memory_size")
-            .and_then(|v| v.as_i64())
-        {
+        if let Some(mem) = config.optional_i64("/sizing/memory_size") {
             req = req.memory_size(mem as i32);
         }
-        if let Some(timeout) = config.pointer("/sizing/timeout").and_then(|v| v.as_i64()) {
+        if let Some(timeout) = config.optional_i64("/sizing/timeout") {
             req = req.timeout(timeout as i32);
         }
-        if let Some(desc) = config
-            .pointer("/identity/description")
-            .and_then(|v| v.as_str())
-        {
+        if let Some(desc) = config.optional_str("/identity/description") {
             req = req.description(desc);
         }
         if let Some(env) = config

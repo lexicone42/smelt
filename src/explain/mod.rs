@@ -27,6 +27,12 @@ pub struct Explanation {
     pub blast_radius: BlastRadius,
     /// Position in apply order
     pub apply_order_position: usize,
+    /// Parallel execution tier (0 = first, applied concurrently with tier_peers)
+    pub tier: usize,
+    /// Resources in the same tier (executed concurrently)
+    pub tier_peers: Vec<String>,
+    /// Total number of tiers
+    pub total_tiers: usize,
     /// Total resources in the graph
     pub total_resources: usize,
     /// All semantic sections and their field names
@@ -137,6 +143,29 @@ pub fn explain(
         .position(|n| n.id == *resource_id)
         .unwrap_or(0);
 
+    // Compute tier info from tiered_apply_order
+    let tiered = graph.tiered_apply_order();
+    let mut tier_map: std::collections::HashMap<usize, Vec<String>> =
+        std::collections::HashMap::new();
+    let mut resource_tier = 0usize;
+    for (node, tier) in &tiered {
+        tier_map.entry(*tier).or_default().push(node.id.to_string());
+        if node.id == *resource_id {
+            resource_tier = *tier;
+        }
+    }
+    let total_tiers = tier_map.len();
+    let tier_peers: Vec<String> = tier_map
+        .get(&resource_tier)
+        .map(|peers| {
+            peers
+                .iter()
+                .filter(|id| id.as_str() != resource_id.to_string())
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+
     let sections: Vec<SectionSummary> = resource_decl
         .sections
         .iter()
@@ -157,6 +186,9 @@ pub fn explain(
         dependents,
         blast_radius,
         apply_order_position,
+        tier: resource_tier,
+        tier_peers,
+        total_tiers,
         total_resources: graph.len(),
         sections,
     })
@@ -234,10 +266,18 @@ pub fn format_explanation(exp: &Explanation) -> String {
 
     out.push('\n');
     out.push_str(&format!(
-        "Apply order: {} of {}\n",
+        "Apply order: {} of {} (tier {} of {})\n",
         exp.apply_order_position + 1,
-        exp.total_resources
+        exp.total_resources,
+        exp.tier + 1,
+        exp.total_tiers
     ));
+    if !exp.tier_peers.is_empty() {
+        out.push_str(&format!(
+            "Runs concurrently with: {}\n",
+            exp.tier_peers.join(", ")
+        ));
+    }
 
     if !exp.sections.is_empty() {
         out.push('\n');
@@ -291,10 +331,16 @@ mod tests {
         assert_eq!(exp.blast_radius.count, 2); // subnet + instance
         assert_eq!(exp.dependents.len(), 1); // just subnet (direct)
 
+        // Tier info — VPC is in tier 0 (no deps), alone
+        assert_eq!(exp.tier, 0);
+        assert!(exp.tier_peers.is_empty());
+        assert_eq!(exp.total_tiers, 3); // tier 0: vpc, tier 1: subnet, tier 2: instance
+
         // Verify the formatted output contains key info
         let text = format_explanation(&exp);
         assert!(text.contains("vpc.main"));
         assert!(text.contains("LOW")); // blast radius of 2 = Low
+        assert!(text.contains("tier 1 of 3"));
     }
 
     #[test]
