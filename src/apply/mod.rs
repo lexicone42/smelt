@@ -910,7 +910,6 @@ fn value_to_json(value: &Value) -> serde_json::Value {
             }
             serde_json::Value::Object(map)
         }
-        Value::Ref(r) => serde_json::Value::String(format!("ref({})", r)),
     }
 }
 

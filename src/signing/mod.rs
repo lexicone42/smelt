@@ -92,12 +92,13 @@ impl SigningKeyStore {
         Ok(public_key_hex)
     }
 
-    /// Get the default signing key (first key found).
+    /// Get the default signing key (deterministically selects the first key by filename).
     pub fn default_key(&self) -> Result<(Ed25519KeyPair, String, String), SigningError> {
-        let entries: Vec<_> = fs::read_dir(&self.keys_dir)?
+        let mut entries: Vec<_> = fs::read_dir(&self.keys_dir)?
             .filter_map(|e| e.ok())
             .filter(|e| e.path().extension().is_some_and(|ext| ext == "key"))
             .collect();
+        entries.sort_by_key(|e| e.file_name());
 
         let entry = entries.first().ok_or(SigningError::NoKey)?;
         let pkcs8_bytes = fs::read(entry.path())?;

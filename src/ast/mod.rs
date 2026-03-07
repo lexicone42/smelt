@@ -165,7 +165,6 @@ pub enum Value {
     Bool(bool),
     Array(Vec<Value>),
     Record(Vec<Field>),
-    Ref(ResourceRef),
 }
 
 impl Value {
@@ -177,7 +176,6 @@ impl Value {
             Self::Bool(_) => "bool",
             Self::Array(_) => "array",
             Self::Record(_) => "record",
-            Self::Ref(_) => "ref",
         }
     }
 }

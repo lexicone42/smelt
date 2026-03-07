@@ -23,6 +23,21 @@ pub struct Store {
     root: PathBuf,
 }
 
+/// An exclusive lock on the store, preventing concurrent mutations.
+///
+/// Acquired via `Store::lock()` before any mutating operation (set_ref, append_event).
+/// Released automatically when dropped.
+pub struct StoreLock {
+    _file: fs::File,
+    path: PathBuf,
+}
+
+impl Drop for StoreLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
 /// A content-addressed hash (blake3).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct ContentHash(pub String);
@@ -147,6 +162,22 @@ pub enum StoreError {
     RefNotFound(String),
     #[error("object not found: {0}")]
     ObjectNotFound(ContentHash),
+    #[error("hash mismatch: expected {expected}, got {actual} (possible tampering)")]
+    HashMismatch {
+        expected: ContentHash,
+        actual: ContentHash,
+    },
+    #[error("store is locked by another process — if this is stale, remove .smelt/lock")]
+    Locked,
+}
+
+/// Check if a process is still running (Unix: kill -0).
+fn process_alive(pid: u32) -> bool {
+    unsafe extern "C" {
+        #[link_name = "kill"]
+        safe fn libc_kill(pid: i32, sig: i32) -> i32;
+    }
+    libc_kill(pid as i32, 0) == 0
 }
 
 impl Store {
@@ -158,6 +189,43 @@ impl Store {
         fs::create_dir_all(root.join("refs/environments"))?;
         fs::create_dir_all(root.join("events"))?;
         Ok(Self { root })
+    }
+
+    /// Acquire an exclusive lock on the store.
+    ///
+    /// Must be held during any mutating operation (apply, destroy, rollback).
+    /// Returns `StoreError::Locked` if another process holds the lock.
+    pub fn lock(&self) -> Result<StoreLock, StoreError> {
+        let lock_path = self.root.join("lock");
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&lock_path)
+        {
+            Ok(file) => {
+                use std::io::Write;
+                // Write PID for debugging stale locks
+                let mut f = file;
+                let _ = write!(f, "{}", std::process::id());
+                Ok(StoreLock {
+                    _file: f,
+                    path: lock_path,
+                })
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                // Check if the lock is stale (process no longer running)
+                if let Ok(pid_str) = fs::read_to_string(&lock_path)
+                    && let Ok(pid) = pid_str.trim().parse::<u32>()
+                    && !process_alive(pid)
+                {
+                    // Stale lock — remove and retry
+                    let _ = fs::remove_file(&lock_path);
+                    return self.lock();
+                }
+                Err(StoreError::Locked)
+            }
+            Err(e) => Err(StoreError::Io(e)),
+        }
     }
 
     // --- Object operations ---
@@ -174,12 +242,23 @@ impl Store {
     }
 
     /// Retrieve a resource state object by hash.
+    ///
+    /// Verifies content integrity: the BLAKE3 hash of the stored bytes must
+    /// match the hash used to address the object. Returns `StoreError::HashMismatch`
+    /// if the file has been tampered with.
     pub fn get_object(&self, hash: &ContentHash) -> Result<ResourceState, StoreError> {
         let path = self.object_path(hash);
         if !path.exists() {
             return Err(StoreError::ObjectNotFound(hash.clone()));
         }
         let data = fs::read(&path)?;
+        let actual_hash = ContentHash::of(&data);
+        if actual_hash != *hash {
+            return Err(StoreError::HashMismatch {
+                expected: hash.clone(),
+                actual: actual_hash,
+            });
+        }
         Ok(serde_json::from_slice(&data)?)
     }
 

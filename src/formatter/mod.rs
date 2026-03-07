@@ -206,9 +206,6 @@ fn format_value(out: &mut String, value: &Value, indent: usize) {
         Value::Bool(b) => {
             out.push_str(if *b { "true" } else { "false" });
         }
-        Value::Ref(r) => {
-            out.push_str(&format!("ref({r})"));
-        }
         Value::Array(items) => {
             if items.is_empty() {
                 out.push_str("[]");
@@ -276,11 +273,7 @@ fn is_simple_array(items: &[Value]) -> bool {
     items.iter().all(|v| {
         matches!(
             v,
-            Value::String(_)
-                | Value::Number(_)
-                | Value::Integer(_)
-                | Value::Bool(_)
-                | Value::Ref(_)
+            Value::String(_) | Value::Number(_) | Value::Integer(_) | Value::Bool(_)
         )
     })
 }
@@ -291,11 +284,7 @@ fn is_simple_record(fields: &[Field]) -> bool {
         && fields.iter().all(|f| {
             matches!(
                 f.value,
-                Value::String(_)
-                    | Value::Number(_)
-                    | Value::Integer(_)
-                    | Value::Bool(_)
-                    | Value::Ref(_)
+                Value::String(_) | Value::Number(_) | Value::Integer(_) | Value::Bool(_)
             )
         })
 }

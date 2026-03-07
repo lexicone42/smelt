@@ -319,11 +319,6 @@ fn value() -> impl Parser<char, Value, Error = Simple<char>> {
             .to(Value::Bool(true))
             .or(text::keyword("false").to(Value::Bool(false)));
 
-        let ref_val = text::keyword("ref")
-            .padded()
-            .ignore_then(resource_ref().delimited_by(just('(').padded(), just(')').padded()))
-            .map(Value::Ref);
-
         let array_val = val
             .clone()
             .padded()
@@ -343,10 +338,7 @@ fn value() -> impl Parser<char, Value, Error = Simple<char>> {
             .delimited_by(just('{').padded(), just('}').padded())
             .map(Value::Record);
 
-        // Order matters: try ref before bool (both start with alphabetic chars),
-        // try number before negative sign is consumed as ident
-        ref_val
-            .or(bool_val)
+        bool_val
             .or(string_val)
             .or(number_val)
             .or(array_val)
@@ -573,16 +565,6 @@ mod tests {
         match result.unwrap().value {
             Value::Number(n) => assert!((n - 3.14).abs() < f64::EPSILON),
             other => panic!("expected Number, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parse_ref_field() {
-        let result = field().parse("vpc_id = ref(network.vpc.main)");
-        assert!(result.is_ok());
-        match result.unwrap().value {
-            Value::Ref(r) => assert_eq!(r.segments, vec!["network", "vpc", "main"]),
-            other => panic!("expected Ref, got {other:?}"),
         }
     }
 

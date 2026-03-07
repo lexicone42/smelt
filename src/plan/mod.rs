@@ -5,6 +5,7 @@ use similar::{ChangeTag, TextDiff};
 
 use crate::ast::{Declaration, LayerDecl, SmeltFile, Value};
 use crate::graph::DependencyGraph;
+use crate::provider::{ChangeType, FieldChange};
 
 /// A plan showing what would change when applying the current config.
 ///
@@ -75,8 +76,8 @@ pub struct PlannedAction {
     pub type_path: String,
     pub action: ActionType,
     pub intent: Option<String>,
-    /// Field-level diffs for updates
-    pub changes: Vec<FieldDiff>,
+    /// Field-level diffs for updates (uses the unified FieldChange type from provider module)
+    pub changes: Vec<FieldChange>,
     /// Whether this action forces resource replacement (destroy + recreate)
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub forces_replacement: bool,
@@ -99,20 +100,6 @@ impl std::fmt::Display for ActionType {
             Self::Unchanged => write!(f, " "),
         }
     }
-}
-
-/// A field-level diff within a resource.
-#[derive(Debug, Clone, Serialize)]
-pub struct FieldDiff {
-    pub path: String,
-    pub change: ChangeKind,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub enum ChangeKind {
-    Added { value: String },
-    Removed { value: String },
-    Modified { old: String, new: String },
 }
 
 /// Build a plan by diffing desired state (from .smelt files) against
@@ -173,7 +160,8 @@ pub fn build_plan(
                 forces_replacement: false,
             },
             Some(current) => {
-                let changes = diff_json_values("", current, &desired_json);
+                let mut changes = Vec::new();
+                crate::provider::diff_values("", &desired_json, current, &mut changes);
                 let action = if changes.is_empty() {
                     ActionType::Unchanged
                 } else {
@@ -251,7 +239,6 @@ fn value_to_json(value: &Value) -> serde_json::Value {
             }
             serde_json::Value::Object(map)
         }
-        Value::Ref(r) => serde_json::Value::String(format!("ref({})", r)),
     }
 }
 
@@ -322,75 +309,11 @@ fn glob_match(pattern: &str, text: &str) -> bool {
         .all(|(p, t)| *p == "*" || p == t)
 }
 
-/// Recursively diff two JSON values, producing field-level diffs.
-fn diff_json_values(
-    path: &str,
-    old: &serde_json::Value,
-    new: &serde_json::Value,
-) -> Vec<FieldDiff> {
-    if old == new {
-        return vec![];
-    }
-
-    let mut diffs = Vec::new();
-
-    match (old, new) {
-        (serde_json::Value::Object(old_map), serde_json::Value::Object(new_map)) => {
-            // Check removed fields
-            for (k, v) in old_map {
-                let field_path = if path.is_empty() {
-                    k.clone()
-                } else {
-                    format!("{path}.{k}")
-                };
-                match new_map.get(k) {
-                    None => diffs.push(FieldDiff {
-                        path: field_path,
-                        change: ChangeKind::Removed {
-                            value: format_json_compact(v),
-                        },
-                    }),
-                    Some(new_v) => {
-                        diffs.extend(diff_json_values(&field_path, v, new_v));
-                    }
-                }
-            }
-            // Check added fields
-            for (k, v) in new_map {
-                if !old_map.contains_key(k) {
-                    let field_path = if path.is_empty() {
-                        k.clone()
-                    } else {
-                        format!("{path}.{k}")
-                    };
-                    diffs.push(FieldDiff {
-                        path: field_path,
-                        change: ChangeKind::Added {
-                            value: format_json_compact(v),
-                        },
-                    });
-                }
-            }
-        }
-        _ => {
-            let display_path = if path.is_empty() { "<root>" } else { path };
-            diffs.push(FieldDiff {
-                path: display_path.to_string(),
-                change: ChangeKind::Modified {
-                    old: format_json_compact(old),
-                    new: format_json_compact(new),
-                },
-            });
-        }
-    }
-
-    diffs
-}
-
-fn format_json_compact(value: &serde_json::Value) -> String {
+fn format_json_compact(value: Option<&serde_json::Value>) -> String {
     match value {
-        serde_json::Value::String(s) => format!("\"{s}\""),
-        other => serde_json::to_string(other).unwrap_or_else(|_| format!("{other}")),
+        None => "<none>".to_string(),
+        Some(serde_json::Value::String(s)) => format!("\"{s}\""),
+        Some(other) => serde_json::to_string(other).unwrap_or_else(|_| format!("{other}")),
     }
 }
 
@@ -403,12 +326,11 @@ const RESET: &str = "\x1b[0m";
 const DIM: &str = "\x1b[2m";
 
 fn use_color() -> bool {
-    std::env::var("NO_COLOR").is_err() && atty_stderr()
+    std::env::var("NO_COLOR").is_err() && atty_stdout()
 }
 
-fn atty_stderr() -> bool {
-    // Simple heuristic: check if stderr is a terminal
-    libc_isatty(2) != 0
+fn atty_stdout() -> bool {
+    libc_isatty(1) != 0
 }
 
 unsafe extern "C" {
@@ -469,32 +391,31 @@ pub fn format_plan(plan: &Plan) -> String {
         }
 
         for change in &action.changes {
-            match &change.change {
-                ChangeKind::Added { value } => {
+            let path = &change.path;
+            match change.change_type {
+                ChangeType::Add => {
+                    let val = format_json_compact(change.new_value.as_ref());
                     if color {
-                        out.push_str(&format!(
-                            "      {GREEN}+ {} = {value}{RESET}\n",
-                            change.path
-                        ));
+                        out.push_str(&format!("      {GREEN}+ {path} = {val}{RESET}\n"));
                     } else {
-                        out.push_str(&format!("      + {} = {value}\n", change.path));
+                        out.push_str(&format!("      + {path} = {val}\n"));
                     }
                 }
-                ChangeKind::Removed { value } => {
+                ChangeType::Remove => {
+                    let val = format_json_compact(change.old_value.as_ref());
                     if color {
-                        out.push_str(&format!("      {RED}- {} = {value}{RESET}\n", change.path));
+                        out.push_str(&format!("      {RED}- {path} = {val}{RESET}\n"));
                     } else {
-                        out.push_str(&format!("      - {} = {value}\n", change.path));
+                        out.push_str(&format!("      - {path} = {val}\n"));
                     }
                 }
-                ChangeKind::Modified { old, new } => {
+                ChangeType::Modify => {
+                    let old = format_json_compact(change.old_value.as_ref());
+                    let new = format_json_compact(change.new_value.as_ref());
                     if color {
-                        out.push_str(&format!(
-                            "      {YELLOW}~ {} : {old} -> {new}{RESET}\n",
-                            change.path
-                        ));
+                        out.push_str(&format!("      {YELLOW}~ {path} : {old} -> {new}{RESET}\n"));
                     } else {
-                        out.push_str(&format!("      ~ {} : {old} -> {new}\n", change.path));
+                        out.push_str(&format!("      ~ {path} : {old} -> {new}\n"));
                     }
                 }
             }
@@ -537,24 +458,24 @@ pub fn format_plan_diff(plan: &Plan) -> String {
             }
             ActionType::Update => {
                 for change in &action.changes {
-                    match &change.change {
-                        ChangeKind::Modified { old, new } => {
+                    match change.change_type {
+                        ChangeType::Modify => {
+                            let old = format_json_compact(change.old_value.as_ref());
+                            let new = format_json_compact(change.new_value.as_ref());
                             old_lines
                                 .push(format!("{}.{} = {}", action.resource_id, change.path, old));
                             new_lines
                                 .push(format!("{}.{} = {}", action.resource_id, change.path, new));
                         }
-                        ChangeKind::Added { value } => {
-                            new_lines.push(format!(
-                                "{}.{} = {}",
-                                action.resource_id, change.path, value
-                            ));
+                        ChangeType::Add => {
+                            let val = format_json_compact(change.new_value.as_ref());
+                            new_lines
+                                .push(format!("{}.{} = {}", action.resource_id, change.path, val));
                         }
-                        ChangeKind::Removed { value } => {
-                            old_lines.push(format!(
-                                "{}.{} = {}",
-                                action.resource_id, change.path, value
-                            ));
+                        ChangeType::Remove => {
+                            let val = format_json_compact(change.old_value.as_ref());
+                            old_lines
+                                .push(format!("{}.{} = {}", action.resource_id, change.path, val));
                         }
                     }
                 }

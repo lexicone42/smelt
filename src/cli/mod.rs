@@ -56,6 +56,10 @@ pub enum Command {
         /// Read live state from cloud providers instead of stored state
         #[arg(long)]
         live: bool,
+
+        /// Only plan this resource and its dependencies (kind.name, e.g., "vpc.main")
+        #[arg(long)]
+        target: Option<String>,
     },
 
     /// Explain a resource — show intent, dependencies, blast radius
@@ -111,6 +115,10 @@ pub enum Command {
         /// Read live state from cloud before planning (catches manual changes)
         #[arg(long)]
         refresh: bool,
+
+        /// Only apply this resource and its dependencies (kind.name, e.g., "vpc.main")
+        #[arg(long)]
+        target: Option<String>,
     },
 
     /// Destroy all resources in an environment

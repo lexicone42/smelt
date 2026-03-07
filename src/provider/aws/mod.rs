@@ -34,6 +34,61 @@ use std::pin::Pin;
 
 use crate::provider::*;
 
+/// Dispatch macro for AWS provider operations.
+///
+/// Eliminates the need to maintain parallel match arms in read/create/update/delete.
+/// Each entry maps a type path to its handler methods.
+///
+/// Usage:
+/// ```ignore
+/// aws_dispatch!(self, resource_type, provider_id, config, {
+///     "ec2.Vpc" => { read: read_vpc, create: create_vpc, update: update_vpc, delete: delete_vpc },
+///     ...
+///     "ec2.Subnet" => { read: read_subnet, create: create_subnet, replace, delete: delete_subnet },
+/// });
+/// ```
+///
+/// The `replace` keyword marks types that return `RequiresReplacement` on update.
+macro_rules! aws_dispatch_read {
+    ($self:ident, $resource_type:expr, $provider_id:expr, { $($type_path:literal => $read_fn:ident),* $(,)? }) => {
+        match $resource_type {
+            $( $type_path => $self.$read_fn(&$provider_id).await, )*
+            _ => Err(ProviderError::ApiError(format!("unsupported resource type: {}", $resource_type))),
+        }
+    };
+}
+
+macro_rules! aws_dispatch_create {
+    ($self:ident, $resource_type:expr, $config:expr, { $($type_path:literal => $create_fn:ident),* $(,)? }) => {
+        match $resource_type {
+            $( $type_path => $self.$create_fn(&$config).await, )*
+            _ => Err(ProviderError::ApiError(format!("unsupported resource type: {}", $resource_type))),
+        }
+    };
+}
+
+macro_rules! aws_dispatch_update {
+    ($self:ident, $resource_type:expr, $provider_id:expr, $new_config:expr,
+     updatable: { $($up:literal => $update_fn:ident),* $(,)? },
+     replace: [ $($rp:literal),* $(,)? ]
+    ) => {
+        match $resource_type {
+            $( $up => $self.$update_fn(&$provider_id, &$new_config).await, )*
+            $( $rp )|* => Err(ProviderError::RequiresReplacement("resource changes require replacement".into())),
+            _ => Err(ProviderError::ApiError(format!("unsupported resource type: {}", $resource_type))),
+        }
+    };
+}
+
+macro_rules! aws_dispatch_delete {
+    ($self:ident, $resource_type:expr, $provider_id:expr, { $($type_path:literal => $delete_fn:ident),* $(,)? }) => {
+        match $resource_type {
+            $( $type_path => $self.$delete_fn(&$provider_id).await, )*
+            _ => Err(ProviderError::ApiError(format!("unsupported resource type: {}", $resource_type))),
+        }
+    };
+}
+
 /// AWS provider implementation backed by the AWS SDK for Rust.
 ///
 /// Covers EC2, IAM, S3, ELBv2, ECS, ECR, RDS, Lambda, Route53,
@@ -245,88 +300,56 @@ impl Provider for AwsProvider {
         let resource_type = resource_type.to_string();
         let provider_id = provider_id.to_string();
         Box::pin(async move {
-            match resource_type.as_str() {
-                // EC2
-                "ec2.Vpc" => self.read_vpc(&provider_id).await,
-                "ec2.Subnet" => self.read_subnet(&provider_id).await,
-                "ec2.SecurityGroup" => self.read_security_group(&provider_id).await,
-                "ec2.InternetGateway" => self.read_internet_gateway(&provider_id).await,
-                "ec2.RouteTable" => self.read_route_table(&provider_id).await,
-                "ec2.NatGateway" => self.read_nat_gateway(&provider_id).await,
-                "ec2.ElasticIp" => self.read_elastic_ip(&provider_id).await,
-                "ec2.KeyPair" => self.read_key_pair(&provider_id).await,
-                "ec2.Instance" => self.read_instance(&provider_id).await,
-                // IAM
-                "iam.Role" => self.read_role(&provider_id).await,
-                "iam.Policy" => self.read_policy(&provider_id).await,
-                "iam.InstanceProfile" => self.read_instance_profile(&provider_id).await,
-                // S3
-                "s3.Bucket" => self.read_bucket(&provider_id).await,
-                // ELBv2
-                "elbv2.LoadBalancer" => self.read_load_balancer(&provider_id).await,
-                "elbv2.TargetGroup" => self.read_target_group(&provider_id).await,
-                "elbv2.Listener" => self.read_listener(&provider_id).await,
-                // ECS
-                "ecs.Cluster" => self.read_cluster(&provider_id).await,
-                "ecs.Service" => self.read_ecs_service(&provider_id).await,
-                "ecs.TaskDefinition" => self.read_task_definition(&provider_id).await,
-                // ECR
-                "ecr.Repository" => self.read_repository(&provider_id).await,
-                // RDS
-                "rds.DBInstance" => self.read_db_instance(&provider_id).await,
-                "rds.DBSubnetGroup" => self.read_db_subnet_group(&provider_id).await,
-                // Lambda
-                "lambda.Function" => self.read_lambda_function(&provider_id).await,
-                // Route53
-                "route53.HostedZone" => self.read_hosted_zone(&provider_id).await,
-                "route53.RecordSet" => self.read_record_set(&provider_id).await,
-                // CloudWatch Logs
-                "logs.LogGroup" => self.read_log_group(&provider_id).await,
-                // SQS
-                "sqs.Queue" => self.read_queue(&provider_id).await,
-                // SNS
-                "sns.Topic" => self.read_topic(&provider_id).await,
-                // KMS
-                "kms.Key" => self.read_kms_key(&provider_id).await,
-                // DynamoDB
-                "dynamodb.Table" => self.read_dynamodb_table(&provider_id).await,
-                // CloudFront
-                "cloudfront.Distribution" => self.read_distribution(&provider_id).await,
-                // ACM
-                "acm.Certificate" => self.read_certificate(&provider_id).await,
-                // Secrets Manager
-                "secretsmanager.Secret" => self.read_secret(&provider_id).await,
-                // SSM
-                "ssm.Parameter" => self.read_parameter(&provider_id).await,
-                // ElastiCache
-                "elasticache.ReplicationGroup" => self.read_replication_group(&provider_id).await,
-                // EFS
-                "efs.FileSystem" => self.read_file_system(&provider_id).await,
-                "efs.MountTarget" => self.read_mount_target(&provider_id).await,
-                // API Gateway
-                "apigateway.Api" => self.read_api(&provider_id).await,
-                "apigateway.Stage" => self.read_stage(&provider_id).await,
-                // Step Functions
-                "sfn.StateMachine" => self.read_state_machine(&provider_id).await,
-                // EventBridge
-                "eventbridge.Rule" => self.read_eventbridge_rule(&provider_id).await,
-                // CloudWatch
-                "cloudwatch.Alarm" => self.read_alarm(&provider_id).await,
-                // Auto Scaling
-                "autoscaling.Group" => self.read_asg(&provider_id).await,
-                // EKS
-                "eks.Cluster" => self.read_eks_cluster(&provider_id).await,
-                "eks.NodeGroup" => self.read_node_group(&provider_id).await,
-                // WAFv2
-                "wafv2.WebACL" => self.read_web_acl(&provider_id).await,
-                // Cognito
-                "cognito.UserPool" => self.read_user_pool(&provider_id).await,
-                // SES
-                "ses.EmailIdentity" => self.read_email_identity(&provider_id).await,
-                _ => Err(ProviderError::ApiError(format!(
-                    "unsupported resource type: {resource_type}"
-                ))),
-            }
+            aws_dispatch_read!(self, resource_type.as_str(), provider_id, {
+                "ec2.Vpc" => read_vpc,
+                "ec2.Subnet" => read_subnet,
+                "ec2.SecurityGroup" => read_security_group,
+                "ec2.InternetGateway" => read_internet_gateway,
+                "ec2.RouteTable" => read_route_table,
+                "ec2.NatGateway" => read_nat_gateway,
+                "ec2.ElasticIp" => read_elastic_ip,
+                "ec2.KeyPair" => read_key_pair,
+                "ec2.Instance" => read_instance,
+                "iam.Role" => read_role,
+                "iam.Policy" => read_policy,
+                "iam.InstanceProfile" => read_instance_profile,
+                "s3.Bucket" => read_bucket,
+                "elbv2.LoadBalancer" => read_load_balancer,
+                "elbv2.TargetGroup" => read_target_group,
+                "elbv2.Listener" => read_listener,
+                "ecs.Cluster" => read_cluster,
+                "ecs.Service" => read_ecs_service,
+                "ecs.TaskDefinition" => read_task_definition,
+                "ecr.Repository" => read_repository,
+                "rds.DBInstance" => read_db_instance,
+                "rds.DBSubnetGroup" => read_db_subnet_group,
+                "lambda.Function" => read_lambda_function,
+                "route53.HostedZone" => read_hosted_zone,
+                "route53.RecordSet" => read_record_set,
+                "logs.LogGroup" => read_log_group,
+                "sqs.Queue" => read_queue,
+                "sns.Topic" => read_topic,
+                "kms.Key" => read_kms_key,
+                "dynamodb.Table" => read_dynamodb_table,
+                "cloudfront.Distribution" => read_distribution,
+                "acm.Certificate" => read_certificate,
+                "secretsmanager.Secret" => read_secret,
+                "ssm.Parameter" => read_parameter,
+                "elasticache.ReplicationGroup" => read_replication_group,
+                "efs.FileSystem" => read_file_system,
+                "efs.MountTarget" => read_mount_target,
+                "apigateway.Api" => read_api,
+                "apigateway.Stage" => read_stage,
+                "sfn.StateMachine" => read_state_machine,
+                "eventbridge.Rule" => read_eventbridge_rule,
+                "cloudwatch.Alarm" => read_alarm,
+                "autoscaling.Group" => read_asg,
+                "eks.Cluster" => read_eks_cluster,
+                "eks.NodeGroup" => read_node_group,
+                "wafv2.WebACL" => read_web_acl,
+                "cognito.UserPool" => read_user_pool,
+                "ses.EmailIdentity" => read_email_identity,
+            })
         })
     }
 
@@ -338,73 +361,56 @@ impl Provider for AwsProvider {
         let resource_type = resource_type.to_string();
         let config = config.clone();
         Box::pin(async move {
-            match resource_type.as_str() {
-                // EC2
-                "ec2.Vpc" => self.create_vpc(&config).await,
-                "ec2.Subnet" => self.create_subnet(&config).await,
-                "ec2.SecurityGroup" => self.create_security_group(&config).await,
-                "ec2.InternetGateway" => self.create_internet_gateway(&config).await,
-                "ec2.RouteTable" => self.create_route_table(&config).await,
-                "ec2.NatGateway" => self.create_nat_gateway(&config).await,
-                "ec2.ElasticIp" => self.create_elastic_ip(&config).await,
-                "ec2.KeyPair" => self.create_key_pair(&config).await,
-                "ec2.Instance" => self.create_instance(&config).await,
-                // IAM
-                "iam.Role" => self.create_role(&config).await,
-                "iam.Policy" => self.create_policy(&config).await,
-                "iam.InstanceProfile" => self.create_instance_profile(&config).await,
-                // S3
-                "s3.Bucket" => self.create_bucket(&config).await,
-                // ELBv2
-                "elbv2.LoadBalancer" => self.create_load_balancer(&config).await,
-                "elbv2.TargetGroup" => self.create_target_group(&config).await,
-                "elbv2.Listener" => self.create_listener(&config).await,
-                // ECS
-                "ecs.Cluster" => self.create_cluster(&config).await,
-                "ecs.Service" => self.create_ecs_service(&config).await,
-                "ecs.TaskDefinition" => self.create_task_definition(&config).await,
-                // ECR
-                "ecr.Repository" => self.create_repository(&config).await,
-                // RDS
-                "rds.DBInstance" => self.create_db_instance(&config).await,
-                "rds.DBSubnetGroup" => self.create_db_subnet_group(&config).await,
-                // Lambda
-                "lambda.Function" => self.create_lambda_function(&config).await,
-                // Route53
-                "route53.HostedZone" => self.create_hosted_zone(&config).await,
-                "route53.RecordSet" => self.create_record_set(&config).await,
-                // CloudWatch Logs
-                "logs.LogGroup" => self.create_log_group(&config).await,
-                // SQS
-                "sqs.Queue" => self.create_queue(&config).await,
-                // SNS
-                "sns.Topic" => self.create_topic(&config).await,
-                // KMS
-                "kms.Key" => self.create_kms_key(&config).await,
-                // Extended services
-                "dynamodb.Table" => self.create_dynamodb_table(&config).await,
-                "cloudfront.Distribution" => self.create_distribution(&config).await,
-                "acm.Certificate" => self.create_certificate(&config).await,
-                "secretsmanager.Secret" => self.create_secret(&config).await,
-                "ssm.Parameter" => self.create_parameter(&config).await,
-                "elasticache.ReplicationGroup" => self.create_replication_group(&config).await,
-                "efs.FileSystem" => self.create_file_system(&config).await,
-                "efs.MountTarget" => self.create_mount_target(&config).await,
-                "apigateway.Api" => self.create_api(&config).await,
-                "apigateway.Stage" => self.create_stage(&config).await,
-                "sfn.StateMachine" => self.create_state_machine(&config).await,
-                "eventbridge.Rule" => self.create_eventbridge_rule(&config).await,
-                "cloudwatch.Alarm" => self.create_alarm(&config).await,
-                "autoscaling.Group" => self.create_asg(&config).await,
-                "eks.Cluster" => self.create_eks_cluster(&config).await,
-                "eks.NodeGroup" => self.create_node_group(&config).await,
-                "wafv2.WebACL" => self.create_web_acl(&config).await,
-                "cognito.UserPool" => self.create_user_pool(&config).await,
-                "ses.EmailIdentity" => self.create_email_identity(&config).await,
-                _ => Err(ProviderError::ApiError(format!(
-                    "unsupported resource type: {resource_type}"
-                ))),
-            }
+            aws_dispatch_create!(self, resource_type.as_str(), config, {
+                "ec2.Vpc" => create_vpc,
+                "ec2.Subnet" => create_subnet,
+                "ec2.SecurityGroup" => create_security_group,
+                "ec2.InternetGateway" => create_internet_gateway,
+                "ec2.RouteTable" => create_route_table,
+                "ec2.NatGateway" => create_nat_gateway,
+                "ec2.ElasticIp" => create_elastic_ip,
+                "ec2.KeyPair" => create_key_pair,
+                "ec2.Instance" => create_instance,
+                "iam.Role" => create_role,
+                "iam.Policy" => create_policy,
+                "iam.InstanceProfile" => create_instance_profile,
+                "s3.Bucket" => create_bucket,
+                "elbv2.LoadBalancer" => create_load_balancer,
+                "elbv2.TargetGroup" => create_target_group,
+                "elbv2.Listener" => create_listener,
+                "ecs.Cluster" => create_cluster,
+                "ecs.Service" => create_ecs_service,
+                "ecs.TaskDefinition" => create_task_definition,
+                "ecr.Repository" => create_repository,
+                "rds.DBInstance" => create_db_instance,
+                "rds.DBSubnetGroup" => create_db_subnet_group,
+                "lambda.Function" => create_lambda_function,
+                "route53.HostedZone" => create_hosted_zone,
+                "route53.RecordSet" => create_record_set,
+                "logs.LogGroup" => create_log_group,
+                "sqs.Queue" => create_queue,
+                "sns.Topic" => create_topic,
+                "kms.Key" => create_kms_key,
+                "dynamodb.Table" => create_dynamodb_table,
+                "cloudfront.Distribution" => create_distribution,
+                "acm.Certificate" => create_certificate,
+                "secretsmanager.Secret" => create_secret,
+                "ssm.Parameter" => create_parameter,
+                "elasticache.ReplicationGroup" => create_replication_group,
+                "efs.FileSystem" => create_file_system,
+                "efs.MountTarget" => create_mount_target,
+                "apigateway.Api" => create_api,
+                "apigateway.Stage" => create_stage,
+                "sfn.StateMachine" => create_state_machine,
+                "eventbridge.Rule" => create_eventbridge_rule,
+                "cloudwatch.Alarm" => create_alarm,
+                "autoscaling.Group" => create_asg,
+                "eks.Cluster" => create_eks_cluster,
+                "eks.NodeGroup" => create_node_group,
+                "wafv2.WebACL" => create_web_acl,
+                "cognito.UserPool" => create_user_pool,
+                "ses.EmailIdentity" => create_email_identity,
+            })
         })
     }
 
@@ -419,78 +425,60 @@ impl Provider for AwsProvider {
         let provider_id = provider_id.to_string();
         let new_config = new_config.clone();
         Box::pin(async move {
-            match resource_type.as_str() {
-                // In-place updatable
-                "ec2.Vpc" => self.update_vpc(&provider_id, &new_config).await,
-                "ec2.Instance" => self.update_instance(&provider_id, &new_config).await,
-                "ec2.RouteTable" => self.update_route_table(&provider_id, &new_config).await,
-                "iam.Role" => self.update_role(&provider_id, &new_config).await,
-                "iam.Policy" => self.update_policy(&provider_id, &new_config).await,
-                "s3.Bucket" => self.update_bucket(&provider_id, &new_config).await,
-                "elbv2.LoadBalancer" => self.update_load_balancer(&provider_id, &new_config).await,
-                "elbv2.TargetGroup" => self.update_target_group(&provider_id, &new_config).await,
-                "elbv2.Listener" => {
-                    self.update_listener_resource(&provider_id, &new_config)
-                        .await
-                }
-                "ecs.Service" => {
-                    self.update_ecs_service_resource(&provider_id, &new_config)
-                        .await
-                }
-                "lambda.Function" => self.update_lambda_function(&provider_id, &new_config).await,
-                "route53.RecordSet" => self.update_record_set(&provider_id, &new_config).await,
-                "logs.LogGroup" => self.update_log_group(&provider_id, &new_config).await,
-                "sqs.Queue" => self.update_queue(&provider_id, &new_config).await,
-                "sns.Topic" => self.update_topic(&provider_id, &new_config).await,
-                "kms.Key" => self.update_kms_key(&provider_id, &new_config).await,
-                // Extended services — in-place updatable
-                "dynamodb.Table" => self.update_dynamodb_table(&provider_id, &new_config).await,
-                "cloudfront.Distribution" => {
-                    self.update_distribution(&provider_id, &new_config).await
-                }
-                "secretsmanager.Secret" => self.update_secret(&provider_id, &new_config).await,
-                "ssm.Parameter" => self.update_parameter(&provider_id, &new_config).await,
-                "elasticache.ReplicationGroup" => {
-                    self.update_replication_group(&provider_id, &new_config)
-                        .await
-                }
-                "efs.FileSystem" => self.update_file_system(&provider_id, &new_config).await,
-                "apigateway.Api" => self.update_api(&provider_id, &new_config).await,
-                "apigateway.Stage" => self.update_stage(&provider_id, &new_config).await,
-                "sfn.StateMachine" => self.update_state_machine(&provider_id, &new_config).await,
-                "eventbridge.Rule" => {
-                    self.update_eventbridge_rule(&provider_id, &new_config)
-                        .await
-                }
-                "cloudwatch.Alarm" => self.update_alarm(&provider_id, &new_config).await,
-                "autoscaling.Group" => self.update_asg(&provider_id, &new_config).await,
-                "eks.Cluster" => self.update_eks_cluster(&provider_id, &new_config).await,
-                "eks.NodeGroup" => self.update_node_group(&provider_id, &new_config).await,
-                "wafv2.WebACL" => self.update_web_acl(&provider_id, &new_config).await,
-                "cognito.UserPool" => self.update_user_pool(&provider_id, &new_config).await,
-                // Requires replacement
-                "ec2.Subnet"
-                | "ec2.InternetGateway"
-                | "ec2.NatGateway"
-                | "ec2.ElasticIp"
-                | "ec2.KeyPair"
-                | "ec2.SecurityGroup"
-                | "iam.InstanceProfile"
-                | "ecs.Cluster"
-                | "ecs.TaskDefinition"
-                | "ecr.Repository"
-                | "rds.DBInstance"
-                | "rds.DBSubnetGroup"
-                | "route53.HostedZone"
-                | "acm.Certificate"
-                | "efs.MountTarget"
-                | "ses.EmailIdentity" => Err(ProviderError::RequiresReplacement(
-                    "resource changes require replacement".into(),
-                )),
-                _ => Err(ProviderError::ApiError(format!(
-                    "unsupported resource type: {resource_type}"
-                ))),
-            }
+            aws_dispatch_update!(self, resource_type.as_str(), provider_id, new_config,
+                updatable: {
+                    "ec2.Vpc" => update_vpc,
+                    "ec2.Instance" => update_instance,
+                    "ec2.RouteTable" => update_route_table,
+                    "iam.Role" => update_role,
+                    "iam.Policy" => update_policy,
+                    "s3.Bucket" => update_bucket,
+                    "elbv2.LoadBalancer" => update_load_balancer,
+                    "elbv2.TargetGroup" => update_target_group,
+                    "elbv2.Listener" => update_listener_resource,
+                    "ecs.Service" => update_ecs_service_resource,
+                    "lambda.Function" => update_lambda_function,
+                    "route53.RecordSet" => update_record_set,
+                    "logs.LogGroup" => update_log_group,
+                    "sqs.Queue" => update_queue,
+                    "sns.Topic" => update_topic,
+                    "kms.Key" => update_kms_key,
+                    "dynamodb.Table" => update_dynamodb_table,
+                    "cloudfront.Distribution" => update_distribution,
+                    "secretsmanager.Secret" => update_secret,
+                    "ssm.Parameter" => update_parameter,
+                    "elasticache.ReplicationGroup" => update_replication_group,
+                    "efs.FileSystem" => update_file_system,
+                    "apigateway.Api" => update_api,
+                    "apigateway.Stage" => update_stage,
+                    "sfn.StateMachine" => update_state_machine,
+                    "eventbridge.Rule" => update_eventbridge_rule,
+                    "cloudwatch.Alarm" => update_alarm,
+                    "autoscaling.Group" => update_asg,
+                    "eks.Cluster" => update_eks_cluster,
+                    "eks.NodeGroup" => update_node_group,
+                    "wafv2.WebACL" => update_web_acl,
+                    "cognito.UserPool" => update_user_pool,
+                },
+                replace: [
+                    "ec2.Subnet",
+                    "ec2.InternetGateway",
+                    "ec2.NatGateway",
+                    "ec2.ElasticIp",
+                    "ec2.KeyPair",
+                    "ec2.SecurityGroup",
+                    "iam.InstanceProfile",
+                    "ecs.Cluster",
+                    "ecs.TaskDefinition",
+                    "ecr.Repository",
+                    "rds.DBInstance",
+                    "rds.DBSubnetGroup",
+                    "route53.HostedZone",
+                    "acm.Certificate",
+                    "efs.MountTarget",
+                    "ses.EmailIdentity",
+                ]
+            )
         })
     }
 
@@ -502,73 +490,56 @@ impl Provider for AwsProvider {
         let resource_type = resource_type.to_string();
         let provider_id = provider_id.to_string();
         Box::pin(async move {
-            match resource_type.as_str() {
-                // EC2
-                "ec2.Vpc" => self.delete_vpc(&provider_id).await,
-                "ec2.Subnet" => self.delete_subnet(&provider_id).await,
-                "ec2.SecurityGroup" => self.delete_security_group(&provider_id).await,
-                "ec2.InternetGateway" => self.delete_internet_gateway(&provider_id).await,
-                "ec2.RouteTable" => self.delete_route_table(&provider_id).await,
-                "ec2.NatGateway" => self.delete_nat_gateway(&provider_id).await,
-                "ec2.ElasticIp" => self.delete_elastic_ip(&provider_id).await,
-                "ec2.KeyPair" => self.delete_key_pair(&provider_id).await,
-                "ec2.Instance" => self.delete_instance(&provider_id).await,
-                // IAM
-                "iam.Role" => self.delete_role(&provider_id).await,
-                "iam.Policy" => self.delete_policy(&provider_id).await,
-                "iam.InstanceProfile" => self.delete_instance_profile(&provider_id).await,
-                // S3
-                "s3.Bucket" => self.delete_bucket(&provider_id).await,
-                // ELBv2
-                "elbv2.LoadBalancer" => self.delete_load_balancer(&provider_id).await,
-                "elbv2.TargetGroup" => self.delete_target_group(&provider_id).await,
-                "elbv2.Listener" => self.delete_listener(&provider_id).await,
-                // ECS
-                "ecs.Cluster" => self.delete_cluster(&provider_id).await,
-                "ecs.Service" => self.delete_ecs_service(&provider_id).await,
-                "ecs.TaskDefinition" => self.delete_task_definition(&provider_id).await,
-                // ECR
-                "ecr.Repository" => self.delete_repository(&provider_id).await,
-                // RDS
-                "rds.DBInstance" => self.delete_db_instance(&provider_id).await,
-                "rds.DBSubnetGroup" => self.delete_db_subnet_group(&provider_id).await,
-                // Lambda
-                "lambda.Function" => self.delete_lambda_function(&provider_id).await,
-                // Route53
-                "route53.HostedZone" => self.delete_hosted_zone(&provider_id).await,
-                "route53.RecordSet" => self.delete_record_set(&provider_id).await,
-                // CloudWatch Logs
-                "logs.LogGroup" => self.delete_log_group(&provider_id).await,
-                // SQS
-                "sqs.Queue" => self.delete_queue(&provider_id).await,
-                // SNS
-                "sns.Topic" => self.delete_topic(&provider_id).await,
-                // KMS
-                "kms.Key" => self.delete_kms_key(&provider_id).await,
-                // Extended services
-                "dynamodb.Table" => self.delete_dynamodb_table(&provider_id).await,
-                "cloudfront.Distribution" => self.delete_distribution(&provider_id).await,
-                "acm.Certificate" => self.delete_certificate(&provider_id).await,
-                "secretsmanager.Secret" => self.delete_secret(&provider_id).await,
-                "ssm.Parameter" => self.delete_parameter(&provider_id).await,
-                "elasticache.ReplicationGroup" => self.delete_replication_group(&provider_id).await,
-                "efs.FileSystem" => self.delete_file_system(&provider_id).await,
-                "efs.MountTarget" => self.delete_mount_target(&provider_id).await,
-                "apigateway.Api" => self.delete_api(&provider_id).await,
-                "apigateway.Stage" => self.delete_stage(&provider_id).await,
-                "sfn.StateMachine" => self.delete_state_machine(&provider_id).await,
-                "eventbridge.Rule" => self.delete_eventbridge_rule(&provider_id).await,
-                "cloudwatch.Alarm" => self.delete_alarm(&provider_id).await,
-                "autoscaling.Group" => self.delete_asg(&provider_id).await,
-                "eks.Cluster" => self.delete_eks_cluster(&provider_id).await,
-                "eks.NodeGroup" => self.delete_node_group(&provider_id).await,
-                "wafv2.WebACL" => self.delete_web_acl(&provider_id).await,
-                "cognito.UserPool" => self.delete_user_pool(&provider_id).await,
-                "ses.EmailIdentity" => self.delete_email_identity(&provider_id).await,
-                _ => Err(ProviderError::ApiError(format!(
-                    "unsupported resource type: {resource_type}"
-                ))),
-            }
+            aws_dispatch_delete!(self, resource_type.as_str(), provider_id, {
+                "ec2.Vpc" => delete_vpc,
+                "ec2.Subnet" => delete_subnet,
+                "ec2.SecurityGroup" => delete_security_group,
+                "ec2.InternetGateway" => delete_internet_gateway,
+                "ec2.RouteTable" => delete_route_table,
+                "ec2.NatGateway" => delete_nat_gateway,
+                "ec2.ElasticIp" => delete_elastic_ip,
+                "ec2.KeyPair" => delete_key_pair,
+                "ec2.Instance" => delete_instance,
+                "iam.Role" => delete_role,
+                "iam.Policy" => delete_policy,
+                "iam.InstanceProfile" => delete_instance_profile,
+                "s3.Bucket" => delete_bucket,
+                "elbv2.LoadBalancer" => delete_load_balancer,
+                "elbv2.TargetGroup" => delete_target_group,
+                "elbv2.Listener" => delete_listener,
+                "ecs.Cluster" => delete_cluster,
+                "ecs.Service" => delete_ecs_service,
+                "ecs.TaskDefinition" => delete_task_definition,
+                "ecr.Repository" => delete_repository,
+                "rds.DBInstance" => delete_db_instance,
+                "rds.DBSubnetGroup" => delete_db_subnet_group,
+                "lambda.Function" => delete_lambda_function,
+                "route53.HostedZone" => delete_hosted_zone,
+                "route53.RecordSet" => delete_record_set,
+                "logs.LogGroup" => delete_log_group,
+                "sqs.Queue" => delete_queue,
+                "sns.Topic" => delete_topic,
+                "kms.Key" => delete_kms_key,
+                "dynamodb.Table" => delete_dynamodb_table,
+                "cloudfront.Distribution" => delete_distribution,
+                "acm.Certificate" => delete_certificate,
+                "secretsmanager.Secret" => delete_secret,
+                "ssm.Parameter" => delete_parameter,
+                "elasticache.ReplicationGroup" => delete_replication_group,
+                "efs.FileSystem" => delete_file_system,
+                "efs.MountTarget" => delete_mount_target,
+                "apigateway.Api" => delete_api,
+                "apigateway.Stage" => delete_stage,
+                "sfn.StateMachine" => delete_state_machine,
+                "eventbridge.Rule" => delete_eventbridge_rule,
+                "cloudwatch.Alarm" => delete_alarm,
+                "autoscaling.Group" => delete_asg,
+                "eks.Cluster" => delete_eks_cluster,
+                "eks.NodeGroup" => delete_node_group,
+                "wafv2.WebACL" => delete_web_acl,
+                "cognito.UserPool" => delete_user_pool,
+                "ses.EmailIdentity" => delete_email_identity,
+            })
         })
     }
 

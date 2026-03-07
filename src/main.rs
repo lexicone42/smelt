@@ -23,7 +23,8 @@ fn main() -> Result<()> {
             files,
             json,
             live,
-        } => cmd_plan(&environment, &files, json, live),
+            target,
+        } => cmd_plan(&environment, &files, json, live, target.as_deref()),
         Command::Explain {
             resource,
             files,
@@ -36,7 +37,8 @@ fn main() -> Result<()> {
             yes,
             json,
             refresh,
-        } => cmd_apply(&environment, &files, yes, json, refresh),
+            target,
+        } => cmd_apply(&environment, &files, yes, json, refresh, target.as_deref()),
         Command::Destroy {
             environment,
             files,
@@ -195,8 +197,91 @@ fn cmd_validate(files: &[std::path::PathBuf]) -> Result<()> {
 
     let graph = DependencyGraph::build(&parsed).map_err(|e| miette!("{e}"))?;
 
+    // Schema validation: check section names and binding targets against provider schemas
+    let registry = build_registry();
+    let mut errors = Vec::new();
+
+    for file in &parsed {
+        for decl in &file.declarations {
+            if let smelt::ast::Declaration::Resource(resource) = decl {
+                let type_path_str = resource.type_path.to_string();
+                let Some((provider, resource_type)) = registry.resolve(&type_path_str) else {
+                    errors.push(format!(
+                        "{}.{}: unknown provider type '{}'",
+                        resource.kind, resource.name, type_path_str
+                    ));
+                    continue;
+                };
+
+                // Find the schema for this resource type
+                let schema = provider
+                    .resource_types()
+                    .into_iter()
+                    .find(|rt| rt.type_path == resource_type);
+
+                let Some(schema) = schema else {
+                    errors.push(format!(
+                        "{}.{}: unknown resource type '{}'",
+                        resource.kind, resource.name, resource_type
+                    ));
+                    continue;
+                };
+
+                let valid_sections: Vec<&str> = schema
+                    .schema
+                    .sections
+                    .iter()
+                    .map(|s| s.name.as_str())
+                    .collect();
+
+                // Check section names
+                for section in &resource.sections {
+                    if !valid_sections.contains(&section.name.as_str()) {
+                        errors.push(format!(
+                            "{}.{}: unknown section '{}' (valid: {})",
+                            resource.kind,
+                            resource.name,
+                            section.name,
+                            valid_sections.join(", ")
+                        ));
+                    }
+                }
+
+                // Check binding targets exist in schema
+                let binding_paths = schema.schema.binding_paths();
+                for dep in &resource.dependencies {
+                    if !binding_paths.contains_key(&dep.binding) {
+                        let valid_bindings: Vec<&str> =
+                            binding_paths.keys().map(|k| k.as_str()).collect();
+                        if valid_bindings.is_empty() {
+                            errors.push(format!(
+                                "{}.{}: binding '{}' has no Ref fields in schema",
+                                resource.kind, resource.name, dep.binding
+                            ));
+                        } else {
+                            errors.push(format!(
+                                "{}.{}: unknown binding '{}' (valid: {})",
+                                resource.kind,
+                                resource.name,
+                                dep.binding,
+                                valid_bindings.join(", ")
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if !errors.is_empty() {
+        for err in &errors {
+            eprintln!("error: {err}");
+        }
+        return Err(miette!("{} validation error(s)", errors.len()));
+    }
+
     eprintln!(
-        "valid: {} file(s), {} resource(s), no cycles",
+        "valid: {} file(s), {} resource(s), no cycles, schemas checked",
         files.len(),
         graph.len()
     );
@@ -204,7 +289,13 @@ fn cmd_validate(files: &[std::path::PathBuf]) -> Result<()> {
     Ok(())
 }
 
-fn cmd_plan(environment: &str, files: &[std::path::PathBuf], json: bool, live: bool) -> Result<()> {
+fn cmd_plan(
+    environment: &str,
+    files: &[std::path::PathBuf],
+    json: bool,
+    live: bool,
+    target: Option<&str>,
+) -> Result<()> {
     let files = resolve_files(files)?;
     let parsed = parse_files(&files)?;
 
@@ -218,7 +309,11 @@ fn cmd_plan(environment: &str, files: &[std::path::PathBuf], json: bool, live: b
         load_current_state(environment)
     };
 
-    let p = plan::build_plan(environment, &parsed, &current_state, &graph);
+    let mut p = plan::build_plan(environment, &parsed, &current_state, &graph);
+
+    if let Some(target) = target {
+        p = filter_plan_to_target(&p, target, &graph)?;
+    }
 
     if json {
         let json_str = serde_json::to_string_pretty(&p).into_diagnostic()?;
@@ -381,6 +476,55 @@ fn load_live_state(
     Ok(state)
 }
 
+/// Filter a plan to include only the target resource and its transitive dependencies.
+fn filter_plan_to_target(
+    p: &plan::Plan,
+    target: &str,
+    graph: &DependencyGraph,
+) -> Result<plan::Plan> {
+    let parts: Vec<&str> = target.splitn(2, '.').collect();
+    if parts.len() != 2 {
+        return Err(miette!("--target must be 'kind.name' (e.g., 'vpc.main')"));
+    }
+    let target_id = ResourceId::new(parts[0], parts[1]);
+
+    if graph.get(&target_id).is_none() {
+        return Err(miette!("target resource '{}' not found", target));
+    }
+
+    // Collect the target + all its transitive dependencies
+    let mut included = std::collections::HashSet::new();
+    included.insert(target_id.to_string());
+    collect_transitive_deps(&target_id, graph, &mut included);
+
+    // Filter tiers, keeping only included resources
+    let filtered_tiers: Vec<Vec<plan::PlannedAction>> = p
+        .tiers
+        .iter()
+        .map(|tier| {
+            tier.iter()
+                .filter(|a| included.contains(&a.resource_id))
+                .cloned()
+                .collect()
+        })
+        .filter(|tier: &Vec<plan::PlannedAction>| !tier.is_empty())
+        .collect();
+
+    Ok(plan::Plan::new(p.environment.clone(), filtered_tiers))
+}
+
+fn collect_transitive_deps(
+    id: &ResourceId,
+    graph: &DependencyGraph,
+    included: &mut std::collections::HashSet<String>,
+) {
+    for (dep_node, _) in graph.dependencies(id) {
+        if included.insert(dep_node.id.to_string()) {
+            collect_transitive_deps(&dep_node.id, graph, included);
+        }
+    }
+}
+
 fn cmd_explain(resource: &str, files: &[std::path::PathBuf], json: bool) -> Result<()> {
     let files = resolve_files(files)?;
     let parsed = parse_files(&files)?;
@@ -476,6 +620,7 @@ fn cmd_apply(
     yes: bool,
     json: bool,
     refresh: bool,
+    target: Option<&str>,
 ) -> Result<()> {
     let files = resolve_files(files)?;
     let parsed = parse_files(&files)?;
@@ -489,7 +634,11 @@ fn cmd_apply(
     } else {
         load_current_state(environment)
     };
-    let p = plan::build_plan(environment, &parsed, &current_state, &graph);
+    let mut p = plan::build_plan(environment, &parsed, &current_state, &graph);
+
+    if let Some(target) = target {
+        p = filter_plan_to_target(&p, target, &graph)?;
+    }
 
     if p.summary.create == 0 && p.summary.update == 0 && p.summary.delete == 0 {
         eprintln!("nothing to do — infrastructure matches desired state");
@@ -510,6 +659,7 @@ fn cmd_apply(
     }
 
     let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let _lock = s.lock().map_err(|e| miette!("{e}"))?;
 
     let summary = apply::execute_plan_with_config(&p, &registry, &s, Path::new("."), &parsed);
 
@@ -533,6 +683,7 @@ fn cmd_destroy(environment: &str, files: &[std::path::PathBuf], yes: bool) -> Re
     let graph = DependencyGraph::build(&parsed).map_err(|e| miette!("{e}"))?;
 
     let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let _lock = s.lock().map_err(|e| miette!("{e}"))?;
 
     // Load the stored state tree for this environment
     let tree_hash = match s.get_ref(environment) {
@@ -846,6 +997,7 @@ fn cmd_import(
 
     // Store it
     let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let _lock = s.lock().map_err(|e| miette!("{e}"))?;
 
     // Load or create current tree
     let mut current_tree = match s.get_ref(environment) {
@@ -982,6 +1134,7 @@ fn format_json_compact(value: &serde_json::Value) -> String {
 
 fn cmd_rollback(environment: &str, target: &str, yes: bool) -> Result<()> {
     let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let _lock = s.lock().map_err(|e| miette!("{e}"))?;
 
     // Verify the target tree exists
     let target_hash = store::ContentHash(target.to_string());
@@ -1118,6 +1271,7 @@ fn cmd_show(environment: &str, resource: &str, json: bool) -> Result<()> {
 
 fn cmd_recover(environment: &str, tree_hash: &str, yes: bool) -> Result<()> {
     let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let _lock = s.lock().map_err(|e| miette!("{e}"))?;
 
     // Resolve by full hash or short-hash prefix
     let target_hash = store::ContentHash(tree_hash.to_string());
@@ -1427,6 +1581,7 @@ fn cmd_history(environment: &str) -> Result<()> {
 
 fn cmd_state_rm(environment: &str, resource: &str, yes: bool) -> Result<()> {
     let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let _lock = s.lock().map_err(|e| miette!("{e}"))?;
 
     let tree_hash = s
         .get_ref(environment)
@@ -1502,6 +1657,7 @@ fn cmd_state_rm(environment: &str, resource: &str, yes: bool) -> Result<()> {
 
 fn cmd_state_mv(environment: &str, from: &str, to: &str) -> Result<()> {
     let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let _lock = s.lock().map_err(|e| miette!("{e}"))?;
 
     let tree_hash = s
         .get_ref(environment)
