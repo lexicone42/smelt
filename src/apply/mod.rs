@@ -11,6 +11,9 @@ use crate::store::{ContentHash, Event, EventType, ResourceState, Store, TreeEntr
 /// so that dependent resources can resolve their `needs` bindings.
 type ProviderIdMap = HashMap<String, String>;
 
+/// Tracks all outputs for resources, enabling `needs vpc.main.arn -> vpc_arn` bindings.
+type OutputMap = HashMap<String, HashMap<String, serde_json::Value>>;
+
 /// Result of applying a single resource action.
 #[derive(Debug, serde::Serialize)]
 pub struct ApplyResult {
@@ -51,16 +54,36 @@ pub struct ApplySummary {
     pub skipped: usize,
 }
 
+/// Result of a concurrent provider call within a tier.
+enum CallOutcome {
+    /// Create/update (including replacement) produced output
+    Output(crate::provider::ResourceOutput),
+    /// Delete succeeded
+    Deleted,
+    /// Provider call failed
+    Failed {
+        error: String,
+        suggested_action: Option<String>,
+    },
+}
+
+/// A prepared action ready for concurrent provider execution.
+struct PreparedAction<'a> {
+    action: &'a PlannedAction,
+    provider: &'a dyn crate::provider::Provider,
+    resource_type: String,
+    config: serde_json::Value,
+    binding_keys: Vec<String>,
+    /// Provider ID — set for updates and deletes
+    provider_id: Option<String>,
+    /// Old config — set for updates
+    old_config: Option<serde_json::Value>,
+}
+
 /// Execute a plan against real infrastructure.
 ///
-/// This is the core apply loop:
-/// 1. For each action in dependency order:
-///    - Call the provider (create/update/delete)
-///    - Store the new state in the content-addressable store
-///    - Record an event in the audit log
-/// 2. Build a new Merkle tree from the resulting state
-/// 3. Sign the state transition
-/// 4. Update the environment ref
+/// Resources within the same dependency tier are applied concurrently;
+/// tiers are processed sequentially to respect dependency ordering.
 pub fn execute_plan(
     plan: &Plan,
     registry: &ProviderRegistry,
@@ -71,6 +94,9 @@ pub fn execute_plan(
 }
 
 /// Execute a plan with resource configs extracted from parsed files.
+///
+/// Actions within the same dependency tier are executed concurrently,
+/// while tiers are processed sequentially to respect dependency ordering.
 pub fn execute_plan_with_config(
     plan: &Plan,
     registry: &ProviderRegistry,
@@ -100,20 +126,25 @@ pub fn execute_plan_with_config(
     let mut transition_changes = Vec::new();
     let mut seq = store.next_seq().unwrap_or(1);
 
-    // Track provider IDs of successfully applied resources for ref resolution
+    // Track provider IDs and outputs for ref resolution
     let mut provider_ids: ProviderIdMap = HashMap::new();
+    let mut output_map: OutputMap = HashMap::new();
 
-    // Pre-populate with existing provider IDs from stored state
+    // Pre-populate from stored state
     for (name, entry) in &current_tree.children {
         if let TreeEntry::Object(hash) = entry
             && let Ok(obj) = store.get_object(hash)
-            && let Some(pid) = &obj.provider_id
         {
-            provider_ids.insert(name.clone(), pid.clone());
+            if let Some(pid) = &obj.provider_id {
+                provider_ids.insert(name.clone(), pid.clone());
+            }
+            if let Some(outputs) = &obj.outputs {
+                output_map.insert(name.clone(), outputs.clone());
+            }
         }
     }
 
-    // Sort actions by order to respect dependency ordering
+    // Sort and group actions by dependency tier for parallel execution
     let mut ordered_actions: Vec<&PlannedAction> = plan
         .actions
         .iter()
@@ -121,102 +152,401 @@ pub fn execute_plan_with_config(
         .collect();
     ordered_actions.sort_by_key(|a| a.order);
 
+    let mut tiers: std::collections::BTreeMap<usize, Vec<&PlannedAction>> =
+        std::collections::BTreeMap::new();
     for action in &ordered_actions {
-        // Collect binding key names for this resource (used to strip from stored config)
-        let binding_keys: Vec<String> = dep_map
-            .get(&action.resource_id)
-            .map(|deps| deps.iter().map(|d| d.binding.clone()).collect())
-            .unwrap_or_default();
+        tiers.entry(action.order).or_default().push(action);
+    }
 
-        let result = match action.action {
-            ActionType::Create => {
-                let mut config = config_map
-                    .get(&action.resource_id)
-                    .cloned()
-                    .unwrap_or_else(|| serde_json::json!({}));
-                // Resolve dependency refs into the config
-                resolve_refs(&action.resource_id, &mut config, &dep_map, &provider_ids);
-                apply_create(
-                    action,
-                    registry,
-                    store,
-                    &mut current_tree,
-                    &rt,
-                    seq,
-                    &config,
-                    &binding_keys,
-                )
-            }
-            ActionType::Update => {
-                let mut config = config_map
-                    .get(&action.resource_id)
-                    .cloned()
-                    .unwrap_or_else(|| serde_json::json!({}));
-                resolve_refs(&action.resource_id, &mut config, &dep_map, &provider_ids);
-                apply_update(
-                    action,
-                    registry,
-                    store,
-                    &mut current_tree,
-                    &rt,
-                    seq,
-                    &config,
-                    &binding_keys,
-                )
-            }
-            ActionType::Delete => {
-                apply_delete(action, registry, store, &mut current_tree, &rt, seq)
-            }
-            ActionType::Unchanged => unreachable!("filtered above"),
-        };
-
-        // Track provider ID for successful creates/updates
-        if let ApplyOutcome::Success {
-            provider_id: Some(pid),
-            ..
-        } = &result.outcome
-        {
-            provider_ids.insert(action.resource_id.clone(), pid.clone());
+    for (tier_num, tier_actions) in &tiers {
+        if tier_actions.len() > 1 {
+            eprintln!(
+                "  tier {tier_num}: executing {} resources in parallel",
+                tier_actions.len()
+            );
         }
 
-        // Record event
-        let event_type = match (&action.action, &result.outcome) {
-            (_, ApplyOutcome::Failed { .. } | ApplyOutcome::Skipped { .. }) => None,
-            (ActionType::Create, _) => Some(EventType::ResourceCreated),
-            (ActionType::Update, _) => Some(EventType::ResourceUpdated),
-            (ActionType::Delete, _) => Some(EventType::ResourceDeleted),
-            _ => None,
+        // Phase 1: Prepare all actions (resolve refs, validate, resolve providers)
+        let mut prepared: Vec<PreparedAction> = Vec::new();
+        let mut early_results: Vec<ApplyResult> = Vec::new();
+
+        for action in tier_actions {
+            let binding_keys: Vec<String> = dep_map
+                .get(&action.resource_id)
+                .map(|deps| deps.iter().map(|d| d.binding.clone()).collect())
+                .unwrap_or_default();
+
+            match action.action {
+                ActionType::Create => {
+                    let mut config = config_map
+                        .get(&action.resource_id)
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!({}));
+                    resolve_refs(
+                        &action.resource_id,
+                        &mut config,
+                        &dep_map,
+                        &provider_ids,
+                        &output_map,
+                    );
+
+                    let Some((provider, resource_type)) = registry.resolve(&action.type_path)
+                    else {
+                        early_results.push(ApplyResult {
+                            resource_id: action.resource_id.clone(),
+                            action: ActionType::Create,
+                            outcome: ApplyOutcome::Failed {
+                                error: format!("no provider for type '{}'", action.type_path),
+                                suggested_action: Some(
+                                    "check that the provider is registered and the type_path is correct".to_string(),
+                                ),
+                            },
+                        });
+                        continue;
+                    };
+
+                    let errors = validate_config_against_schema(&config, provider, &resource_type);
+                    if !errors.is_empty() {
+                        early_results.push(ApplyResult {
+                            resource_id: action.resource_id.clone(),
+                            action: ActionType::Create,
+                            outcome: ApplyOutcome::Failed {
+                                error: format!("config validation failed: {}", errors.join("; ")),
+                                suggested_action: Some(
+                                    "fix the config fields listed above and re-run apply"
+                                        .to_string(),
+                                ),
+                            },
+                        });
+                        continue;
+                    }
+
+                    prepared.push(PreparedAction {
+                        action,
+                        provider,
+                        resource_type,
+                        config,
+                        binding_keys,
+                        provider_id: None,
+                        old_config: None,
+                    });
+                }
+                ActionType::Update => {
+                    let mut config = config_map
+                        .get(&action.resource_id)
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!({}));
+                    resolve_refs(
+                        &action.resource_id,
+                        &mut config,
+                        &dep_map,
+                        &provider_ids,
+                        &output_map,
+                    );
+
+                    let Some((provider, resource_type)) = registry.resolve(&action.type_path)
+                    else {
+                        early_results.push(ApplyResult {
+                            resource_id: action.resource_id.clone(),
+                            action: ActionType::Update,
+                            outcome: ApplyOutcome::Failed {
+                                error: format!("no provider for type '{}'", action.type_path),
+                                suggested_action: Some(
+                                    "check that the provider is registered and the type_path is correct".to_string(),
+                                ),
+                            },
+                        });
+                        continue;
+                    };
+
+                    let pid = get_provider_id_from_tree(store, &current_tree, &action.resource_id);
+                    let Some(pid) = pid else {
+                        early_results.push(ApplyResult {
+                            resource_id: action.resource_id.clone(),
+                            action: ActionType::Update,
+                            outcome: ApplyOutcome::Failed {
+                                error: "no provider_id found for existing resource".to_string(),
+                                suggested_action: Some(
+                                    "the resource may not have been created yet — try `smelt apply` first".to_string(),
+                                ),
+                            },
+                        });
+                        continue;
+                    };
+
+                    let old_config = match current_tree.children.get(&action.resource_id) {
+                        Some(TreeEntry::Object(hash)) => store
+                            .get_object(hash)
+                            .map(|s| s.config)
+                            .unwrap_or_else(|_| serde_json::json!({})),
+                        _ => serde_json::json!({}),
+                    };
+
+                    prepared.push(PreparedAction {
+                        action,
+                        provider,
+                        resource_type,
+                        config,
+                        binding_keys,
+                        provider_id: Some(pid),
+                        old_config: Some(old_config),
+                    });
+                }
+                ActionType::Delete => {
+                    let Some((provider, resource_type)) = registry.resolve(&action.type_path)
+                    else {
+                        early_results.push(ApplyResult {
+                            resource_id: action.resource_id.clone(),
+                            action: ActionType::Delete,
+                            outcome: ApplyOutcome::Failed {
+                                error: format!("no provider for type '{}'", action.type_path),
+                                suggested_action: Some(
+                                    "check that the provider is registered and the type_path is correct".to_string(),
+                                ),
+                            },
+                        });
+                        continue;
+                    };
+
+                    let pid = get_provider_id_from_tree(store, &current_tree, &action.resource_id);
+                    let Some(pid) = pid else {
+                        early_results.push(ApplyResult {
+                            resource_id: action.resource_id.clone(),
+                            action: ActionType::Delete,
+                            outcome: ApplyOutcome::Failed {
+                                error: "no provider_id found for resource to delete".to_string(),
+                                suggested_action: Some(
+                                    "the resource may not exist — use `smelt state rm` to remove from state".to_string(),
+                                ),
+                            },
+                        });
+                        continue;
+                    };
+
+                    prepared.push(PreparedAction {
+                        action,
+                        provider,
+                        resource_type,
+                        config: serde_json::json!({}),
+                        binding_keys: vec![],
+                        provider_id: Some(pid),
+                        old_config: None,
+                    });
+                }
+                ActionType::Unchanged => unreachable!("filtered above"),
+            }
+        }
+
+        // Phase 2: Execute provider calls concurrently within the tier
+        let outcomes: Vec<CallOutcome> = if prepared.is_empty() {
+            vec![]
+        } else {
+            rt.block_on(async {
+                let futs = prepared.iter().map(|p| async {
+                    match p.action.action {
+                        ActionType::Create => {
+                            match p.provider.create(&p.resource_type, &p.config).await {
+                                Ok(output) => CallOutcome::Output(output),
+                                Err(e) => CallOutcome::Failed {
+                                    error: format!("provider error: {e}"),
+                                    suggested_action: Some(
+                                        "check cloud permissions and resource limits, then retry"
+                                            .to_string(),
+                                    ),
+                                },
+                            }
+                        }
+                        ActionType::Update => {
+                            let pid = p.provider_id.as_deref().unwrap();
+                            let old = p.old_config.as_ref().unwrap();
+                            match p
+                                .provider
+                                .update(&p.resource_type, pid, old, &p.config)
+                                .await
+                            {
+                                Ok(output) => CallOutcome::Output(output),
+                                Err(crate::provider::ProviderError::RequiresReplacement(_)) => {
+                                    eprintln!(
+                                        "  {} requires replacement — deleting and recreating",
+                                        p.action.resource_id
+                                    );
+                                    if let Err(e) =
+                                        p.provider.delete(&p.resource_type, pid).await
+                                    {
+                                        return CallOutcome::Failed {
+                                            error: format!("replacement delete failed: {e}"),
+                                            suggested_action: Some(
+                                                "resource may be in an inconsistent state — use `smelt recover`".to_string(),
+                                            ),
+                                        };
+                                    }
+                                    match p
+                                        .provider
+                                        .create(&p.resource_type, &p.config)
+                                        .await
+                                    {
+                                        Ok(output) => CallOutcome::Output(output),
+                                        Err(e) => CallOutcome::Failed {
+                                            error: format!("replacement create failed: {e}"),
+                                            suggested_action: Some(
+                                                "resource may be in an inconsistent state — use `smelt recover`".to_string(),
+                                            ),
+                                        },
+                                    }
+                                }
+                                Err(e) => CallOutcome::Failed {
+                                    error: format!("provider error: {e}"),
+                                    suggested_action: Some(
+                                        "verify the resource still exists with `smelt drift`, then retry".to_string(),
+                                    ),
+                                },
+                            }
+                        }
+                        ActionType::Delete => {
+                            let pid = p.provider_id.as_deref().unwrap();
+                            match p.provider.delete(&p.resource_type, pid).await {
+                                Ok(()) => CallOutcome::Deleted,
+                                Err(e) => CallOutcome::Failed {
+                                    error: format!("provider error: {e}"),
+                                    suggested_action: Some(
+                                        "verify the resource exists, or use `smelt state rm` to remove from state".to_string(),
+                                    ),
+                                },
+                            }
+                        }
+                        ActionType::Unchanged => unreachable!(),
+                    }
+                });
+                futures::future::join_all(futs).await
+            })
         };
 
-        if let Some(event_type) = event_type {
-            let new_hash = match &result.outcome {
-                ApplyOutcome::Success { new_hash, .. } => new_hash.clone(),
+        // Phase 3: Process results — update tree, store, provider_ids, events
+        for (p, outcome) in prepared.iter().zip(outcomes) {
+            let result = match outcome {
+                CallOutcome::Output(output) => {
+                    let clean_config = strip_binding_keys(&p.config, &p.binding_keys);
+                    let redacted = redact_sensitive(&clean_config, p.provider, &p.resource_type);
+                    let stored_outputs = if output.outputs.is_empty() {
+                        None
+                    } else {
+                        Some(output.outputs.clone())
+                    };
+                    let state = ResourceState {
+                        resource_id: p.action.resource_id.clone(),
+                        type_path: p.action.type_path.clone(),
+                        config: redacted,
+                        actual: Some(output.state),
+                        provider_id: Some(output.provider_id.clone()),
+                        intent: p.action.intent.clone(),
+                        outputs: stored_outputs,
+                    };
+                    match store.put_object(&state) {
+                        Ok(hash) => {
+                            current_tree.children.insert(
+                                p.action.resource_id.clone(),
+                                TreeEntry::Object(hash.clone()),
+                            );
+                            provider_ids
+                                .insert(p.action.resource_id.clone(), output.provider_id.clone());
+                            if !output.outputs.is_empty() {
+                                output_map
+                                    .insert(p.action.resource_id.clone(), output.outputs.clone());
+                            }
+                            let outputs = if output.outputs.is_empty() {
+                                None
+                            } else {
+                                Some(output.outputs)
+                            };
+                            ApplyResult {
+                                resource_id: p.action.resource_id.clone(),
+                                action: p.action.action.clone(),
+                                outcome: ApplyOutcome::Success {
+                                    provider_id: Some(output.provider_id),
+                                    new_hash: Some(hash),
+                                    outputs,
+                                },
+                            }
+                        }
+                        Err(e) => ApplyResult {
+                            resource_id: p.action.resource_id.clone(),
+                            action: p.action.action.clone(),
+                            outcome: ApplyOutcome::Failed {
+                                error: format!("failed to store state: {e}"),
+                                suggested_action: Some(
+                                    "check disk space and permissions on .smelt/ directory"
+                                        .to_string(),
+                                ),
+                            },
+                        },
+                    }
+                }
+                CallOutcome::Deleted => {
+                    current_tree.children.remove(&p.action.resource_id);
+                    ApplyResult {
+                        resource_id: p.action.resource_id.clone(),
+                        action: ActionType::Delete,
+                        outcome: ApplyOutcome::Success {
+                            provider_id: None,
+                            new_hash: None,
+                            outputs: None,
+                        },
+                    }
+                }
+                CallOutcome::Failed {
+                    error,
+                    suggested_action,
+                } => ApplyResult {
+                    resource_id: p.action.resource_id.clone(),
+                    action: p.action.action.clone(),
+                    outcome: ApplyOutcome::Failed {
+                        error,
+                        suggested_action,
+                    },
+                },
+            };
+
+            // Record event
+            let event_type = match (&result.action, &result.outcome) {
+                (_, ApplyOutcome::Failed { .. } | ApplyOutcome::Skipped { .. }) => None,
+                (ActionType::Create, _) => Some(EventType::ResourceCreated),
+                (ActionType::Update, _) => Some(EventType::ResourceUpdated),
+                (ActionType::Delete, _) => Some(EventType::ResourceDeleted),
                 _ => None,
             };
 
-            let event = Event {
-                seq,
-                timestamp: chrono::Utc::now(),
-                event_type,
-                resource_id: action.resource_id.clone(),
-                actor: get_actor(project_root),
-                intent: action.intent.clone(),
-                prev_hash: None,
-                new_hash,
-            };
-            if let Err(e) = store.append_event(&event) {
-                eprintln!("warning: failed to write audit event: {e}");
-            }
-            seq += 1;
+            if let Some(event_type) = event_type {
+                let new_hash = match &result.outcome {
+                    ApplyOutcome::Success { new_hash, .. } => new_hash.clone(),
+                    _ => None,
+                };
 
-            transition_changes.push(TransitionChange {
-                resource_id: action.resource_id.clone(),
-                change_type: format!("{}", action.action),
-                intent: action.intent.clone(),
-            });
+                let event = Event {
+                    seq,
+                    timestamp: chrono::Utc::now(),
+                    event_type,
+                    resource_id: result.resource_id.clone(),
+                    actor: get_actor(project_root),
+                    intent: p.action.intent.clone(),
+                    prev_hash: None,
+                    new_hash,
+                };
+                if let Err(e) = store.append_event(&event) {
+                    eprintln!("warning: failed to write audit event: {e}");
+                }
+                seq += 1;
+
+                transition_changes.push(TransitionChange {
+                    resource_id: result.resource_id.clone(),
+                    change_type: format!("{}", result.action),
+                    intent: p.action.intent.clone(),
+                });
+            }
+
+            results.push(result);
         }
 
-        results.push(result);
+        results.extend(early_results);
     }
 
     // Build new tree and update ref
@@ -311,373 +641,16 @@ pub fn execute_plan_with_config(
     }
 }
 
-fn apply_create(
-    action: &PlannedAction,
-    registry: &ProviderRegistry,
-    store: &Store,
-    tree: &mut TreeNode,
-    rt: &tokio::runtime::Runtime,
-    _seq: u64,
-    config: &serde_json::Value,
-    binding_keys: &[String],
-) -> ApplyResult {
-    let Some((provider, resource_type)) = registry.resolve(&action.type_path) else {
-        return ApplyResult {
-            resource_id: action.resource_id.clone(),
-            action: ActionType::Create,
-            outcome: ApplyOutcome::Failed {
-                error: format!("no provider for type '{}'", action.type_path),
-                suggested_action: Some(
-                    "check that the provider is registered and the type_path is correct"
-                        .to_string(),
-                ),
-            },
-        };
-    };
-
-    // SE-05: Validate config against schema before sending to provider
-    let validation_errors = validate_config_against_schema(config, provider, &resource_type);
-    if !validation_errors.is_empty() {
-        return ApplyResult {
-            resource_id: action.resource_id.clone(),
-            action: ActionType::Create,
-            outcome: ApplyOutcome::Failed {
-                error: format!("config validation failed: {}", validation_errors.join("; ")),
-                suggested_action: Some(
-                    "fix the config fields listed above and re-run apply".to_string(),
-                ),
-            },
-        };
-    }
-
-    match rt.block_on(provider.create(&resource_type, config)) {
-        Ok(output) => {
-            let clean_config = strip_binding_keys(config, binding_keys);
-            let redacted_config = redact_sensitive(&clean_config, provider, &resource_type);
-            let stored_outputs = if output.outputs.is_empty() {
-                None
-            } else {
-                Some(output.outputs.clone())
-            };
-            let state = ResourceState {
-                resource_id: action.resource_id.clone(),
-                type_path: action.type_path.clone(),
-                config: redacted_config,
-                actual: Some(output.state),
-                provider_id: Some(output.provider_id.clone()),
-                intent: action.intent.clone(),
-                outputs: stored_outputs,
-            };
-
-            match store.put_object(&state) {
-                Ok(hash) => {
-                    tree.children
-                        .insert(action.resource_id.clone(), TreeEntry::Object(hash.clone()));
-                    let outputs = if output.outputs.is_empty() {
-                        None
-                    } else {
-                        Some(output.outputs)
-                    };
-                    ApplyResult {
-                        resource_id: action.resource_id.clone(),
-                        action: ActionType::Create,
-                        outcome: ApplyOutcome::Success {
-                            provider_id: Some(output.provider_id),
-                            new_hash: Some(hash),
-                            outputs,
-                        },
-                    }
-                }
-                Err(e) => ApplyResult {
-                    resource_id: action.resource_id.clone(),
-                    action: ActionType::Create,
-                    outcome: ApplyOutcome::Failed {
-                        error: format!("failed to store state: {e}"),
-                        suggested_action: Some(
-                            "check disk space and permissions on .smelt/ directory".to_string(),
-                        ),
-                    },
-                },
-            }
-        }
-        Err(e) => ApplyResult {
-            resource_id: action.resource_id.clone(),
-            action: ActionType::Create,
-            outcome: ApplyOutcome::Failed {
-                error: format!("provider error: {e}"),
-                suggested_action: Some(
-                    "check cloud permissions and resource limits, then retry".to_string(),
-                ),
-            },
-        },
-    }
-}
-
-fn apply_update(
-    action: &PlannedAction,
-    registry: &ProviderRegistry,
-    store: &Store,
-    tree: &mut TreeNode,
-    rt: &tokio::runtime::Runtime,
-    _seq: u64,
-    new_config: &serde_json::Value,
-    binding_keys: &[String],
-) -> ApplyResult {
-    let Some((provider, resource_type)) = registry.resolve(&action.type_path) else {
-        return ApplyResult {
-            resource_id: action.resource_id.clone(),
-            action: ActionType::Update,
-            outcome: ApplyOutcome::Failed {
-                error: format!("no provider for type '{}'", action.type_path),
-                suggested_action: Some(
-                    "check that the provider is registered and the type_path is correct"
-                        .to_string(),
-                ),
-            },
-        };
-    };
-
-    // Get current provider_id from existing state
-    let provider_id = get_provider_id_from_tree(store, tree, &action.resource_id);
-    let provider_id = match provider_id {
-        Some(id) => id,
-        None => {
-            return ApplyResult {
-                resource_id: action.resource_id.clone(),
-                action: ActionType::Update,
-                outcome: ApplyOutcome::Failed {
-                    error: "no provider_id found for existing resource".to_string(),
-                    suggested_action: Some(
-                        "the resource may not have been created yet — try `smelt apply` first"
-                            .to_string(),
-                    ),
-                },
-            };
-        }
-    };
-
-    // Get old config from stored state
-    let old_config = match tree.children.get(&action.resource_id) {
-        Some(TreeEntry::Object(hash)) => store
-            .get_object(hash)
-            .map(|s| s.config)
-            .unwrap_or_else(|_| serde_json::json!({})),
-        _ => serde_json::json!({}),
-    };
-
-    match rt.block_on(provider.update(&resource_type, &provider_id, &old_config, new_config)) {
-        Ok(output) => {
-            let clean_config = strip_binding_keys(new_config, binding_keys);
-            let redacted_config = redact_sensitive(&clean_config, provider, &resource_type);
-            let stored_outputs = if output.outputs.is_empty() {
-                None
-            } else {
-                Some(output.outputs.clone())
-            };
-            let state = ResourceState {
-                resource_id: action.resource_id.clone(),
-                type_path: action.type_path.clone(),
-                config: redacted_config,
-                actual: Some(output.state),
-                provider_id: Some(output.provider_id.clone()),
-                intent: action.intent.clone(),
-                outputs: stored_outputs,
-            };
-
-            match store.put_object(&state) {
-                Ok(hash) => {
-                    tree.children
-                        .insert(action.resource_id.clone(), TreeEntry::Object(hash.clone()));
-                    let outputs = if output.outputs.is_empty() {
-                        None
-                    } else {
-                        Some(output.outputs)
-                    };
-                    ApplyResult {
-                        resource_id: action.resource_id.clone(),
-                        action: ActionType::Update,
-                        outcome: ApplyOutcome::Success {
-                            provider_id: Some(output.provider_id),
-                            new_hash: Some(hash),
-                            outputs,
-                        },
-                    }
-                }
-                Err(e) => ApplyResult {
-                    resource_id: action.resource_id.clone(),
-                    action: ActionType::Update,
-                    outcome: ApplyOutcome::Failed {
-                        error: format!("failed to store state: {e}"),
-                        suggested_action: Some(
-                            "check disk space and permissions on .smelt/ directory".to_string(),
-                        ),
-                    },
-                },
-            }
-        }
-        // SE-15: Handle RequiresReplacement by deleting and recreating
-        Err(crate::provider::ProviderError::RequiresReplacement(_)) => {
-            eprintln!(
-                "  {} requires replacement — deleting and recreating",
-                action.resource_id
-            );
-            // Delete the old resource
-            if let Err(e) = rt.block_on(provider.delete(&resource_type, &provider_id)) {
-                return ApplyResult {
-                    resource_id: action.resource_id.clone(),
-                    action: ActionType::Update,
-                    outcome: ApplyOutcome::Failed {
-                        error: format!("replacement delete failed: {e}"),
-                        suggested_action: Some("resource may be in an inconsistent state — use `smelt recover` with the partial tree hash".to_string()),
-                    },
-                };
-            }
-            // Create with new config
-            match rt.block_on(provider.create(&resource_type, new_config)) {
-                Ok(output) => {
-                    let clean_config = strip_binding_keys(new_config, binding_keys);
-                    let redacted_config = redact_sensitive(&clean_config, provider, &resource_type);
-                    let stored_outputs = if output.outputs.is_empty() {
-                        None
-                    } else {
-                        Some(output.outputs.clone())
-                    };
-                    let state = ResourceState {
-                        resource_id: action.resource_id.clone(),
-                        type_path: action.type_path.clone(),
-                        config: redacted_config,
-                        actual: Some(output.state),
-                        provider_id: Some(output.provider_id.clone()),
-                        intent: action.intent.clone(),
-                        outputs: stored_outputs,
-                    };
-                    match store.put_object(&state) {
-                        Ok(hash) => {
-                            tree.children.insert(
-                                action.resource_id.clone(),
-                                TreeEntry::Object(hash.clone()),
-                            );
-                            let outputs = if output.outputs.is_empty() {
-                                None
-                            } else {
-                                Some(output.outputs)
-                            };
-                            ApplyResult {
-                                resource_id: action.resource_id.clone(),
-                                action: ActionType::Update,
-                                outcome: ApplyOutcome::Success {
-                                    provider_id: Some(output.provider_id),
-                                    new_hash: Some(hash),
-                                    outputs,
-                                },
-                            }
-                        }
-                        Err(e) => ApplyResult {
-                            resource_id: action.resource_id.clone(),
-                            action: ActionType::Update,
-                            outcome: ApplyOutcome::Failed {
-                                error: format!("failed to store state after replacement: {e}"),
-                                suggested_action: Some("check disk space and permissions on .smelt/ directory".to_string()),
-                            },
-                        },
-                    }
-                }
-                Err(e) => ApplyResult {
-                    resource_id: action.resource_id.clone(),
-                    action: ActionType::Update,
-                    outcome: ApplyOutcome::Failed {
-                        error: format!("replacement create failed: {e}"),
-                        suggested_action: Some("resource may be in an inconsistent state — use `smelt recover` with the partial tree hash".to_string()),
-                    },
-                },
-            }
-        }
-        Err(e) => ApplyResult {
-            resource_id: action.resource_id.clone(),
-            action: ActionType::Update,
-            outcome: ApplyOutcome::Failed {
-                error: format!("provider error: {e}"),
-                suggested_action: Some(
-                    "verify the resource still exists with `smelt drift`, then retry".to_string(),
-                ),
-            },
-        },
-    }
-}
-
-fn apply_delete(
-    action: &PlannedAction,
-    registry: &ProviderRegistry,
-    store: &Store,
-    tree: &mut TreeNode,
-    rt: &tokio::runtime::Runtime,
-    _seq: u64,
-) -> ApplyResult {
-    let Some((provider, resource_type)) = registry.resolve(&action.type_path) else {
-        return ApplyResult {
-            resource_id: action.resource_id.clone(),
-            action: ActionType::Delete,
-            outcome: ApplyOutcome::Failed {
-                error: format!("no provider for type '{}'", action.type_path),
-                suggested_action: Some(
-                    "check that the provider is registered and the type_path is correct"
-                        .to_string(),
-                ),
-            },
-        };
-    };
-
-    let provider_id = get_provider_id_from_tree(store, tree, &action.resource_id);
-    let provider_id = match provider_id {
-        Some(id) => id,
-        None => {
-            return ApplyResult {
-                resource_id: action.resource_id.clone(),
-                action: ActionType::Delete,
-                outcome: ApplyOutcome::Failed {
-                    error: "no provider_id found for resource to delete".to_string(),
-                    suggested_action: Some(
-                        "the resource may not have been created yet — try `smelt apply` first"
-                            .to_string(),
-                    ),
-                },
-            };
-        }
-    };
-
-    match rt.block_on(provider.delete(&resource_type, &provider_id)) {
-        Ok(()) => {
-            tree.children.remove(&action.resource_id);
-            ApplyResult {
-                resource_id: action.resource_id.clone(),
-                action: ActionType::Delete,
-                outcome: ApplyOutcome::Success {
-                    provider_id: None,
-                    new_hash: None,
-                    outputs: None,
-                },
-            }
-        }
-        Err(e) => ApplyResult {
-            resource_id: action.resource_id.clone(),
-            action: ActionType::Delete,
-            outcome: ApplyOutcome::Failed {
-                error: format!("provider error: {e}"),
-                suggested_action: Some(
-                    "verify the resource exists, or use `smelt state rm` to remove it from state"
-                        .to_string(),
-                ),
-            },
-        },
-    }
-}
-
 /// Dependency binding info: which resource this depends on and what binding name to use.
 struct DepBinding {
     /// The resource being depended on (e.g., "vpc.main")
     target: String,
     /// The binding name to inject (e.g., "vpc_id")
     binding: String,
+    /// Optional output key — when specified, passes a named output instead of provider_id.
+    /// `needs vpc.main -> vpc_id` has output_key = None (passes provider_id)
+    /// `needs vpc.main.arn -> vpc_arn` has output_key = Some("arn") (passes output "arn")
+    output_key: Option<String>,
 }
 
 /// Validate that a binding name is a valid identifier (lowercase alphanumeric + underscore).
@@ -713,9 +686,18 @@ fn build_dependency_map(files: &[SmeltFile]) -> HashMap<String, Vec<DepBinding>>
                                     dep.binding
                                 );
                             }
+                            // 3+ segments means an output key:
+                            // needs vpc.main.arn -> vpc_arn
+                            //       ^^^^^^^^ target  ^^^ output_key
+                            let output_key = if segments.len() > 2 {
+                                Some(segments[2..].join("."))
+                            } else {
+                                None
+                            };
                             Some(DepBinding {
                                 target: format!("{}.{}", segments[0], segments[1]),
                                 binding: dep.binding.clone(),
+                                output_key,
                             })
                         } else {
                             None
@@ -733,14 +715,15 @@ fn build_dependency_map(files: &[SmeltFile]) -> HashMap<String, Vec<DepBinding>>
 
 /// Resolve dependency references into a config JSON.
 ///
-/// For each dependency binding (e.g., `needs vpc.main -> vpc_id`),
-/// if the target resource has a known provider_id, inject it into the
-/// config as a top-level field (e.g., `vpc_id = "vpc-12345"`).
+/// For each dependency binding:
+/// - `needs vpc.main -> vpc_id` → injects provider_id as `vpc_id`
+/// - `needs vpc.main.arn -> vpc_arn` → injects the "arn" output as `vpc_arn`
 fn resolve_refs(
     resource_id: &str,
     config: &mut serde_json::Value,
     dep_map: &HashMap<String, Vec<DepBinding>>,
     provider_ids: &ProviderIdMap,
+    output_map: &OutputMap,
 ) {
     let Some(bindings) = dep_map.get(resource_id) else {
         return;
@@ -750,11 +733,31 @@ fn resolve_refs(
     };
 
     for binding in bindings {
-        if let Some(pid) = provider_ids.get(&binding.target) {
-            obj.insert(
-                binding.binding.clone(),
-                serde_json::Value::String(pid.clone()),
-            );
+        match &binding.output_key {
+            None => {
+                // Default: inject provider_id
+                if let Some(pid) = provider_ids.get(&binding.target) {
+                    obj.insert(
+                        binding.binding.clone(),
+                        serde_json::Value::String(pid.clone()),
+                    );
+                }
+            }
+            Some(output_key) => {
+                // Named output: inject from output map
+                if let Some(outputs) = output_map.get(&binding.target) {
+                    if let Some(value) = outputs.get(output_key) {
+                        obj.insert(binding.binding.clone(), value.clone());
+                    } else {
+                        eprintln!(
+                            "warning: {resource_id}: output '{output_key}' not found on '{}' \
+                             (available: {})",
+                            binding.target,
+                            outputs.keys().cloned().collect::<Vec<_>>().join(", ")
+                        );
+                    }
+                }
+            }
         }
     }
 }
@@ -1193,9 +1196,16 @@ mod tests {
 
         let mut provider_ids: ProviderIdMap = HashMap::new();
         provider_ids.insert("vpc.main".to_string(), "vpc-abc123".to_string());
+        let output_map: OutputMap = HashMap::new();
 
         let mut subnet_config = config_map["subnet.pub"].clone();
-        resolve_refs("subnet.pub", &mut subnet_config, &dep_map, &provider_ids);
+        resolve_refs(
+            "subnet.pub",
+            &mut subnet_config,
+            &dep_map,
+            &provider_ids,
+            &output_map,
+        );
 
         // vpc_id should be injected as a top-level field
         assert_eq!(
@@ -1344,5 +1354,92 @@ mod tests {
         let config = serde_json::json!({ "identity": { "name": "test" } });
         let stripped = strip_binding_keys(&config, &[]);
         assert_eq!(stripped, config);
+    }
+
+    #[test]
+    fn resolve_refs_injects_named_outputs() {
+        use crate::parser;
+
+        let file = parser::parse(
+            r#"
+            resource vpc "main" : aws.ec2.Vpc {
+                network { cidr_block = "10.0.0.0/16" }
+            }
+            resource instance "web" : aws.ec2.Instance {
+                needs vpc.main -> vpc_id
+                needs vpc.main.arn -> vpc_arn
+                compute { instance_type = "t3.micro" }
+            }
+        "#,
+        )
+        .unwrap();
+
+        let config_map = build_config_map(&[file.clone()]);
+        let dep_map = build_dependency_map(&[file]);
+
+        let mut provider_ids: ProviderIdMap = HashMap::new();
+        provider_ids.insert("vpc.main".to_string(), "vpc-abc123".to_string());
+
+        let mut output_map: OutputMap = HashMap::new();
+        let mut vpc_outputs = HashMap::new();
+        vpc_outputs.insert(
+            "arn".to_string(),
+            serde_json::json!("arn:aws:ec2::vpc/vpc-abc123"),
+        );
+        vpc_outputs.insert("cidr".to_string(), serde_json::json!("10.0.0.0/16"));
+        output_map.insert("vpc.main".to_string(), vpc_outputs);
+
+        let mut instance_config = config_map["instance.web"].clone();
+        resolve_refs(
+            "instance.web",
+            &mut instance_config,
+            &dep_map,
+            &provider_ids,
+            &output_map,
+        );
+
+        // vpc_id should be the provider_id (2-segment ref)
+        assert_eq!(
+            instance_config.get("vpc_id"),
+            Some(&serde_json::json!("vpc-abc123"))
+        );
+        // vpc_arn should be the named output (3-segment ref)
+        assert_eq!(
+            instance_config.get("vpc_arn"),
+            Some(&serde_json::json!("arn:aws:ec2::vpc/vpc-abc123"))
+        );
+    }
+
+    #[test]
+    fn dep_map_extracts_output_keys() {
+        use crate::parser;
+
+        let file = parser::parse(
+            r#"
+            resource vpc "main" : aws.ec2.Vpc {
+                network { cidr_block = "10.0.0.0/16" }
+            }
+            resource subnet "a" : aws.ec2.Subnet {
+                needs vpc.main -> vpc_id
+                needs vpc.main.arn -> vpc_arn
+                network { cidr_block = "10.0.1.0/24" }
+            }
+        "#,
+        )
+        .unwrap();
+
+        let dep_map = build_dependency_map(&[file]);
+        let subnet_deps = &dep_map["subnet.a"];
+        assert_eq!(subnet_deps.len(), 2);
+
+        // First dep: provider_id (no output key)
+        let pid_dep = subnet_deps.iter().find(|d| d.binding == "vpc_id").unwrap();
+        assert_eq!(pid_dep.target, "vpc.main");
+        assert!(pid_dep.output_key.is_none());
+
+        // Second dep: named output
+        let arn_dep = subnet_deps.iter().find(|d| d.binding == "vpc_arn").unwrap();
+        assert_eq!(arn_dep.target, "vpc.main");
+        assert_eq!(arn_dep.output_key.as_deref(), Some("arn"));
     }
 }
