@@ -91,6 +91,38 @@ impl ResourceSchema {
         }
         paths
     }
+
+    /// Validate a config JSON value against this schema.
+    /// Returns a list of validation errors (empty = valid).
+    pub fn validate(&self, config: &serde_json::Value) -> Vec<String> {
+        let mut errors = Vec::new();
+        for section in &self.sections {
+            let section_val = config.get(&section.name);
+            for field in &section.fields {
+                let field_val = section_val.and_then(|s| s.get(&field.name));
+                // Check required fields
+                if field.required && field_val.is_none() {
+                    errors.push(format!("{}.{} is required", section.name, field.name));
+                    continue;
+                }
+                // Validate enum values
+                if let Some(val) = field_val
+                    && let FieldType::Enum(variants) = &field.field_type
+                    && let Some(s) = val.as_str()
+                    && !variants.iter().any(|v| v == s)
+                {
+                    errors.push(format!(
+                        "{}.{}: '{}' is not a valid value (expected one of: {})",
+                        section.name,
+                        field.name,
+                        s,
+                        variants.join(", ")
+                    ));
+                }
+            }
+        }
+        errors
+    }
 }
 
 /// Schema for a semantic section within a resource.

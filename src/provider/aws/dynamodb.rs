@@ -31,7 +31,9 @@ impl AwsProvider {
                 .attribute_name(partition_key)
                 .key_type(aws_sdk_dynamodb::types::KeyType::Hash)
                 .build()
-                .unwrap(),
+                .map_err(|e| {
+                    ProviderError::InvalidConfig(format!("failed to build KeySchemaElement: {e}"))
+                })?,
         ];
 
         let mut attr_defs = vec![
@@ -41,7 +43,11 @@ impl AwsProvider {
                     partition_key_type,
                 ))
                 .build()
-                .unwrap(),
+                .map_err(|e| {
+                    ProviderError::InvalidConfig(format!(
+                        "failed to build AttributeDefinition: {e}"
+                    ))
+                })?,
         ];
 
         if let Some(sort_key) = config.pointer("/sizing/sort_key").and_then(|v| v.as_str()) {
@@ -55,7 +61,11 @@ impl AwsProvider {
                     .attribute_name(sort_key)
                     .key_type(aws_sdk_dynamodb::types::KeyType::Range)
                     .build()
-                    .unwrap(),
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!(
+                            "failed to build KeySchemaElement: {e}"
+                        ))
+                    })?,
             );
             attr_defs.push(
                 aws_sdk_dynamodb::types::AttributeDefinition::builder()
@@ -64,7 +74,11 @@ impl AwsProvider {
                         sort_key_type,
                     ))
                     .build()
-                    .unwrap(),
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!(
+                            "failed to build AttributeDefinition: {e}"
+                        ))
+                    })?,
             );
         }
 
@@ -95,7 +109,11 @@ impl AwsProvider {
                     .read_capacity_units(rcu)
                     .write_capacity_units(wcu)
                     .build()
-                    .unwrap(),
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!(
+                            "failed to build ProvisionedThroughput: {e}"
+                        ))
+                    })?,
             );
         }
 
@@ -106,7 +124,9 @@ impl AwsProvider {
                     .key(k)
                     .value(v)
                     .build()
-                    .unwrap(),
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!("failed to build DynamoDB Tag: {e}"))
+                    })?,
             );
         }
 
@@ -206,7 +226,11 @@ impl AwsProvider {
                     .read_capacity_units(rcu)
                     .write_capacity_units(wcu)
                     .build()
-                    .unwrap(),
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!(
+                            "failed to build ProvisionedThroughput: {e}"
+                        ))
+                    })?,
             );
         }
 

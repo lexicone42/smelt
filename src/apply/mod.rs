@@ -209,7 +209,20 @@ pub fn execute_plan_with_config(
     let new_tree_hash = store
         .put_tree(&current_tree)
         .unwrap_or_else(|_| ContentHash("error".to_string()));
-    if let Err(e) = store.set_ref(&plan.environment, &new_tree_hash) {
+
+    let has_failures = results
+        .iter()
+        .any(|r| matches!(r.outcome, ApplyOutcome::Failed { .. }));
+
+    if has_failures {
+        eprintln!(
+            "warning: partial failure — environment ref NOT updated to preserve consistent state"
+        );
+        eprintln!(
+            "  partial tree saved as {} for recovery",
+            new_tree_hash.short()
+        );
+    } else if let Err(e) = store.set_ref(&plan.environment, &new_tree_hash) {
         eprintln!("warning: failed to update environment ref: {e}");
     }
 
@@ -302,6 +315,18 @@ fn apply_create(
             },
         };
     };
+
+    // SE-05: Validate config against schema before sending to provider
+    let validation_errors = validate_config_against_schema(config, provider, &resource_type);
+    if !validation_errors.is_empty() {
+        return ApplyResult {
+            resource_id: action.resource_id.clone(),
+            action: ActionType::Create,
+            outcome: ApplyOutcome::Failed {
+                error: format!("config validation failed: {}", validation_errors.join("; ")),
+            },
+        };
+    }
 
     match rt.block_on(provider.create(&resource_type, config)) {
         Ok(output) => {
@@ -424,6 +449,67 @@ fn apply_update(
                 },
             }
         }
+        // SE-15: Handle RequiresReplacement by deleting and recreating
+        Err(crate::provider::ProviderError::RequiresReplacement(_)) => {
+            eprintln!(
+                "  {} requires replacement — deleting and recreating",
+                action.resource_id
+            );
+            // Delete the old resource
+            if let Err(e) = rt.block_on(provider.delete(&resource_type, &provider_id)) {
+                return ApplyResult {
+                    resource_id: action.resource_id.clone(),
+                    action: ActionType::Update,
+                    outcome: ApplyOutcome::Failed {
+                        error: format!("replacement delete failed: {e}"),
+                    },
+                };
+            }
+            // Create with new config
+            match rt.block_on(provider.create(&resource_type, new_config)) {
+                Ok(output) => {
+                    let redacted_config = redact_sensitive(new_config, provider, &resource_type);
+                    let state = ResourceState {
+                        resource_id: action.resource_id.clone(),
+                        type_path: action.type_path.clone(),
+                        config: redacted_config,
+                        actual: Some(output.state),
+                        provider_id: Some(output.provider_id.clone()),
+                        intent: action.intent.clone(),
+                    };
+                    match store.put_object(&state) {
+                        Ok(hash) => {
+                            tree.children.insert(
+                                action.resource_id.clone(),
+                                TreeEntry::Object(hash.clone()),
+                            );
+                            ApplyResult {
+                                resource_id: action.resource_id.clone(),
+                                action: ActionType::Update,
+                                outcome: ApplyOutcome::Success {
+                                    provider_id: Some(output.provider_id),
+                                    new_hash: Some(hash),
+                                },
+                            }
+                        }
+                        Err(e) => ApplyResult {
+                            resource_id: action.resource_id.clone(),
+                            action: ActionType::Update,
+                            outcome: ApplyOutcome::Failed {
+                                error: format!("failed to store state after replacement: {e}"),
+                            },
+                        },
+                    }
+                }
+                Err(e) => ApplyResult {
+                    resource_id: action.resource_id.clone(),
+                    action: ActionType::Update,
+                    outcome: ApplyOutcome::Failed {
+                        error: format!("replacement create failed: {e}"),
+                    },
+                },
+            }
+        }
         Err(e) => ApplyResult {
             resource_id: action.resource_id.clone(),
             action: ActionType::Update,
@@ -496,6 +582,18 @@ struct DepBinding {
     binding: String,
 }
 
+/// Validate that a binding name is a valid identifier (lowercase alphanumeric + underscore).
+fn is_valid_binding_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        && name
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_lowercase() || c == '_')
+}
+
 /// Build a map of resource_id -> list of dependency bindings.
 fn build_dependency_map(files: &[SmeltFile]) -> HashMap<String, Vec<DepBinding>> {
     let mut map: HashMap<String, Vec<DepBinding>> = HashMap::new();
@@ -509,6 +607,14 @@ fn build_dependency_map(files: &[SmeltFile]) -> HashMap<String, Vec<DepBinding>>
                     .filter_map(|dep| {
                         let segments = &dep.source.segments;
                         if segments.len() >= 2 {
+                            // SE-09: Validate binding names
+                            if !is_valid_binding_name(&dep.binding) {
+                                eprintln!(
+                                    "warning: {resource_id}: invalid binding name '{}' \
+                                     (must be lowercase alphanumeric + underscore)",
+                                    dep.binding
+                                );
+                            }
                             Some(DepBinding {
                                 target: format!("{}.{}", segments[0], segments[1]),
                                 binding: dep.binding.clone(),
@@ -604,6 +710,21 @@ fn value_to_json(value: &Value) -> serde_json::Value {
     }
 }
 
+/// Validate a config JSON against a provider's schema for a given resource type.
+/// Returns a list of validation errors (empty = valid).
+fn validate_config_against_schema(
+    config: &serde_json::Value,
+    provider: &dyn crate::provider::Provider,
+    resource_type: &str,
+) -> Vec<String> {
+    let schemas = provider.resource_types();
+    schemas
+        .iter()
+        .find(|s| s.type_path == resource_type)
+        .map(|s| s.schema.validate(config))
+        .unwrap_or_default()
+}
+
 /// Redact sensitive fields from a config before storing in the state store.
 /// Replaces values at sensitive JSON pointer paths with `"<redacted>"`.
 fn redact_sensitive(
@@ -650,12 +771,21 @@ fn get_provider_id_from_tree(store: &Store, tree: &TreeNode, resource_id: &str) 
 }
 
 /// Get the current actor identity from the signing key store.
+/// Warns if no signing key is found (SE-17: avoid silent "unknown" actor).
 fn get_actor(project_root: &Path) -> String {
-    SigningKeyStore::open(project_root)
+    match SigningKeyStore::open(project_root)
         .ok()
         .and_then(|ks| ks.default_key().ok())
         .map(|(_, _, identity)| identity)
-        .unwrap_or_else(|| "unknown".to_string())
+    {
+        Some(identity) => identity,
+        None => {
+            eprintln!(
+                "warning: no signing key found — audit events will use 'unknown' actor (run `smelt init` to create one)"
+            );
+            "unknown".to_string()
+        }
+    }
 }
 
 /// Format an apply summary for human-readable output.
@@ -931,6 +1061,66 @@ mod tests {
         assert_eq!(
             subnet_config.pointer("/network/cidr_block"),
             Some(&serde_json::json!("10.0.1.0/24"))
+        );
+    }
+
+    #[test]
+    fn valid_binding_names() {
+        assert!(is_valid_binding_name("vpc_id"));
+        assert!(is_valid_binding_name("subnet_id"));
+        assert!(is_valid_binding_name("_private"));
+        assert!(is_valid_binding_name("group_id"));
+        assert!(!is_valid_binding_name(""));
+        assert!(!is_valid_binding_name("VpcId"));
+        assert!(!is_valid_binding_name("123abc"));
+        assert!(!is_valid_binding_name("has-dash"));
+        assert!(!is_valid_binding_name("has space"));
+    }
+
+    #[test]
+    fn schema_validation_catches_missing_required() {
+        use crate::provider::Provider;
+        use crate::provider::aws::AwsProvider;
+
+        let provider = AwsProvider::for_testing();
+        let schemas = provider.resource_types();
+        let vpc_schema = schemas.iter().find(|s| s.type_path == "ec2.Vpc").unwrap();
+
+        // Empty config missing required fields
+        let config = serde_json::json!({});
+        let errors = vpc_schema.schema.validate(&config);
+        assert!(!errors.is_empty(), "should catch missing required fields");
+        assert!(errors.iter().any(|e| e.contains("name")));
+    }
+
+    #[test]
+    fn schema_validation_catches_invalid_enum() {
+        use crate::provider::Provider;
+        use crate::provider::aws::AwsProvider;
+
+        let provider = AwsProvider::for_testing();
+        let schemas: Vec<crate::provider::ResourceTypeInfo> = provider.resource_types();
+        let rds_schema = schemas
+            .iter()
+            .find(|s| s.type_path == "rds.DBInstance")
+            .unwrap();
+
+        let config = serde_json::json!({
+            "identity": { "name": "test-db" },
+            "sizing": {
+                "engine": "sqlite",  // invalid enum value
+                "instance_class": "db.t3.micro"
+            },
+            "security": {
+                "master_username": "admin",
+                "master_password": "secret"
+            }
+        });
+        let errors = rds_schema.schema.validate(&config);
+        assert!(
+            errors.iter().any(|e| e.contains("sqlite")),
+            "should catch invalid enum value, got: {:?}",
+            errors
         );
     }
 

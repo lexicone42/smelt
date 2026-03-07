@@ -185,7 +185,11 @@ impl AwsProvider {
                         .hosted_zone_id(hz_id)
                         .evaluate_target_health(true)
                         .build()
-                        .unwrap(),
+                        .map_err(|e| {
+                            ProviderError::InvalidConfig(format!(
+                                "failed to build AliasTarget: {e}"
+                            ))
+                        })?,
                 )
                 .set_ttl(None); // Alias records don't have TTL
         } else {
@@ -197,7 +201,11 @@ impl AwsProvider {
                             aws_sdk_route53::types::ResourceRecord::builder()
                                 .value(v)
                                 .build()
-                                .unwrap(),
+                                .map_err(|e| {
+                                    ProviderError::InvalidConfig(format!(
+                                        "failed to build ResourceRecord: {e}"
+                                    ))
+                                })?,
                         );
                     }
                 }
@@ -206,9 +214,11 @@ impl AwsProvider {
 
         let change = aws_sdk_route53::types::Change::builder()
             .action(aws_sdk_route53::types::ChangeAction::Upsert)
-            .resource_record_set(rr_set.build().unwrap())
+            .resource_record_set(rr_set.build().map_err(|e| {
+                ProviderError::InvalidConfig(format!("failed to build ResourceRecordSet: {e}"))
+            })?)
             .build()
-            .unwrap();
+            .map_err(|e| ProviderError::InvalidConfig(format!("failed to build Change: {e}")))?;
 
         self.route53_client
             .change_resource_record_sets()
@@ -217,7 +227,9 @@ impl AwsProvider {
                 aws_sdk_route53::types::ChangeBatch::builder()
                     .changes(change)
                     .build()
-                    .unwrap(),
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!("failed to build ChangeBatch: {e}"))
+                    })?,
             )
             .send()
             .await
@@ -333,15 +345,19 @@ impl AwsProvider {
                 aws_sdk_route53::types::ResourceRecord::builder()
                     .value(*v)
                     .build()
-                    .unwrap(),
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!("failed to build ResourceRecord: {e}"))
+                    })?,
             );
         }
 
         let change = aws_sdk_route53::types::Change::builder()
             .action(aws_sdk_route53::types::ChangeAction::Delete)
-            .resource_record_set(rr_set.build().unwrap())
+            .resource_record_set(rr_set.build().map_err(|e| {
+                ProviderError::InvalidConfig(format!("failed to build ResourceRecordSet: {e}"))
+            })?)
             .build()
-            .unwrap();
+            .map_err(|e| ProviderError::InvalidConfig(format!("failed to build Change: {e}")))?;
 
         self.route53_client
             .change_resource_record_sets()
@@ -350,7 +366,9 @@ impl AwsProvider {
                 aws_sdk_route53::types::ChangeBatch::builder()
                     .changes(change)
                     .build()
-                    .unwrap(),
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!("failed to build ChangeBatch: {e}"))
+                    })?,
             )
             .send()
             .await

@@ -45,7 +45,9 @@ impl AwsProvider {
             .cloud_watch_metrics_enabled(true)
             .metric_name(name)
             .build()
-            .unwrap();
+            .map_err(|e| {
+                ProviderError::InvalidConfig(format!("failed to build VisibilityConfig: {e}"))
+            })?;
 
         let result = self
             .wafv2_client
@@ -144,7 +146,10 @@ impl AwsProvider {
             .await
             .map_err(|e| ProviderError::ApiError(format!("GetWebACL: {e}")))?;
 
-        let lock_token = get.lock_token().unwrap_or("").to_string();
+        let lock_token = get
+            .lock_token()
+            .ok_or_else(|| ProviderError::ApiError("GetWebACL returned no lock_token".into()))?
+            .to_string();
         let acl = get
             .web_acl()
             .ok_or_else(|| ProviderError::NotFound(format!("WebACL {provider_id}")))?;
@@ -175,7 +180,9 @@ impl AwsProvider {
             .cloud_watch_metrics_enabled(true)
             .metric_name(name)
             .build()
-            .unwrap();
+            .map_err(|e| {
+                ProviderError::InvalidConfig(format!("failed to build VisibilityConfig: {e}"))
+            })?;
 
         self.wafv2_client
             .update_web_acl()
@@ -212,7 +219,10 @@ impl AwsProvider {
             .await
             .map_err(|e| ProviderError::ApiError(format!("GetWebACL: {e}")))?;
 
-        let lock_token = get.lock_token().unwrap_or("").to_string();
+        let lock_token = get
+            .lock_token()
+            .ok_or_else(|| ProviderError::ApiError("GetWebACL returned no lock_token".into()))?
+            .to_string();
 
         self.wafv2_client
             .delete_web_acl()

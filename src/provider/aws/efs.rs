@@ -55,7 +55,9 @@ impl AwsProvider {
                     .key(k)
                     .value(v)
                     .build()
-                    .unwrap(),
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!("failed to build EFS Tag: {e}"))
+                    })?,
             );
         }
 

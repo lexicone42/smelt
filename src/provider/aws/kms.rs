@@ -40,7 +40,9 @@ impl AwsProvider {
                     .tag_key(k)
                     .tag_value(v)
                     .build()
-                    .unwrap(),
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!("failed to build KMS Tag: {e}"))
+                    })?,
             );
         }
 

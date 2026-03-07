@@ -164,7 +164,11 @@ impl AwsProvider {
 
             req = req.network_configuration(
                 aws_sdk_ecs::types::NetworkConfiguration::builder()
-                    .awsvpc_configuration(net_cfg.build().unwrap())
+                    .awsvpc_configuration(net_cfg.build().map_err(|e| {
+                        ProviderError::InvalidConfig(format!(
+                            "failed to build AwsVpcConfiguration: {e}"
+                        ))
+                    })?)
                     .build(),
             );
         }
@@ -371,7 +375,11 @@ impl AwsProvider {
                             .options("awslogs-region", "us-east-1") // TODO: from config
                             .options("awslogs-stream-prefix", cname)
                             .build()
-                            .unwrap(),
+                            .map_err(|e| {
+                                ProviderError::InvalidConfig(format!(
+                                    "failed to build LogConfiguration: {e}"
+                                ))
+                            })?,
                     );
                 }
 

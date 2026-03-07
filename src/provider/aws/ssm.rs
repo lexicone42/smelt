@@ -58,9 +58,11 @@ impl AwsProvider {
                         .key(k)
                         .value(v)
                         .build()
-                        .unwrap()
+                        .map_err(|e| {
+                            ProviderError::InvalidConfig(format!("failed to build SSM Tag: {e}"))
+                        })
                 })
-                .collect();
+                .collect::<Result<Vec<_>, _>>()?;
             self.ssm_client
                 .add_tags_to_resource()
                 .resource_type(aws_sdk_ssm::types::ResourceTypeForTagging::Parameter)
