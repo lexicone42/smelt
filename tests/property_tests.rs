@@ -257,7 +257,7 @@ mod store_properties {
 mod diff_properties {
     use super::*;
     use smelt::provider::FieldChange;
-    use smelt::provider::aws::diff_values;
+    use smelt::provider::diff_values;
 
     /// Generate a flat JSON object for diffing.
     fn arb_flat_json() -> impl Strategy<Value = serde_json::Value> {

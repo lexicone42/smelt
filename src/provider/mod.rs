@@ -275,3 +275,67 @@ impl Default for ProviderRegistry {
         Self::new()
     }
 }
+
+/// Generic recursive JSON diff — produces FieldChange entries for all differences.
+///
+/// This is provider-agnostic and can be used by any provider's `diff()` implementation.
+/// Provider-specific logic (e.g., marking fields as forces_replacement) should be
+/// applied as a post-processing step on the returned changes.
+pub fn diff_values(
+    path: &str,
+    desired: &serde_json::Value,
+    actual: &serde_json::Value,
+    changes: &mut Vec<FieldChange>,
+) {
+    if desired == actual {
+        return;
+    }
+
+    match (desired, actual) {
+        (serde_json::Value::Object(d), serde_json::Value::Object(a)) => {
+            for (k, dv) in d {
+                let field_path = if path.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{path}.{k}")
+                };
+                match a.get(k) {
+                    None => changes.push(FieldChange {
+                        path: field_path,
+                        change_type: ChangeType::Add,
+                        old_value: None,
+                        new_value: Some(dv.clone()),
+                        forces_replacement: false,
+                    }),
+                    Some(av) => diff_values(&field_path, dv, av, changes),
+                }
+            }
+            for (k, av) in a {
+                if !d.contains_key(k) {
+                    let field_path = if path.is_empty() {
+                        k.clone()
+                    } else {
+                        format!("{path}.{k}")
+                    };
+                    changes.push(FieldChange {
+                        path: field_path,
+                        change_type: ChangeType::Remove,
+                        old_value: Some(av.clone()),
+                        new_value: None,
+                        forces_replacement: false,
+                    });
+                }
+            }
+        }
+        _ => {
+            let p = if path.is_empty() { "<root>" } else { path };
+            changes.push(FieldChange {
+                path: p.to_string(),
+                change_type: ChangeType::Modify,
+                old_value: Some(actual.clone()),
+                new_value: Some(desired.clone()),
+                forces_replacement: false,
+            });
+        }
+    }
+}

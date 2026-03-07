@@ -282,7 +282,7 @@ impl Provider for GcpProvider {
         actual: &serde_json::Value,
     ) -> Vec<FieldChange> {
         let mut changes = Vec::new();
-        crate::provider::aws::diff_values("", desired, actual, &mut changes);
+        crate::provider::diff_values("", desired, actual, &mut changes);
         changes
     }
 }
