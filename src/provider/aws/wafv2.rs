@@ -242,6 +242,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "description".into(),
@@ -249,6 +250,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },
@@ -264,6 +266,7 @@ impl AwsProvider {
                             ]),
                             required: false,
                             default: Some(serde_json::json!("REGIONAL")),
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -275,6 +278,7 @@ impl AwsProvider {
                             field_type: FieldType::Enum(vec!["allow".into(), "block".into()]),
                             required: false,
                             default: Some(serde_json::json!("allow")),
+                            sensitive: false,
                         }],
                     },
                 ],

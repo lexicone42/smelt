@@ -196,6 +196,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "tags".into(),
@@ -203,6 +204,7 @@ impl AwsProvider {
                                 field_type: FieldType::Record(vec![]),
                                 required: false,
                                 default: Some(serde_json::json!({})),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -215,6 +217,7 @@ impl AwsProvider {
                             field_type: FieldType::Bool,
                             required: false,
                             default: Some(serde_json::json!(false)),
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -226,6 +229,7 @@ impl AwsProvider {
                             field_type: FieldType::Enum(vec!["AES256".into(), "aws:kms".into()]),
                             required: false,
                             default: Some(serde_json::json!("AES256")),
+                            sensitive: false,
                         }],
                     },
                 ],

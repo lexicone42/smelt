@@ -146,6 +146,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -157,6 +158,7 @@ impl AwsProvider {
                             field_type: FieldType::Enum(vec!["DNS".into(), "EMAIL".into()]),
                             required: false,
                             default: Some(serde_json::json!("DNS")),
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -168,6 +170,7 @@ impl AwsProvider {
                             field_type: FieldType::Array(Box::new(FieldType::String)),
                             required: false,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                 ],

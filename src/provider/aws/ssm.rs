@@ -194,6 +194,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "description".into(),
@@ -201,6 +202,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },
@@ -218,6 +220,7 @@ impl AwsProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("String")),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "value".into(),
@@ -225,6 +228,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "tier".into(),
@@ -235,6 +239,7 @@ impl AwsProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("Standard")),
+                                sensitive: false,
                             },
                         ],
                     },

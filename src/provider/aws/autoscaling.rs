@@ -228,6 +228,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -240,6 +241,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(1)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "max_size".into(),
@@ -247,6 +249,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(1)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "desired_capacity".into(),
@@ -254,6 +257,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(1)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "launch_template_id".into(),
@@ -261,6 +265,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },
@@ -273,6 +278,7 @@ impl AwsProvider {
                             field_type: FieldType::Array(Box::new(FieldType::String)),
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -285,6 +291,7 @@ impl AwsProvider {
                                 field_type: FieldType::Enum(vec!["EC2".into(), "ELB".into()]),
                                 required: false,
                                 default: Some(serde_json::json!("EC2")),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "health_check_grace_period".into(),
@@ -292,6 +299,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(300)),
+                                sensitive: false,
                             },
                         ],
                     },

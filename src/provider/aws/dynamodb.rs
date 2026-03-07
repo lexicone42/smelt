@@ -245,6 +245,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -257,6 +258,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "partition_key_type".into(),
@@ -268,6 +270,7 @@ impl AwsProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("S")),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "sort_key".into(),
@@ -275,6 +278,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "billing_mode".into(),
@@ -285,6 +289,7 @@ impl AwsProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("PAY_PER_REQUEST")),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "read_capacity".into(),
@@ -292,6 +297,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(5)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "write_capacity".into(),
@@ -299,6 +305,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(5)),
+                                sensitive: false,
                             },
                         ],
                     },

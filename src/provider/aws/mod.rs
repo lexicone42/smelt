@@ -831,4 +831,105 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert!(changes[0].forces_replacement);
     }
+
+    // ─── Schema Invariant Tests ──────────────────────────────────────
+
+    #[test]
+    fn all_resource_types_have_identity_section() {
+        let provider = AwsProvider::for_testing();
+        let types = provider.resource_types();
+
+        for rt in &types {
+            let has_identity = rt.schema.sections.iter().any(|s| s.name == "identity");
+            assert!(
+                has_identity,
+                "resource type '{}' is missing an 'identity' section",
+                rt.type_path
+            );
+        }
+    }
+
+    #[test]
+    fn all_resource_types_have_name_field_in_identity() {
+        let provider = AwsProvider::for_testing();
+        let types = provider.resource_types();
+
+        for rt in &types {
+            let identity = rt.schema.sections.iter().find(|s| s.name == "identity");
+            if let Some(identity) = identity {
+                let has_name = identity.fields.iter().any(|f| f.name == "name");
+                assert!(
+                    has_name,
+                    "resource type '{}' identity section is missing 'name' field",
+                    rt.type_path
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn required_fields_have_no_default() {
+        let provider = AwsProvider::for_testing();
+        let types = provider.resource_types();
+
+        for rt in &types {
+            for section in &rt.schema.sections {
+                for field in &section.fields {
+                    if field.required {
+                        assert!(
+                            field.default.is_none(),
+                            "resource '{}' field '{}.{}' is required but has a default",
+                            rt.type_path,
+                            section.name,
+                            field.name
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn enum_fields_have_at_least_two_variants() {
+        let provider = AwsProvider::for_testing();
+        let types = provider.resource_types();
+
+        for rt in &types {
+            for section in &rt.schema.sections {
+                for field in &section.fields {
+                    if let FieldType::Enum(variants) = &field.field_type {
+                        assert!(
+                            variants.len() >= 2,
+                            "resource '{}' field '{}.{}' enum has fewer than 2 variants: {:?}",
+                            rt.type_path,
+                            section.name,
+                            field.name,
+                            variants
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn no_duplicate_field_names_within_sections() {
+        let provider = AwsProvider::for_testing();
+        let types = provider.resource_types();
+
+        for rt in &types {
+            for section in &rt.schema.sections {
+                let mut seen = std::collections::HashSet::new();
+                for field in &section.fields {
+                    assert!(
+                        seen.insert(&field.name),
+                        "resource '{}' section '{}' has duplicate field '{}'",
+                        rt.type_path,
+                        section.name,
+                        field.name
+                    );
+                }
+            }
+        }
+    }
 }

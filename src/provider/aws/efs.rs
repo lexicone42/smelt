@@ -11,7 +11,12 @@ impl AwsProvider {
         &self,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let creation_token = format!("smelt-{}", chrono::Utc::now().timestamp());
+        // Use name from config as creation token for idempotent creates
+        let name = config
+            .pointer("/identity/name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unnamed");
+        let creation_token = format!("smelt-{name}");
 
         let performance_mode = config
             .pointer("/sizing/performance_mode")
@@ -163,6 +168,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -178,6 +184,7 @@ impl AwsProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("generalPurpose")),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "throughput_mode".into(),
@@ -189,6 +196,7 @@ impl AwsProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("bursting")),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -202,6 +210,7 @@ impl AwsProvider {
                                 field_type: FieldType::Bool,
                                 required: false,
                                 default: Some(serde_json::json!(true)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "kms_key_id".into(),
@@ -209,6 +218,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },
@@ -318,6 +328,18 @@ impl AwsProvider {
             schema: ResourceSchema {
                 sections: vec![
                     SectionSchema {
+                        name: "identity".into(),
+                        description: "Mount target identification".into(),
+                        fields: vec![FieldSchema {
+                            name: "name".into(),
+                            description: "Mount target name (for smelt tracking)".into(),
+                            field_type: FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
+                    },
+                    SectionSchema {
                         name: "network".into(),
                         description: "Network placement".into(),
                         fields: vec![
@@ -327,6 +349,7 @@ impl AwsProvider {
                                 field_type: FieldType::Ref("efs.FileSystem".into()),
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "subnet_id".into(),
@@ -334,6 +357,7 @@ impl AwsProvider {
                                 field_type: FieldType::Ref("ec2.Subnet".into()),
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },
@@ -346,6 +370,7 @@ impl AwsProvider {
                             field_type: FieldType::Array(Box::new(FieldType::String)),
                             required: false,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                 ],

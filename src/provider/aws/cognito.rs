@@ -140,6 +140,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -155,6 +156,7 @@ impl AwsProvider {
                             ]),
                             required: false,
                             default: Some(serde_json::json!("OFF")),
+                            sensitive: false,
                         }],
                     },
                 ],

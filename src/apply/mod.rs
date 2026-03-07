@@ -190,7 +190,9 @@ pub fn execute_plan_with_config(
                 prev_hash: None,
                 new_hash,
             };
-            let _ = store.append_event(&event);
+            if let Err(e) = store.append_event(&event) {
+                eprintln!("warning: failed to write audit event: {e}");
+            }
             seq += 1;
 
             transition_changes.push(TransitionChange {
@@ -207,7 +209,9 @@ pub fn execute_plan_with_config(
     let new_tree_hash = store
         .put_tree(&current_tree)
         .unwrap_or_else(|_| ContentHash("error".to_string()));
-    let _ = store.set_ref(&plan.environment, &new_tree_hash);
+    if let Err(e) = store.set_ref(&plan.environment, &new_tree_hash) {
+        eprintln!("warning: failed to update environment ref: {e}");
+    }
 
     // Sign the transition
     if let Ok(key_store) = SigningKeyStore::open(project_root) {
@@ -226,8 +230,12 @@ pub fn execute_plan_with_config(
                 let sig_path = project_root
                     .join(".smelt/transitions")
                     .join(format!("{}.json", new_tree_hash.short()));
-                let _ = std::fs::create_dir_all(sig_path.parent().unwrap());
-                let _ = std::fs::write(&sig_path, sig_data);
+                if let Err(e) = std::fs::create_dir_all(sig_path.parent().unwrap()) {
+                    eprintln!("warning: failed to create transitions dir: {e}");
+                }
+                if let Err(e) = std::fs::write(&sig_path, sig_data) {
+                    eprintln!("warning: failed to write signed transition: {e}");
+                }
             }
             Err(e) => {
                 eprintln!("warning: could not sign transition: {e}");
@@ -297,10 +305,11 @@ fn apply_create(
 
     match rt.block_on(provider.create(&resource_type, config)) {
         Ok(output) => {
+            let redacted_config = redact_sensitive(config, provider, &resource_type);
             let state = ResourceState {
                 resource_id: action.resource_id.clone(),
                 type_path: action.type_path.clone(),
-                config: config.clone(),
+                config: redacted_config,
                 actual: Some(output.state),
                 provider_id: Some(output.provider_id.clone()),
                 intent: action.intent.clone(),
@@ -383,10 +392,11 @@ fn apply_update(
 
     match rt.block_on(provider.update(&resource_type, &provider_id, &old_config, new_config)) {
         Ok(output) => {
+            let redacted_config = redact_sensitive(new_config, provider, &resource_type);
             let state = ResourceState {
                 resource_id: action.resource_id.clone(),
                 type_path: action.type_path.clone(),
-                config: new_config.clone(),
+                config: redacted_config,
                 actual: Some(output.state),
                 provider_id: Some(output.provider_id.clone()),
                 intent: action.intent.clone(),
@@ -592,6 +602,43 @@ fn value_to_json(value: &Value) -> serde_json::Value {
         }
         Value::Ref(r) => serde_json::Value::String(format!("ref({})", r)),
     }
+}
+
+/// Redact sensitive fields from a config before storing in the state store.
+/// Replaces values at sensitive JSON pointer paths with `"<redacted>"`.
+fn redact_sensitive(
+    config: &serde_json::Value,
+    provider: &dyn crate::provider::Provider,
+    resource_type: &str,
+) -> serde_json::Value {
+    let schemas = provider.resource_types();
+    let sensitive_paths: Vec<String> = schemas
+        .iter()
+        .find(|s| s.type_path == resource_type)
+        .map(|s| s.schema.sensitive_paths())
+        .unwrap_or_default();
+
+    if sensitive_paths.is_empty() {
+        return config.clone();
+    }
+
+    let mut redacted = config.clone();
+    for path in &sensitive_paths {
+        if redacted.pointer(path).is_some() {
+            // Split path into segments and navigate to parent
+            let segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+            if segments.len() == 2
+                && let Some(section) = redacted.get_mut(segments[0])
+                && let Some(obj) = section.as_object_mut()
+            {
+                obj.insert(
+                    segments[1].to_string(),
+                    serde_json::Value::String("<redacted>".to_string()),
+                );
+            }
+        }
+    }
+    redacted
 }
 
 /// Look up the provider_id for a resource from the current tree.

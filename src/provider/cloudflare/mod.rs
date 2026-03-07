@@ -35,6 +35,7 @@ impl CloudflareProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -55,6 +56,7 @@ impl CloudflareProvider {
                                 ]),
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "content".to_string(),
@@ -62,6 +64,7 @@ impl CloudflareProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "ttl".to_string(),
@@ -69,6 +72,7 @@ impl CloudflareProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(1)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "proxied".to_string(),
@@ -77,6 +81,7 @@ impl CloudflareProvider {
                                 field_type: FieldType::Bool,
                                 required: false,
                                 default: Some(serde_json::json!(false)),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -100,6 +105,7 @@ impl CloudflareProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -117,6 +123,7 @@ impl CloudflareProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("free")),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "ssl_mode".to_string(),
@@ -129,6 +136,7 @@ impl CloudflareProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("full")),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -152,6 +160,7 @@ impl CloudflareProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -164,6 +173,7 @@ impl CloudflareProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "compatibility_date".to_string(),
@@ -171,6 +181,7 @@ impl CloudflareProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },

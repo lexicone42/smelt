@@ -471,6 +471,7 @@ impl AwsProvider {
                         field_type: FieldType::String,
                         required: true,
                         default: None,
+                        sensitive: false,
                     }],
                 }],
             },
@@ -492,6 +493,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -504,6 +506,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(1)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "task_definition".into(),
@@ -511,6 +514,7 @@ impl AwsProvider {
                                 field_type: FieldType::Ref("ecs.TaskDefinition".into()),
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "launch_type".into(),
@@ -518,6 +522,7 @@ impl AwsProvider {
                                 field_type: FieldType::Enum(vec!["FARGATE".into(), "EC2".into()]),
                                 required: false,
                                 default: Some(serde_json::json!("FARGATE")),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -541,6 +546,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -553,6 +559,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "memory".into(),
@@ -560,6 +567,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "containers".into(),
@@ -571,6 +579,7 @@ impl AwsProvider {
                                         field_type: FieldType::String,
                                         required: true,
                                         default: None,
+                                        sensitive: false,
                                     },
                                     FieldSchema {
                                         name: "image".into(),
@@ -578,6 +587,7 @@ impl AwsProvider {
                                         field_type: FieldType::String,
                                         required: true,
                                         default: None,
+                                        sensitive: false,
                                     },
                                     FieldSchema {
                                         name: "port".into(),
@@ -585,10 +595,12 @@ impl AwsProvider {
                                         field_type: FieldType::Integer,
                                         required: false,
                                         default: None,
+                                        sensitive: false,
                                     },
                                 ]))),
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },
@@ -602,6 +614,7 @@ impl AwsProvider {
                                 field_type: FieldType::Ref("iam.Role".into()),
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "task_role_arn".into(),
@@ -609,6 +622,7 @@ impl AwsProvider {
                                 field_type: FieldType::Ref("iam.Role".into()),
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },

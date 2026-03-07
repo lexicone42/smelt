@@ -117,6 +117,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         },
                         FieldSchema {
                             name: "fifo".into(),
@@ -124,6 +125,7 @@ impl AwsProvider {
                             field_type: FieldType::Bool,
                             required: false,
                             default: Some(serde_json::json!(false)),
+                            sensitive: false,
                         },
                     ],
                 }],

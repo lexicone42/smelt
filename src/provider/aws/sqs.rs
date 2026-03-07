@@ -194,6 +194,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "fifo".into(),
@@ -201,6 +202,7 @@ impl AwsProvider {
                                 field_type: FieldType::Bool,
                                 required: false,
                                 default: Some(serde_json::json!(false)),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -214,6 +216,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(0)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "message_retention_seconds".into(),
@@ -221,6 +224,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(345600)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "visibility_timeout".into(),
@@ -228,6 +232,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(30)),
+                                sensitive: false,
                             },
                         ],
                     },

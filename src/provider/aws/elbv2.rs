@@ -437,6 +437,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -452,6 +453,7 @@ impl AwsProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("application")),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "scheme".into(),
@@ -462,6 +464,7 @@ impl AwsProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("internet-facing")),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "subnet_ids".into(),
@@ -471,6 +474,7 @@ impl AwsProvider {
                                 ))),
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },
@@ -485,6 +489,7 @@ impl AwsProvider {
                             ))),
                             required: false,
                             default: Some(serde_json::json!([])),
+                            sensitive: false,
                         }],
                     },
                 ],
@@ -507,6 +512,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -519,6 +525,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "protocol".into(),
@@ -530,6 +537,7 @@ impl AwsProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("HTTP")),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "target_type".into(),
@@ -541,6 +549,7 @@ impl AwsProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("instance")),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -553,6 +562,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: false,
                             default: Some(serde_json::json!("/")),
+                            sensitive: false,
                         }],
                     },
                 ],
@@ -565,30 +575,46 @@ impl AwsProvider {
             type_path: "elbv2.Listener".into(),
             description: "Load balancer listener".into(),
             schema: ResourceSchema {
-                sections: vec![SectionSchema {
-                    name: "network".into(),
-                    description: "Listener configuration".into(),
-                    fields: vec![
-                        FieldSchema {
-                            name: "port".into(),
-                            description: "Listen port".into(),
-                            field_type: FieldType::Integer,
+                sections: vec![
+                    SectionSchema {
+                        name: "identity".into(),
+                        description: "Listener identification".into(),
+                        fields: vec![FieldSchema {
+                            name: "name".into(),
+                            description: "Listener name (for smelt tracking)".into(),
+                            field_type: FieldType::String,
                             required: true,
                             default: None,
-                        },
-                        FieldSchema {
-                            name: "protocol".into(),
-                            description: "Protocol (HTTP, HTTPS, TCP)".into(),
-                            field_type: FieldType::Enum(vec![
-                                "HTTP".into(),
-                                "HTTPS".into(),
-                                "TCP".into(),
-                            ]),
-                            required: false,
-                            default: Some(serde_json::json!("HTTP")),
-                        },
-                    ],
-                }],
+                            sensitive: false,
+                        }],
+                    },
+                    SectionSchema {
+                        name: "network".into(),
+                        description: "Listener configuration".into(),
+                        fields: vec![
+                            FieldSchema {
+                                name: "port".into(),
+                                description: "Listen port".into(),
+                                field_type: FieldType::Integer,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                            FieldSchema {
+                                name: "protocol".into(),
+                                description: "Protocol (HTTP, HTTPS, TCP)".into(),
+                                field_type: FieldType::Enum(vec![
+                                    "HTTP".into(),
+                                    "HTTPS".into(),
+                                    "TCP".into(),
+                                ]),
+                                required: false,
+                                default: Some(serde_json::json!("HTTP")),
+                                sensitive: false,
+                            },
+                        ],
+                    },
+                ],
             },
         }
     }

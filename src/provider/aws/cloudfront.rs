@@ -163,13 +163,24 @@ impl AwsProvider {
                     SectionSchema {
                         name: "identity".into(),
                         description: "Distribution identification".into(),
-                        fields: vec![FieldSchema {
-                            name: "description".into(),
-                            description: "Distribution comment".into(),
-                            field_type: FieldType::String,
-                            required: false,
-                            default: None,
-                        }],
+                        fields: vec![
+                            FieldSchema {
+                                name: "name".into(),
+                                description: "Distribution name (for smelt tracking)".into(),
+                                field_type: FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                            FieldSchema {
+                                name: "description".into(),
+                                description: "Distribution comment".into(),
+                                field_type: FieldType::String,
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     SectionSchema {
                         name: "network".into(),
@@ -181,6 +192,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "origin_id".into(),
@@ -188,6 +200,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: Some(serde_json::json!("default-origin")),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "enabled".into(),
@@ -195,6 +208,7 @@ impl AwsProvider {
                                 field_type: FieldType::Bool,
                                 required: false,
                                 default: Some(serde_json::json!(true)),
+                                sensitive: false,
                             },
                         ],
                     },

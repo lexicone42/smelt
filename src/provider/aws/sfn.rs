@@ -144,6 +144,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -156,6 +157,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "type".into(),
@@ -166,6 +168,7 @@ impl AwsProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("STANDARD")),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -178,6 +181,7 @@ impl AwsProvider {
                             field_type: FieldType::Ref("iam.Role".into()),
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                 ],

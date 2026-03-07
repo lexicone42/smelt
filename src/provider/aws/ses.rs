@@ -99,6 +99,7 @@ impl AwsProvider {
                         field_type: FieldType::String,
                         required: true,
                         default: None,
+                        sensitive: false,
                     }],
                 }],
             },

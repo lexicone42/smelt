@@ -206,6 +206,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "description".into(),
@@ -213,6 +214,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },
@@ -226,6 +228,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "engine".into(),
@@ -236,6 +239,7 @@ impl AwsProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("redis")),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "engine_version".into(),
@@ -243,6 +247,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "num_cache_clusters".into(),
@@ -250,6 +255,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(1)),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -262,6 +268,7 @@ impl AwsProvider {
                             field_type: FieldType::Bool,
                             required: false,
                             default: Some(serde_json::json!(false)),
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -273,6 +280,7 @@ impl AwsProvider {
                             field_type: FieldType::Array(Box::new(FieldType::String)),
                             required: false,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                 ],

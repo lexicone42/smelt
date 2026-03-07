@@ -39,6 +39,7 @@ impl GcpProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "labels".to_string(),
@@ -46,6 +47,7 @@ impl GcpProvider {
                                 field_type: FieldType::Record(vec![]),
                                 required: false,
                                 default: Some(serde_json::json!({})),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -59,6 +61,7 @@ impl GcpProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "zone".to_string(),
@@ -66,6 +69,7 @@ impl GcpProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },
@@ -78,6 +82,7 @@ impl GcpProvider {
                             field_type: FieldType::Ref("compute.Network".to_string()),
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                 ],
@@ -100,6 +105,7 @@ impl GcpProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -112,6 +118,7 @@ impl GcpProvider {
                                 field_type: FieldType::Bool,
                                 required: false,
                                 default: Some(serde_json::json!(true)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "routing_mode".to_string(),
@@ -122,6 +129,7 @@ impl GcpProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("REGIONAL")),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -145,6 +153,7 @@ impl GcpProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -160,6 +169,7 @@ impl GcpProvider {
                                 ]),
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "allowed".to_string(),
@@ -171,6 +181,7 @@ impl GcpProvider {
                                         field_type: FieldType::String,
                                         required: true,
                                         default: None,
+                                        sensitive: false,
                                     },
                                     FieldSchema {
                                         name: "ports".to_string(),
@@ -178,10 +189,12 @@ impl GcpProvider {
                                         field_type: FieldType::Array(Box::new(FieldType::String)),
                                         required: false,
                                         default: None,
+                                        sensitive: false,
                                     },
                                 ]))),
                                 required: false,
                                 default: Some(serde_json::json!([])),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "source_ranges".to_string(),
@@ -189,6 +202,7 @@ impl GcpProvider {
                                 field_type: FieldType::Array(Box::new(FieldType::String)),
                                 required: false,
                                 default: Some(serde_json::json!([])),
+                                sensitive: false,
                             },
                         ],
                     },

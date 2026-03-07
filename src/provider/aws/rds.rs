@@ -175,7 +175,8 @@ impl AwsProvider {
         self.rds_client
             .delete_db_instance()
             .db_instance_identifier(identifier)
-            .skip_final_snapshot(true)
+            .skip_final_snapshot(false)
+            .final_db_snapshot_identifier(format!("{identifier}-final-snapshot"))
             .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("DeleteDBInstance: {e}")))?;
@@ -306,6 +307,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                     SectionSchema {
@@ -324,6 +326,7 @@ impl AwsProvider {
                                 ]),
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "engine_version".into(),
@@ -331,6 +334,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "instance_class".into(),
@@ -338,6 +342,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "allocated_storage".into(),
@@ -345,6 +350,7 @@ impl AwsProvider {
                                 field_type: FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(20)),
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "storage_type".into(),
@@ -352,6 +358,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: Some(serde_json::json!("gp3")),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -365,6 +372,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "master_password".into(),
@@ -372,6 +380,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: true,
                             },
                         ],
                     },
@@ -385,6 +394,7 @@ impl AwsProvider {
                                 field_type: FieldType::Ref("rds.DBSubnetGroup".into()),
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "publicly_accessible".into(),
@@ -392,6 +402,7 @@ impl AwsProvider {
                                 field_type: FieldType::Bool,
                                 required: false,
                                 default: Some(serde_json::json!(false)),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -404,6 +415,7 @@ impl AwsProvider {
                             field_type: FieldType::Bool,
                             required: false,
                             default: Some(serde_json::json!(false)),
+                            sensitive: false,
                         }],
                     },
                 ],
@@ -427,6 +439,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "description".into(),
@@ -434,6 +447,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },
@@ -448,6 +462,7 @@ impl AwsProvider {
                             ))),
                             required: true,
                             default: None,
+                            sensitive: false,
                         }],
                     },
                 ],

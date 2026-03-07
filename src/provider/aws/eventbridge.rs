@@ -182,6 +182,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: true,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "description".into(),
@@ -189,6 +190,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                         ],
                     },
@@ -202,6 +204,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "schedule_expression".into(),
@@ -209,6 +212,7 @@ impl AwsProvider {
                                 field_type: FieldType::String,
                                 required: false,
                                 default: None,
+                                sensitive: false,
                             },
                             FieldSchema {
                                 name: "state".into(),
@@ -219,6 +223,7 @@ impl AwsProvider {
                                 ]),
                                 required: false,
                                 default: Some(serde_json::json!("ENABLED")),
+                                sensitive: false,
                             },
                         ],
                     },
@@ -231,6 +236,7 @@ impl AwsProvider {
                             field_type: FieldType::String,
                             required: false,
                             default: Some(serde_json::json!("default")),
+                            sensitive: false,
                         }],
                     },
                 ],

@@ -77,6 +77,22 @@ pub struct ResourceSchema {
     pub sections: Vec<SectionSchema>,
 }
 
+impl ResourceSchema {
+    /// Returns JSON pointer paths for all fields marked `sensitive: true`.
+    /// E.g., `["/security/master_password", "/security/secret_string"]`.
+    pub fn sensitive_paths(&self) -> Vec<String> {
+        let mut paths = Vec::new();
+        for section in &self.sections {
+            for field in &section.fields {
+                if field.sensitive {
+                    paths.push(format!("/{}/{}", section.name, field.name));
+                }
+            }
+        }
+        paths
+    }
+}
+
 /// Schema for a semantic section within a resource.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SectionSchema {
@@ -86,18 +102,24 @@ pub struct SectionSchema {
 }
 
 /// Schema for a single field.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FieldSchema {
     pub name: String,
     pub description: String,
+    #[serde(default)]
     pub field_type: FieldType,
+    #[serde(default)]
     pub required: bool,
     pub default: Option<serde_json::Value>,
+    /// If true, this field's value will be redacted from stored state and plan output.
+    #[serde(default)]
+    pub sensitive: bool,
 }
 
 /// Field types in the schema.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub enum FieldType {
+    #[default]
     String,
     Integer,
     Float,
