@@ -507,26 +507,24 @@ fn cmd_destroy(environment: &str, files: &[std::path::PathBuf], yes: bool) -> Re
         return Ok(());
     }
 
-    // Build delete actions from stored state in reverse dependency order
+    // Build delete actions from stored state in reverse dependency order.
+    // Each delete gets its own tier to ensure sequential execution (safe teardown).
     let destroy_order = graph.destroy_order();
-    let mut actions = Vec::new();
-    let mut order = 0;
+    let mut tiers: Vec<Vec<plan::PlannedAction>> = Vec::new();
 
     // First: resources that are in the graph (preserving destroy ordering)
     let mut seen = std::collections::HashSet::new();
     for node in &destroy_order {
         let resource_id = node.id.to_string();
         if tree.children.contains_key(&resource_id) {
-            actions.push(plan::PlannedAction {
+            tiers.push(vec![plan::PlannedAction {
                 resource_id: resource_id.clone(),
                 type_path: node.type_path.clone(),
                 action: plan::ActionType::Delete,
                 intent: node.intent.clone(),
                 changes: vec![],
-                order,
                 forces_replacement: false,
-            });
-            order += 1;
+            }]);
             seen.insert(resource_id);
         }
     }
@@ -537,26 +535,25 @@ fn cmd_destroy(environment: &str, files: &[std::path::PathBuf], yes: bool) -> Re
             && let store::TreeEntry::Object(hash) = entry
             && let Ok(obj) = s.get_object(hash)
         {
-            actions.push(plan::PlannedAction {
+            tiers.push(vec![plan::PlannedAction {
                 resource_id: resource_id.clone(),
                 type_path: obj.type_path,
                 action: plan::ActionType::Delete,
                 intent: obj.intent,
                 changes: vec![],
-                order,
                 forces_replacement: false,
-            });
-            order += 1;
+            }]);
         }
     }
 
+    let delete_count = tiers.iter().map(|t| t.len()).sum::<usize>();
     let p = plan::Plan {
         environment: environment.to_string(),
-        actions,
+        tiers,
         summary: plan::PlanSummary {
             create: 0,
             update: 0,
-            delete: order,
+            delete: delete_count,
             unchanged: 0,
         },
     };

@@ -144,21 +144,17 @@ pub fn execute_plan_with_config(
         }
     }
 
-    // Sort and group actions by dependency tier for parallel execution
-    let mut ordered_actions: Vec<&PlannedAction> = plan
-        .actions
-        .iter()
-        .filter(|a| a.action != ActionType::Unchanged)
-        .collect();
-    ordered_actions.sort_by_key(|a| a.order);
+    for (tier_num, tier_actions) in plan.tiers.iter().enumerate() {
+        // Filter to actionable items (skip Unchanged)
+        let tier_actions: Vec<&PlannedAction> = tier_actions
+            .iter()
+            .filter(|a| a.action != ActionType::Unchanged)
+            .collect();
 
-    let mut tiers: std::collections::BTreeMap<usize, Vec<&PlannedAction>> =
-        std::collections::BTreeMap::new();
-    for action in &ordered_actions {
-        tiers.entry(action.order).or_default().push(action);
-    }
+        if tier_actions.is_empty() {
+            continue;
+        }
 
-    for (tier_num, tier_actions) in &tiers {
         if tier_actions.len() > 1 {
             eprintln!(
                 "  tier {tier_num}: executing {} resources in parallel",
@@ -999,15 +995,14 @@ mod tests {
 
         let plan = Plan {
             environment: "test".to_string(),
-            actions: vec![PlannedAction {
+            tiers: vec![vec![PlannedAction {
                 resource_id: "vpc.main".to_string(),
                 type_path: "aws.ec2.Vpc".to_string(),
                 action: ActionType::Create,
                 intent: Some("Test VPC".to_string()),
                 changes: vec![],
-                order: 0,
                 forces_replacement: false,
-            }],
+            }]],
             summary: PlanSummary {
                 create: 1,
                 update: 0,
@@ -1030,15 +1025,14 @@ mod tests {
 
         let plan = Plan {
             environment: "test".to_string(),
-            actions: vec![PlannedAction {
+            tiers: vec![vec![PlannedAction {
                 resource_id: "vpc.main".to_string(),
                 type_path: "aws.ec2.Vpc".to_string(),
                 action: ActionType::Create,
                 intent: Some("Test VPC".to_string()),
                 changes: vec![],
-                order: 0,
                 forces_replacement: false,
-            }],
+            }]],
             summary: PlanSummary {
                 create: 1,
                 update: 0,
@@ -1152,15 +1146,14 @@ mod tests {
 
         let plan = Plan {
             environment: "test".to_string(),
-            actions: vec![PlannedAction {
+            tiers: vec![vec![PlannedAction {
                 resource_id: "vpc.main".to_string(),
                 type_path: "aws.ec2.Vpc".to_string(),
                 action: ActionType::Create,
                 intent: None,
                 changes: vec![],
-                order: 0,
                 forces_replacement: false,
-            }],
+            }]],
             summary: PlanSummary {
                 create: 1,
                 update: 0,

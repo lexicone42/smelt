@@ -7,11 +7,24 @@ use crate::ast::{Declaration, LayerDecl, SmeltFile, Value};
 use crate::graph::DependencyGraph;
 
 /// A plan showing what would change when applying the current config.
+///
+/// Actions are grouped into tiers by dependency depth. Resources within
+/// the same tier have no mutual dependencies and can execute in parallel.
+/// Tier 0 contains resources with no dependencies, tier 1 contains resources
+/// that depend only on tier-0 resources, etc.
 #[derive(Debug, Clone, Serialize)]
 pub struct Plan {
     pub environment: String,
-    pub actions: Vec<PlannedAction>,
+    /// Actions grouped by dependency tier — each tier can execute in parallel.
+    pub tiers: Vec<Vec<PlannedAction>>,
     pub summary: PlanSummary,
+}
+
+impl Plan {
+    /// Iterate over all actions across all tiers, in tier order.
+    pub fn actions(&self) -> impl Iterator<Item = &PlannedAction> {
+        self.tiers.iter().flat_map(|tier| tier.iter())
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -31,8 +44,6 @@ pub struct PlannedAction {
     pub intent: Option<String>,
     /// Field-level diffs for updates
     pub changes: Vec<FieldDiff>,
-    /// Position in apply order
-    pub order: usize,
     /// Whether this action forces resource replacement (destroy + recreate)
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub forces_replacement: bool,
@@ -86,12 +97,12 @@ pub fn build_plan(
     let layer = find_layer(environment, desired_files);
 
     let tiered_order = graph.tiered_apply_order();
-    let mut actions = Vec::new();
+    let mut tier_map: BTreeMap<usize, Vec<PlannedAction>> = BTreeMap::new();
 
     // Track which current resources are accounted for
     let mut seen_current: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    for &(node, order) in &tiered_order {
+    for &(node, tier) in &tiered_order {
         let resource_id = node.id.to_string();
         seen_current.insert(resource_id.clone());
 
@@ -119,79 +130,81 @@ pub fn build_plan(
 
         let intent = node.intent.clone();
 
-        match current_state.get(&resource_id) {
-            None => {
-                // Resource doesn't exist yet — create
-                actions.push(PlannedAction {
-                    resource_id,
-                    type_path: node.type_path.clone(),
-                    action: ActionType::Create,
-                    intent,
-                    changes: vec![],
-                    order,
-                    forces_replacement: false,
-                });
-            }
+        let planned = match current_state.get(&resource_id) {
+            None => PlannedAction {
+                resource_id,
+                type_path: node.type_path.clone(),
+                action: ActionType::Create,
+                intent,
+                changes: vec![],
+                forces_replacement: false,
+            },
             Some(current) => {
-                // Resource exists — check for changes
                 let changes = diff_json_values("", current, &desired_json);
                 let action = if changes.is_empty() {
                     ActionType::Unchanged
                 } else {
                     ActionType::Update
                 };
-                actions.push(PlannedAction {
+                PlannedAction {
                     resource_id,
                     type_path: node.type_path.clone(),
                     action,
                     intent,
                     changes,
-                    order,
                     forces_replacement: false,
-                });
+                }
             }
-        }
+        };
+
+        tier_map.entry(tier).or_default().push(planned);
     }
 
-    // Find resources in current state that are not in desired — these need deletion
+    // Find resources in current state that are not in desired — these need deletion.
+    // Deletes go in a final tier after all creates/updates.
     let destroy_order = graph.destroy_order();
+    let delete_tier = tier_map.keys().last().map_or(0, |k| k + 1);
     for node in &destroy_order {
         let resource_id = node.id.to_string();
         if current_state.contains_key(&resource_id) && !seen_current.contains(&resource_id) {
-            actions.push(PlannedAction {
-                resource_id,
-                type_path: node.type_path.clone(),
-                action: ActionType::Delete,
-                intent: None,
-                changes: vec![],
-                order: actions.len(),
-                forces_replacement: false,
-            });
+            tier_map
+                .entry(delete_tier)
+                .or_default()
+                .push(PlannedAction {
+                    resource_id,
+                    type_path: node.type_path.clone(),
+                    action: ActionType::Delete,
+                    intent: None,
+                    changes: vec![],
+                    forces_replacement: false,
+                });
         }
     }
 
+    let tiers: Vec<Vec<PlannedAction>> = tier_map.into_values().collect();
+
+    let all_actions = tiers.iter().flat_map(|t| t.iter());
     let summary = PlanSummary {
-        create: actions
-            .iter()
+        create: all_actions
+            .clone()
             .filter(|a| a.action == ActionType::Create)
             .count(),
-        update: actions
-            .iter()
+        update: all_actions
+            .clone()
             .filter(|a| a.action == ActionType::Update)
             .count(),
-        delete: actions
-            .iter()
+        delete: all_actions
+            .clone()
             .filter(|a| a.action == ActionType::Delete)
             .count(),
-        unchanged: actions
-            .iter()
+        unchanged: all_actions
             .filter(|a| a.action == ActionType::Unchanged)
             .count(),
     };
 
     Plan {
         environment: environment.to_string(),
-        actions,
+        tiers,
         summary,
     }
 }
@@ -406,7 +419,7 @@ pub fn format_plan(plan: &Plan) -> String {
         RESET = if color { RESET } else { "" },
     ));
 
-    for action in &plan.actions {
+    for action in plan.actions() {
         if action.action == ActionType::Unchanged {
             continue;
         }
@@ -499,7 +512,7 @@ pub fn format_plan_diff(plan: &Plan) -> String {
     let mut old_lines = Vec::new();
     let mut new_lines = Vec::new();
 
-    for action in &plan.actions {
+    for action in plan.actions() {
         match action.action {
             ActionType::Create => {
                 new_lines.push(format!(
@@ -613,10 +626,11 @@ mod tests {
 
         let plan = build_plan("production", &[file], &current_state, &graph);
         assert_eq!(plan.summary.update, 1);
-        assert_eq!(plan.actions[0].changes.len(), 1);
+        let actions: Vec<_> = plan.actions().collect();
+        assert_eq!(actions[0].changes.len(), 1);
 
         // Verify the diff shows the CIDR change
-        let change = &plan.actions[0].changes[0];
+        let change = &actions[0].changes[0];
         assert_eq!(change.path, "network.cidr_block");
     }
 
@@ -710,9 +724,10 @@ mod tests {
 
         // Should detect a change: instance_type from t3.large to t3.small
         assert_eq!(plan.summary.update, 1);
-        assert_eq!(plan.actions[0].changes.len(), 1);
+        let actions: Vec<_> = plan.actions().collect();
+        assert_eq!(actions[0].changes.len(), 1);
 
-        let change = &plan.actions[0].changes[0];
+        let change = &actions[0].changes[0];
         assert_eq!(change.path, "sizing.instance_type");
     }
 
