@@ -70,5 +70,29 @@ aws-sdk-sesv2 = "1"
 # We'll use this for signing state transitions and future TLS needs
 aws-lc-rs = "1"
 
+# GCP SDK — official Google Cloud Rust crates (googleapis org)
+google-cloud-auth = "1"
+google-cloud-compute-v1 = { version = "2", features = [
+    "instances", "networks", "subnetworks", "firewalls", "addresses",
+    "disks", "routes", "backend-services", "health-checks",
+    "forwarding-rules", "global-addresses", "global-forwarding-rules",
+] }
+google-cloud-storage = "1"
+google-cloud-sql-v1 = "2"
+google-cloud-iam-v1 = "1"
+google-cloud-iam-admin-v1 = "1"
+google-cloud-dns-v1 = "1"
+google-cloud-container-v1 = "1"
+google-cloud-run-v2 = "1"
+google-cloud-functions-v2 = "1"
+google-cloud-pubsub = "0.32.3-preview"
+google-cloud-wkt = "1"
+google-cloud-kms-v1 = "1"
+google-cloud-secretmanager-v1 = "1"
+google-cloud-logging-v2 = "1"
+google-cloud-monitoring-v3 = "1"
+google-cloud-longrunning = "1"
+bytes = { version = "1", features = ["serde"] }
+
 [dev-dependencies]
 proptest = "1"

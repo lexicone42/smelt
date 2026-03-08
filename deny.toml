@@ -25,6 +25,7 @@ allow = [
     "Apache-2.0 WITH LLVM-exception",
     "OpenSSL",
     "BlueOak-1.0.0",
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.8
 exceptions = []
@@ -52,7 +53,7 @@ deny = [
 skip = [
     # ring is pulled in transitively by the AWS SDK (via rustls 0.21 / aws-smithy-http-client).
     # Smelt's own code uses aws-lc-rs for crypto — this skip only permits the transitive dep.
-    { crate = "ring@0.17.14" },
+    { crate = "ring" },
 ]
 
 # ============================================================================

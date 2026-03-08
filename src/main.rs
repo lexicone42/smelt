@@ -608,7 +608,10 @@ fn build_registry() -> smelt::provider::ProviderRegistry {
     registry.register(Box::new(aws_provider));
 
     // Other providers use placeholder config for now
-    registry.register(Box::new(GcpProvider::new("default", "us-central1")));
+    let gcp_provider = rt
+        .block_on(GcpProvider::from_env("default", "us-central1"))
+        .expect("Failed to initialize GCP provider");
+    registry.register(Box::new(gcp_provider));
     registry.register(Box::new(CloudflareProvider::new("default")));
     registry.register(Box::new(GoogleWorkspaceProvider::new("default")));
     registry

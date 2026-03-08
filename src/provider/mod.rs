@@ -229,15 +229,32 @@ impl std::fmt::Display for ChangeType {
     }
 }
 
-/// Provider errors.
+/// Provider errors — classified for AI agent decision-making.
+///
+/// An AI agent can match on these variants to decide next steps:
+/// - `NotFound` → resource doesn't exist, create it
+/// - `AlreadyExists` → resource exists, maybe import it
+/// - `PermissionDenied` → stop and ask the human
+/// - `QuotaExceeded` → wait or request quota increase
+/// - `RateLimited` → retry with backoff
+/// - `ApiNotEnabled` → enable the API first (e.g. via serviceusage.Service)
+/// - `InvalidConfig` → fix the configuration
+/// - `RequiresReplacement` → delete + recreate
+/// - `ApiError` → unclassified, inspect the message
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderError {
     #[error("resource not found: {0}")]
     NotFound(String),
+    #[error("resource already exists: {0}")]
+    AlreadyExists(String),
     #[error("permission denied: {0}")]
     PermissionDenied(String),
+    #[error("quota exceeded: {0}")]
+    QuotaExceeded(String),
     #[error("rate limited, retry after {retry_after_secs}s")]
     RateLimited { retry_after_secs: u64 },
+    #[error("API not enabled: {service} — enable it or add a serviceusage.Service resource")]
+    ApiNotEnabled { service: String },
     #[error("provider API error: {0}")]
     ApiError(String),
     #[error("invalid configuration: {0}")]
