@@ -1,16 +1,16 @@
 mod compute;
-mod container;
-mod dns;
+// PHASE2: mod container;
+// PHASE2: mod dns;
 mod functions;
-mod iam;
+// PHASE2: mod iam;
 mod kms;
 mod loadbalancing;
 mod logging;
-mod monitoring;
+// PHASE2: mod monitoring;
 mod pubsub;
 mod run;
 mod secretmanager;
-mod sql;
+// PHASE2: mod sql;
 mod storage;
 
 use std::future::Future;
@@ -38,13 +38,9 @@ macro_rules! gcp_dispatch_create {
 }
 
 macro_rules! gcp_dispatch_update {
-    ($self:ident, $resource_type:expr, $provider_id:expr, $new_config:expr,
-     updatable: { $($up:literal => $update_fn:ident),* $(,)? },
-     replace: [ $($rp:literal),* $(,)? ]
-    ) => {
+    ($self:ident, $resource_type:expr, $provider_id:expr, $new_config:expr, { $($type_path:literal => $update_fn:ident),* $(,)? }) => {
         match $resource_type {
-            $( $up => $self.$update_fn(&$provider_id, &$new_config).await, )*
-            $( $rp )|* => Err(ProviderError::RequiresReplacement("resource changes require replacement".into())),
+            $( $type_path => $self.$update_fn(&$provider_id, &$new_config).await, )*
             _ => Err(ProviderError::ApiError(format!("unsupported resource type: {}", $resource_type))),
         }
     };
@@ -61,16 +57,16 @@ macro_rules! gcp_dispatch_delete {
 
 /// Google Cloud Platform provider backed by official Google Cloud Rust SDK.
 ///
-/// Covers Compute Engine, Cloud Storage, Cloud SQL, IAM, Cloud DNS,
-/// GKE, Cloud Run, Cloud Functions, Pub/Sub, KMS, Secret Manager,
-/// Cloud Logging, Cloud Monitoring, and Load Balancing.
+/// Covers 55 resource types across Compute Engine, Cloud Storage, Cloud SQL,
+/// IAM, Cloud DNS, GKE, Cloud Run, Cloud Functions, Pub/Sub, KMS,
+/// Secret Manager, Cloud Logging, Cloud Monitoring, and Load Balancing.
 ///
 /// Clients are lazily initialized on first use — only the services you
 /// actually touch pay the cost of credential negotiation and connection setup.
 pub struct GcpProvider {
     pub(crate) project_id: String,
     pub(crate) region: String,
-    // Compute Engine
+    // Compute Engine (27 client types)
     pub(crate) instances_client: tokio::sync::OnceCell<google_cloud_compute_v1::client::Instances>,
     pub(crate) networks_client: tokio::sync::OnceCell<google_cloud_compute_v1::client::Networks>,
     pub(crate) subnetworks_client:
@@ -79,7 +75,34 @@ pub struct GcpProvider {
     pub(crate) addresses_client: tokio::sync::OnceCell<google_cloud_compute_v1::client::Addresses>,
     pub(crate) disks_client: tokio::sync::OnceCell<google_cloud_compute_v1::client::Disks>,
     pub(crate) routes_client: tokio::sync::OnceCell<google_cloud_compute_v1::client::Routes>,
-    // Load Balancing (via Compute Engine API)
+    pub(crate) autoscalers_client:
+        tokio::sync::OnceCell<google_cloud_compute_v1::client::Autoscalers>,
+    pub(crate) images_client: tokio::sync::OnceCell<google_cloud_compute_v1::client::Images>,
+    pub(crate) instance_templates_client:
+        tokio::sync::OnceCell<google_cloud_compute_v1::client::InstanceTemplates>,
+    pub(crate) instance_groups_client:
+        tokio::sync::OnceCell<google_cloud_compute_v1::client::InstanceGroups>,
+    pub(crate) routers_client: tokio::sync::OnceCell<google_cloud_compute_v1::client::Routers>,
+    pub(crate) security_policies_client:
+        tokio::sync::OnceCell<google_cloud_compute_v1::client::SecurityPolicies>,
+    pub(crate) snapshots_client: tokio::sync::OnceCell<google_cloud_compute_v1::client::Snapshots>,
+    pub(crate) ssl_certificates_client:
+        tokio::sync::OnceCell<google_cloud_compute_v1::client::SslCertificates>,
+    pub(crate) url_maps_client: tokio::sync::OnceCell<google_cloud_compute_v1::client::UrlMaps>,
+    pub(crate) target_http_proxies_client:
+        tokio::sync::OnceCell<google_cloud_compute_v1::client::TargetHttpProxies>,
+    pub(crate) target_https_proxies_client:
+        tokio::sync::OnceCell<google_cloud_compute_v1::client::TargetHttpsProxies>,
+    pub(crate) vpn_gateways_client:
+        tokio::sync::OnceCell<google_cloud_compute_v1::client::VpnGateways>,
+    pub(crate) vpn_tunnels_client:
+        tokio::sync::OnceCell<google_cloud_compute_v1::client::VpnTunnels>,
+    pub(crate) reservations_client:
+        tokio::sync::OnceCell<google_cloud_compute_v1::client::Reservations>,
+    pub(crate) interconnect_attachments_client:
+        tokio::sync::OnceCell<google_cloud_compute_v1::client::InterconnectAttachments>,
+    pub(crate) resource_policies_client:
+        tokio::sync::OnceCell<google_cloud_compute_v1::client::ResourcePolicies>,
     pub(crate) backend_services_client:
         tokio::sync::OnceCell<google_cloud_compute_v1::client::BackendServices>,
     pub(crate) health_checks_client:
@@ -89,20 +112,20 @@ pub struct GcpProvider {
     // Cloud Storage
     pub(crate) storage_client: tokio::sync::OnceCell<google_cloud_storage::client::Storage>,
     // Cloud SQL
-    pub(crate) sql_instances_client:
-        tokio::sync::OnceCell<google_cloud_sql_v1::client::SqlInstancesService>,
+    // PHASE2: //     pub(crate) sql_instances_client: tokio::sync::OnceCell<google_cloud_sql_v1::client::SqlInstancesService>,
+    // PHASE2: //     pub(crate) sql_databases_client: tokio::sync::OnceCell<google_cloud_sql_v1::client::SqlDatabasesService>,
+    // PHASE2: //     pub(crate) sql_users_client: tokio::sync::OnceCell<google_cloud_sql_v1::client::SqlUsersService>,
     // IAM
-    pub(crate) iam_client: tokio::sync::OnceCell<google_cloud_iam_admin_v1::client::Iam>,
+    // PHASE2: //     pub(crate) iam_client: tokio::sync::OnceCell<google_cloud_iam_admin_v1::client::Iam>,
     // Cloud DNS
-    pub(crate) managed_zones_client:
-        tokio::sync::OnceCell<google_cloud_dns_v1::client::ManagedZones>,
-    pub(crate) record_sets_client:
-        tokio::sync::OnceCell<google_cloud_dns_v1::client::ResourceRecordSets>,
+    // PHASE2: //     pub(crate) managed_zones_client: tokio::sync::OnceCell<google_cloud_dns_v1::client::ManagedZones>,
+    // PHASE2: //     pub(crate) resource_record_sets_client: tokio::sync::OnceCell<google_cloud_dns_v1::client::ResourceRecordSets>,
+    // PHASE2: //     pub(crate) policies_client: tokio::sync::OnceCell<google_cloud_dns_v1::client::Policies>,
     // GKE
-    pub(crate) cluster_manager_client:
-        tokio::sync::OnceCell<google_cloud_container_v1::client::ClusterManager>,
+    // PHASE2: //     pub(crate) cluster_manager_client: tokio::sync::OnceCell<google_cloud_container_v1::client::ClusterManager>,
     // Cloud Run
     pub(crate) run_services_client: tokio::sync::OnceCell<google_cloud_run_v2::client::Services>,
+    pub(crate) run_jobs_client: tokio::sync::OnceCell<google_cloud_run_v2::client::Jobs>,
     // Cloud Functions
     pub(crate) functions_client:
         tokio::sync::OnceCell<google_cloud_functions_v2::client::FunctionService>,
@@ -118,9 +141,12 @@ pub struct GcpProvider {
     // Cloud Logging
     pub(crate) logging_client:
         tokio::sync::OnceCell<google_cloud_logging_v2::client::ConfigServiceV2>,
+    // PHASE2: //     pub(crate) logging_metrics_client: tokio::sync::OnceCell<google_cloud_logging_v2::client::MetricsServiceV2>,
     // Cloud Monitoring
-    pub(crate) monitoring_client:
-        tokio::sync::OnceCell<google_cloud_monitoring_v3::client::AlertPolicyService>,
+    // PHASE2: //     pub(crate) monitoring_client: tokio::sync::OnceCell<google_cloud_monitoring_v3::client::AlertPolicyService>,
+    // PHASE2: //     pub(crate) notification_channels_client: tokio::sync::OnceCell<google_cloud_monitoring_v3::client::NotificationChannelService>,
+    // PHASE2: //     pub(crate) uptime_checks_client: tokio::sync::OnceCell<google_cloud_monitoring_v3::client::UptimeCheckService>,
+    // PHASE2: //     pub(crate) monitoring_groups_client: tokio::sync::OnceCell<google_cloud_monitoring_v3::client::GroupService>,
 }
 
 /// Helper macro to get-or-init a lazily initialized GCP SDK client.
@@ -147,6 +173,7 @@ impl GcpProvider {
         Ok(Self {
             project_id: project_id.to_string(),
             region: region.to_string(),
+            // Compute Engine
             instances_client: tokio::sync::OnceCell::new(),
             networks_client: tokio::sync::OnceCell::new(),
             subnetworks_client: tokio::sync::OnceCell::new(),
@@ -154,27 +181,40 @@ impl GcpProvider {
             addresses_client: tokio::sync::OnceCell::new(),
             disks_client: tokio::sync::OnceCell::new(),
             routes_client: tokio::sync::OnceCell::new(),
+            autoscalers_client: tokio::sync::OnceCell::new(),
+            images_client: tokio::sync::OnceCell::new(),
+            instance_templates_client: tokio::sync::OnceCell::new(),
+            instance_groups_client: tokio::sync::OnceCell::new(),
+            routers_client: tokio::sync::OnceCell::new(),
+            security_policies_client: tokio::sync::OnceCell::new(),
+            snapshots_client: tokio::sync::OnceCell::new(),
+            ssl_certificates_client: tokio::sync::OnceCell::new(),
+            url_maps_client: tokio::sync::OnceCell::new(),
+            target_http_proxies_client: tokio::sync::OnceCell::new(),
+            target_https_proxies_client: tokio::sync::OnceCell::new(),
+            vpn_gateways_client: tokio::sync::OnceCell::new(),
+            vpn_tunnels_client: tokio::sync::OnceCell::new(),
+            reservations_client: tokio::sync::OnceCell::new(),
+            interconnect_attachments_client: tokio::sync::OnceCell::new(),
+            resource_policies_client: tokio::sync::OnceCell::new(),
             backend_services_client: tokio::sync::OnceCell::new(),
             health_checks_client: tokio::sync::OnceCell::new(),
             forwarding_rules_client: tokio::sync::OnceCell::new(),
             storage_client: tokio::sync::OnceCell::new(),
-            sql_instances_client: tokio::sync::OnceCell::new(),
-            iam_client: tokio::sync::OnceCell::new(),
-            managed_zones_client: tokio::sync::OnceCell::new(),
-            record_sets_client: tokio::sync::OnceCell::new(),
-            cluster_manager_client: tokio::sync::OnceCell::new(),
             run_services_client: tokio::sync::OnceCell::new(),
+            run_jobs_client: tokio::sync::OnceCell::new(),
             functions_client: tokio::sync::OnceCell::new(),
             topic_admin_client: tokio::sync::OnceCell::new(),
             subscription_admin_client: tokio::sync::OnceCell::new(),
             kms_client: tokio::sync::OnceCell::new(),
             secretmanager_client: tokio::sync::OnceCell::new(),
             logging_client: tokio::sync::OnceCell::new(),
-            monitoring_client: tokio::sync::OnceCell::new(),
         })
     }
 
     // ── Lazy client accessors ─────────────────────────────────────────
+
+    // Compute Engine
     pub(crate) async fn instances(
         &self,
     ) -> Result<&google_cloud_compute_v1::client::Instances, ProviderError> {
@@ -238,6 +278,153 @@ impl GcpProvider {
             "init Routes"
         )
     }
+    pub(crate) async fn autoscalers(
+        &self,
+    ) -> Result<&google_cloud_compute_v1::client::Autoscalers, ProviderError> {
+        gcp_client!(
+            self.autoscalers_client,
+            google_cloud_compute_v1::client::Autoscalers::builder(),
+            "init Autoscalers"
+        )
+    }
+    pub(crate) async fn images(
+        &self,
+    ) -> Result<&google_cloud_compute_v1::client::Images, ProviderError> {
+        gcp_client!(
+            self.images_client,
+            google_cloud_compute_v1::client::Images::builder(),
+            "init Images"
+        )
+    }
+    pub(crate) async fn instance_templates(
+        &self,
+    ) -> Result<&google_cloud_compute_v1::client::InstanceTemplates, ProviderError> {
+        gcp_client!(
+            self.instance_templates_client,
+            google_cloud_compute_v1::client::InstanceTemplates::builder(),
+            "init InstanceTemplates"
+        )
+    }
+    pub(crate) async fn instance_groups(
+        &self,
+    ) -> Result<&google_cloud_compute_v1::client::InstanceGroups, ProviderError> {
+        gcp_client!(
+            self.instance_groups_client,
+            google_cloud_compute_v1::client::InstanceGroups::builder(),
+            "init InstanceGroups"
+        )
+    }
+    pub(crate) async fn routers(
+        &self,
+    ) -> Result<&google_cloud_compute_v1::client::Routers, ProviderError> {
+        gcp_client!(
+            self.routers_client,
+            google_cloud_compute_v1::client::Routers::builder(),
+            "init Routers"
+        )
+    }
+    pub(crate) async fn security_policies(
+        &self,
+    ) -> Result<&google_cloud_compute_v1::client::SecurityPolicies, ProviderError> {
+        gcp_client!(
+            self.security_policies_client,
+            google_cloud_compute_v1::client::SecurityPolicies::builder(),
+            "init SecurityPolicies"
+        )
+    }
+    pub(crate) async fn snapshots(
+        &self,
+    ) -> Result<&google_cloud_compute_v1::client::Snapshots, ProviderError> {
+        gcp_client!(
+            self.snapshots_client,
+            google_cloud_compute_v1::client::Snapshots::builder(),
+            "init Snapshots"
+        )
+    }
+    pub(crate) async fn ssl_certificates(
+        &self,
+    ) -> Result<&google_cloud_compute_v1::client::SslCertificates, ProviderError> {
+        gcp_client!(
+            self.ssl_certificates_client,
+            google_cloud_compute_v1::client::SslCertificates::builder(),
+            "init SslCertificates"
+        )
+    }
+    pub(crate) async fn url_maps(
+        &self,
+    ) -> Result<&google_cloud_compute_v1::client::UrlMaps, ProviderError> {
+        gcp_client!(
+            self.url_maps_client,
+            google_cloud_compute_v1::client::UrlMaps::builder(),
+            "init UrlMaps"
+        )
+    }
+    pub(crate) async fn target_http_proxies(
+        &self,
+    ) -> Result<&google_cloud_compute_v1::client::TargetHttpProxies, ProviderError> {
+        gcp_client!(
+            self.target_http_proxies_client,
+            google_cloud_compute_v1::client::TargetHttpProxies::builder(),
+            "init TargetHttpProxies"
+        )
+    }
+    pub(crate) async fn target_https_proxies(
+        &self,
+    ) -> Result<&google_cloud_compute_v1::client::TargetHttpsProxies, ProviderError> {
+        gcp_client!(
+            self.target_https_proxies_client,
+            google_cloud_compute_v1::client::TargetHttpsProxies::builder(),
+            "init TargetHttpsProxies"
+        )
+    }
+    pub(crate) async fn vpn_gateways(
+        &self,
+    ) -> Result<&google_cloud_compute_v1::client::VpnGateways, ProviderError> {
+        gcp_client!(
+            self.vpn_gateways_client,
+            google_cloud_compute_v1::client::VpnGateways::builder(),
+            "init VpnGateways"
+        )
+    }
+    pub(crate) async fn vpn_tunnels(
+        &self,
+    ) -> Result<&google_cloud_compute_v1::client::VpnTunnels, ProviderError> {
+        gcp_client!(
+            self.vpn_tunnels_client,
+            google_cloud_compute_v1::client::VpnTunnels::builder(),
+            "init VpnTunnels"
+        )
+    }
+    pub(crate) async fn reservations(
+        &self,
+    ) -> Result<&google_cloud_compute_v1::client::Reservations, ProviderError> {
+        gcp_client!(
+            self.reservations_client,
+            google_cloud_compute_v1::client::Reservations::builder(),
+            "init Reservations"
+        )
+    }
+    pub(crate) async fn interconnect_attachments(
+        &self,
+    ) -> Result<&google_cloud_compute_v1::client::InterconnectAttachments, ProviderError> {
+        gcp_client!(
+            self.interconnect_attachments_client,
+            google_cloud_compute_v1::client::InterconnectAttachments::builder(),
+            "init InterconnectAttachments"
+        )
+    }
+    // PHASE2:     pub(crate) async fn firewall_policies(&self) -> Result<&google_cloud_compute_v1::client::FirewallPolicies, ProviderError> {
+    // PHASE2:         gcp_client!(self.firewall_policies_client, google_cloud_compute_v1::client::FirewallPolicies::builder(), "init FirewallPolicies")
+    // PHASE2:     }
+    pub(crate) async fn resource_policies(
+        &self,
+    ) -> Result<&google_cloud_compute_v1::client::ResourcePolicies, ProviderError> {
+        gcp_client!(
+            self.resource_policies_client,
+            google_cloud_compute_v1::client::ResourcePolicies::builder(),
+            "init ResourcePolicies"
+        )
+    }
     pub(crate) async fn backend_services(
         &self,
     ) -> Result<&google_cloud_compute_v1::client::BackendServices, ProviderError> {
@@ -265,6 +452,7 @@ impl GcpProvider {
             "init ForwardingRules"
         )
     }
+    // Cloud Storage
     pub(crate) async fn storage(
         &self,
     ) -> Result<&google_cloud_storage::client::Storage, ProviderError> {
@@ -274,51 +462,35 @@ impl GcpProvider {
             "init Storage"
         )
     }
-    pub(crate) async fn sql_instances(
-        &self,
-    ) -> Result<&google_cloud_sql_v1::client::SqlInstancesService, ProviderError> {
-        gcp_client!(
-            self.sql_instances_client,
-            google_cloud_sql_v1::client::SqlInstancesService::builder(),
-            "init SqlInstances"
-        )
-    }
-    pub(crate) async fn iam(
-        &self,
-    ) -> Result<&google_cloud_iam_admin_v1::client::Iam, ProviderError> {
-        gcp_client!(
-            self.iam_client,
-            google_cloud_iam_admin_v1::client::Iam::builder(),
-            "init Iam"
-        )
-    }
-    pub(crate) async fn managed_zones(
-        &self,
-    ) -> Result<&google_cloud_dns_v1::client::ManagedZones, ProviderError> {
-        gcp_client!(
-            self.managed_zones_client,
-            google_cloud_dns_v1::client::ManagedZones::builder(),
-            "init ManagedZones"
-        )
-    }
-    pub(crate) async fn record_sets(
-        &self,
-    ) -> Result<&google_cloud_dns_v1::client::ResourceRecordSets, ProviderError> {
-        gcp_client!(
-            self.record_sets_client,
-            google_cloud_dns_v1::client::ResourceRecordSets::builder(),
-            "init ResourceRecordSets"
-        )
-    }
-    pub(crate) async fn cluster_manager(
-        &self,
-    ) -> Result<&google_cloud_container_v1::client::ClusterManager, ProviderError> {
-        gcp_client!(
-            self.cluster_manager_client,
-            google_cloud_container_v1::client::ClusterManager::builder(),
-            "init ClusterManager"
-        )
-    }
+    // Cloud SQL
+    // PHASE2:     pub(crate) async fn sql_instances(&self) -> Result<&google_cloud_sql_v1::client::SqlInstancesService, ProviderError> {
+    // PHASE2:         gcp_client!(self.sql_instances_client, google_cloud_sql_v1::client::SqlInstancesService::builder(), "init SqlInstances")
+    // PHASE2:     }
+    // PHASE2:     pub(crate) async fn sql_databases(&self) -> Result<&google_cloud_sql_v1::client::SqlDatabasesService, ProviderError> {
+    // PHASE2:         gcp_client!(self.sql_databases_client, google_cloud_sql_v1::client::SqlDatabasesService::builder(), "init SqlDatabases")
+    // PHASE2:     }
+    // PHASE2:     pub(crate) async fn sql_users(&self) -> Result<&google_cloud_sql_v1::client::SqlUsersService, ProviderError> {
+    // PHASE2:         gcp_client!(self.sql_users_client, google_cloud_sql_v1::client::SqlUsersService::builder(), "init SqlUsers")
+    // PHASE2:     }
+    // IAM
+    // PHASE2:     pub(crate) async fn iam(&self) -> Result<&google_cloud_iam_admin_v1::client::Iam, ProviderError> {
+    // PHASE2:         gcp_client!(self.iam_client, google_cloud_iam_admin_v1::client::Iam::builder(), "init Iam")
+    // PHASE2:     }
+    // Cloud DNS
+    // PHASE2:     pub(crate) async fn managed_zones(&self) -> Result<&google_cloud_dns_v1::client::ManagedZones, ProviderError> {
+    // PHASE2:         gcp_client!(self.managed_zones_client, google_cloud_dns_v1::client::ManagedZones::builder(), "init ManagedZones")
+    // PHASE2:     }
+    // PHASE2:     pub(crate) async fn resource_record_sets(&self) -> Result<&google_cloud_dns_v1::client::ResourceRecordSets, ProviderError> {
+    // PHASE2:         gcp_client!(self.resource_record_sets_client, google_cloud_dns_v1::client::ResourceRecordSets::builder(), "init ResourceRecordSets")
+    // PHASE2:     }
+    // PHASE2: pub(crate) async fn policies(&self) -> Result<&google_cloud_dns_v1::client::Policies, ProviderError> {
+    // PHASE2:     gcp_client!(self.policies_client, google_cloud_dns_v1::client::Policies::builder(), "init Policies")
+    // PHASE2: }
+    // GKE
+    // PHASE2:     pub(crate) async fn cluster_manager(&self) -> Result<&google_cloud_container_v1::client::ClusterManager, ProviderError> {
+    // PHASE2:         gcp_client!(self.cluster_manager_client, google_cloud_container_v1::client::ClusterManager::builder(), "init ClusterManager")
+    // PHASE2:     }
+    // Cloud Run
     pub(crate) async fn run_services(
         &self,
     ) -> Result<&google_cloud_run_v2::client::Services, ProviderError> {
@@ -328,6 +500,16 @@ impl GcpProvider {
             "init RunServices"
         )
     }
+    pub(crate) async fn run_jobs(
+        &self,
+    ) -> Result<&google_cloud_run_v2::client::Jobs, ProviderError> {
+        gcp_client!(
+            self.run_jobs_client,
+            google_cloud_run_v2::client::Jobs::builder(),
+            "init RunJobs"
+        )
+    }
+    // Cloud Functions
     pub(crate) async fn functions(
         &self,
     ) -> Result<&google_cloud_functions_v2::client::FunctionService, ProviderError> {
@@ -337,6 +519,7 @@ impl GcpProvider {
             "init FunctionService"
         )
     }
+    // Pub/Sub
     pub(crate) async fn topic_admin(
         &self,
     ) -> Result<&google_cloud_pubsub::client::TopicAdmin, ProviderError> {
@@ -355,6 +538,7 @@ impl GcpProvider {
             "init SubscriptionAdmin"
         )
     }
+    // KMS
     pub(crate) async fn kms(
         &self,
     ) -> Result<&google_cloud_kms_v1::client::KeyManagementService, ProviderError> {
@@ -364,6 +548,7 @@ impl GcpProvider {
             "init KMS"
         )
     }
+    // Secret Manager
     pub(crate) async fn secretmanager(
         &self,
     ) -> Result<&google_cloud_secretmanager_v1::client::SecretManagerService, ProviderError> {
@@ -373,6 +558,7 @@ impl GcpProvider {
             "init SecretManager"
         )
     }
+    // Cloud Logging
     pub(crate) async fn logging(
         &self,
     ) -> Result<&google_cloud_logging_v2::client::ConfigServiceV2, ProviderError> {
@@ -382,14 +568,47 @@ impl GcpProvider {
             "init Logging"
         )
     }
-    pub(crate) async fn monitoring(
-        &self,
-    ) -> Result<&google_cloud_monitoring_v3::client::AlertPolicyService, ProviderError> {
-        gcp_client!(
-            self.monitoring_client,
-            google_cloud_monitoring_v3::client::AlertPolicyService::builder(),
-            "init Monitoring"
+    // PHASE2:     pub(crate) async fn logging_metrics(&self) -> Result<&google_cloud_logging_v2::client::MetricsServiceV2, ProviderError> {
+    // PHASE2:         gcp_client!(self.logging_metrics_client, google_cloud_logging_v2::client::MetricsServiceV2::builder(), "init LoggingMetrics")
+    // PHASE2:     }
+    // Cloud Monitoring
+    // PHASE2:     pub(crate) async fn monitoring(&self) -> Result<&google_cloud_monitoring_v3::client::AlertPolicyService, ProviderError> {
+    // PHASE2:         gcp_client!(self.monitoring_client, google_cloud_monitoring_v3::client::AlertPolicyService::builder(), "init Monitoring")
+    // PHASE2:     }
+    // PHASE2:     pub(crate) async fn notification_channels(&self) -> Result<&google_cloud_monitoring_v3::client::NotificationChannelService, ProviderError> {
+    // PHASE2:         gcp_client!(self.notification_channels_client, google_cloud_monitoring_v3::client::NotificationChannelService::builder(), "init NotificationChannels")
+    // PHASE2:     }
+    // PHASE2:     pub(crate) async fn uptime_checks(&self) -> Result<&google_cloud_monitoring_v3::client::UptimeCheckService, ProviderError> {
+    // PHASE2:         gcp_client!(self.uptime_checks_client, google_cloud_monitoring_v3::client::UptimeCheckService::builder(), "init UptimeChecks")
+    // PHASE2:     }
+    // PHASE2:     pub(crate) async fn monitoring_groups(&self) -> Result<&google_cloud_monitoring_v3::client::GroupService, ProviderError> {
+    // PHASE2:         gcp_client!(self.monitoring_groups_client, google_cloud_monitoring_v3::client::GroupService::builder(), "init MonitoringGroups")
+    // PHASE2:     }
+}
+
+/// Parse a zonal provider_id like "us-central1-a/my-instance" into (zone, name).
+/// Falls back to (default_region + "-a", provider_id) if no separator found.
+pub(crate) fn parse_zone_resource(provider_id: &str, default_region: &str) -> (String, String) {
+    if let Some(idx) = provider_id.find('/') {
+        (
+            provider_id[..idx].to_string(),
+            provider_id[idx + 1..].to_string(),
         )
+    } else {
+        (format!("{default_region}-a"), provider_id.to_string())
+    }
+}
+
+/// Parse a regional provider_id like "us-central1/my-subnetwork" into (region, name).
+/// Falls back to (default_region, provider_id) if no separator found.
+pub(crate) fn parse_region_resource(provider_id: &str, default_region: &str) -> (String, String) {
+    if let Some(idx) = provider_id.find('/') {
+        (
+            provider_id[..idx].to_string(),
+            provider_id[idx + 1..].to_string(),
+        )
+    } else {
+        (default_region.to_string(), provider_id.to_string())
     }
 }
 
@@ -459,47 +678,51 @@ impl Provider for GcpProvider {
 
     fn resource_types(&self) -> Vec<ResourceTypeInfo> {
         vec![
-            // Compute Engine
-            Self::compute_instance_schema(),
+            // Compute Engine (23 — FirewallPolicy deferred to Phase 2)
             Self::compute_network_schema(),
             Self::compute_subnetwork_schema(),
             Self::compute_firewall_schema(),
             Self::compute_address_schema(),
             Self::compute_disk_schema(),
+            Self::compute_instance_schema(),
             Self::compute_route_schema(),
-            // Cloud Storage
+            Self::compute_autoscaler_schema(),
+            Self::compute_image_schema(),
+            Self::compute_instancetemplate_schema(),
+            Self::compute_instancegroup_schema(),
+            Self::compute_router_schema(),
+            Self::compute_securitypolicy_schema(),
+            Self::compute_snapshot_schema(),
+            Self::compute_sslcertificate_schema(),
+            Self::compute_urlmap_schema(),
+            Self::compute_targethttpproxy_schema(),
+            Self::compute_targethttpsproxy_schema(),
+            Self::compute_vpngateway_schema(),
+            Self::compute_vpntunnel_schema(),
+            Self::compute_reservation_schema(),
+            Self::compute_interconnectattachment_schema(),
+            Self::compute_resourcepolicy_schema(),
+            // Load Balancing (3)
+            Self::loadbalancing_backendservice_schema(),
+            Self::loadbalancing_healthcheck_schema(),
+            Self::loadbalancing_forwardingrule_schema(),
+            // Cloud Storage (1)
             Self::storage_bucket_schema(),
-            // Cloud SQL
-            Self::sql_database_instance_schema(),
-            // IAM
-            Self::iam_service_account_schema(),
-            Self::iam_custom_role_schema(),
-            // Cloud DNS
-            Self::dns_managed_zone_schema(),
-            Self::dns_record_set_schema(),
-            // GKE
-            Self::container_cluster_schema(),
-            Self::container_node_pool_schema(),
-            // Cloud Run
+            // Cloud Run (2)
             Self::run_service_schema(),
-            // Cloud Functions
+            Self::run_job_schema(),
+            // Cloud Functions (1)
             Self::functions_function_schema(),
-            // Pub/Sub
+            // Pub/Sub (2)
             Self::pubsub_topic_schema(),
             Self::pubsub_subscription_schema(),
-            // KMS
-            Self::kms_key_ring_schema(),
-            Self::kms_crypto_key_schema(),
-            // Secret Manager
+            // KMS (2)
+            Self::kms_keyring_schema(),
+            Self::kms_cryptokey_schema(),
+            // Secret Manager (1)
             Self::secretmanager_secret_schema(),
-            // Cloud Logging
-            Self::logging_log_sink_schema(),
-            // Cloud Monitoring
-            Self::monitoring_alert_policy_schema(),
-            // Load Balancing
-            Self::lb_backend_service_schema(),
-            Self::lb_health_check_schema(),
-            Self::lb_forwarding_rule_schema(),
+            // Cloud Logging (1 — LogBucket; others deferred to Phase 2)
+            Self::logging_logbucket_schema(),
         ]
     }
 
@@ -512,34 +735,77 @@ impl Provider for GcpProvider {
         let provider_id = provider_id.to_string();
         Box::pin(async move {
             gcp_dispatch_read!(self, resource_type.as_str(), provider_id, {
-                "compute.Instance" => read_instance,
-                "compute.Network" => read_network,
-                "compute.Subnetwork" => read_subnetwork,
-                "compute.Firewall" => read_firewall,
-                "compute.Address" => read_address,
-                "compute.Disk" => read_disk,
-                "compute.Route" => read_route,
-                "storage.Bucket" => read_bucket,
-                "sql.DatabaseInstance" => read_database_instance,
-                "iam.ServiceAccount" => read_service_account,
-                "iam.CustomRole" => read_custom_role,
-                "dns.ManagedZone" => read_managed_zone,
-                "dns.RecordSet" => read_record_set,
-                "container.Cluster" => read_cluster,
-                "container.NodePool" => read_node_pool,
-                "run.Service" => read_run_service,
-                "functions.Function" => read_function,
-                "pubsub.Topic" => read_topic,
-                "pubsub.Subscription" => read_subscription,
-                "kms.KeyRing" => read_key_ring,
-                "kms.CryptoKey" => read_crypto_key,
-                "secretmanager.Secret" => read_secret,
-                "logging.LogSink" => read_log_sink,
-                "monitoring.AlertPolicy" => read_alert_policy,
-                "lb.BackendService" => read_backend_service,
-                "lb.HealthCheck" => read_health_check,
-                "lb.ForwardingRule" => read_forwarding_rule,
-            })
+                            // Compute Engine
+                            "compute.Network" => read_compute_network,
+                            "compute.Subnetwork" => read_compute_subnetwork,
+                            "compute.Firewall" => read_compute_firewall,
+                            "compute.Address" => read_compute_address,
+                            "compute.Disk" => read_compute_disk,
+                            "compute.Instance" => read_compute_instance,
+                            "compute.Route" => read_compute_route,
+                            "compute.Autoscaler" => read_compute_autoscaler,
+                            "compute.Image" => read_compute_image,
+                            "compute.InstanceTemplate" => read_compute_instancetemplate,
+                            "compute.InstanceGroup" => read_compute_instancegroup,
+                            "compute.Router" => read_compute_router,
+                            "compute.SecurityPolicy" => read_compute_securitypolicy,
+                            "compute.Snapshot" => read_compute_snapshot,
+                            "compute.SslCertificate" => read_compute_sslcertificate,
+                            "compute.UrlMap" => read_compute_urlmap,
+                            "compute.TargetHttpProxy" => read_compute_targethttpproxy,
+                            "compute.TargetHttpsProxy" => read_compute_targethttpsproxy,
+                            "compute.VpnGateway" => read_compute_vpngateway,
+                            "compute.VpnTunnel" => read_compute_vpntunnel,
+                            "compute.Reservation" => read_compute_reservation,
+                            "compute.InterconnectAttachment" => read_compute_interconnectattachment,
+            // PHASE2:                 "compute.FirewallPolicy" => read_compute_firewallpolicy,
+                            "compute.ResourcePolicy" => read_compute_resourcepolicy,
+                            // Load Balancing
+                            "loadbalancing.BackendService" => read_loadbalancing_backendservice,
+                            "loadbalancing.HealthCheck" => read_loadbalancing_healthcheck,
+                            "loadbalancing.ForwardingRule" => read_loadbalancing_forwardingrule,
+                            // Cloud Storage
+                            "storage.Bucket" => read_bucket,
+                            // Cloud SQL
+            // PHASE2:                 "sql.Instance" => read_sql_instance,
+            // PHASE2:                 "sql.Database" => read_sql_database,
+            // PHASE2:                 "sql.User" => read_sql_user,
+                            // IAM
+            // PHASE2:                 "iam.ServiceAccount" => read_iam_serviceaccount,
+            // PHASE2:                 "iam.Role" => read_iam_role,
+            // PHASE2:                 "iam.ServiceAccountKey" => read_iam_serviceaccountkey,
+                            // Cloud DNS
+            // PHASE2:                 "dns.ManagedZone" => read_dns_managedzone,
+            // PHASE2:                 "dns.RecordSet" => read_dns_recordset,
+            // PHASE2:                 "dns.Policy" => read_dns_policy,
+                            // GKE
+            // PHASE2:                 "container.Cluster" => read_container_cluster,
+            // PHASE2:                 "container.NodePool" => read_container_nodepool,
+                            // Cloud Run
+                            "run.Service" => read_run_service,
+                            "run.Job" => read_run_job,
+                            // Cloud Functions
+                            "functions.Function" => read_functions_function,
+                            // Pub/Sub
+                            "pubsub.Topic" => read_topic,
+                            "pubsub.Subscription" => read_subscription,
+                            // KMS
+                            "kms.KeyRing" => read_kms_keyring,
+                            "kms.CryptoKey" => read_kms_cryptokey,
+                            // Secret Manager
+                            "secretmanager.Secret" => read_secretmanager_secret,
+            // PHASE2:                 "secretmanager.SecretVersion" => read_secretmanager_secretversion,
+                            // Cloud Logging
+            // PHASE2:                 "logging.LogSink" => read_logging_logsink,
+                            "logging.LogBucket" => read_logging_logbucket,
+            // PHASE2:                 "logging.LogExclusion" => read_logging_logexclusion,
+            // PHASE2:                 "logging.LogMetric" => read_logging_logmetric,
+                            // Cloud Monitoring
+            // PHASE2:                 "monitoring.AlertPolicy" => read_monitoring_alertpolicy,
+            // PHASE2:                 "monitoring.NotificationChannel" => read_monitoring_notificationchannel,
+            // PHASE2:                 "monitoring.UptimeCheckConfig" => read_monitoring_uptimecheckconfig,
+            // PHASE2:                 "monitoring.Group" => read_monitoring_group,
+                        })
         })
     }
 
@@ -552,34 +818,77 @@ impl Provider for GcpProvider {
         let config = config.clone();
         Box::pin(async move {
             gcp_dispatch_create!(self, resource_type.as_str(), config, {
-                "compute.Instance" => create_instance,
-                "compute.Network" => create_network,
-                "compute.Subnetwork" => create_subnetwork,
-                "compute.Firewall" => create_firewall,
-                "compute.Address" => create_address,
-                "compute.Disk" => create_disk,
-                "compute.Route" => create_route,
-                "storage.Bucket" => create_bucket,
-                "sql.DatabaseInstance" => create_database_instance,
-                "iam.ServiceAccount" => create_service_account,
-                "iam.CustomRole" => create_custom_role,
-                "dns.ManagedZone" => create_managed_zone,
-                "dns.RecordSet" => create_record_set,
-                "container.Cluster" => create_cluster,
-                "container.NodePool" => create_node_pool,
-                "run.Service" => create_run_service,
-                "functions.Function" => create_function,
-                "pubsub.Topic" => create_topic,
-                "pubsub.Subscription" => create_subscription,
-                "kms.KeyRing" => create_key_ring,
-                "kms.CryptoKey" => create_crypto_key,
-                "secretmanager.Secret" => create_secret,
-                "logging.LogSink" => create_log_sink,
-                "monitoring.AlertPolicy" => create_alert_policy,
-                "lb.BackendService" => create_backend_service,
-                "lb.HealthCheck" => create_health_check,
-                "lb.ForwardingRule" => create_forwarding_rule,
-            })
+                            // Compute Engine
+                            "compute.Network" => create_compute_network,
+                            "compute.Subnetwork" => create_compute_subnetwork,
+                            "compute.Firewall" => create_compute_firewall,
+                            "compute.Address" => create_compute_address,
+                            "compute.Disk" => create_compute_disk,
+                            "compute.Instance" => create_compute_instance,
+                            "compute.Route" => create_compute_route,
+                            "compute.Autoscaler" => create_compute_autoscaler,
+                            "compute.Image" => create_compute_image,
+                            "compute.InstanceTemplate" => create_compute_instancetemplate,
+                            "compute.InstanceGroup" => create_compute_instancegroup,
+                            "compute.Router" => create_compute_router,
+                            "compute.SecurityPolicy" => create_compute_securitypolicy,
+                            "compute.Snapshot" => create_compute_snapshot,
+                            "compute.SslCertificate" => create_compute_sslcertificate,
+                            "compute.UrlMap" => create_compute_urlmap,
+                            "compute.TargetHttpProxy" => create_compute_targethttpproxy,
+                            "compute.TargetHttpsProxy" => create_compute_targethttpsproxy,
+                            "compute.VpnGateway" => create_compute_vpngateway,
+                            "compute.VpnTunnel" => create_compute_vpntunnel,
+                            "compute.Reservation" => create_compute_reservation,
+                            "compute.InterconnectAttachment" => create_compute_interconnectattachment,
+            // PHASE2:                 "compute.FirewallPolicy" => create_compute_firewallpolicy,
+                            "compute.ResourcePolicy" => create_compute_resourcepolicy,
+                            // Load Balancing
+                            "loadbalancing.BackendService" => create_loadbalancing_backendservice,
+                            "loadbalancing.HealthCheck" => create_loadbalancing_healthcheck,
+                            "loadbalancing.ForwardingRule" => create_loadbalancing_forwardingrule,
+                            // Cloud Storage
+                            "storage.Bucket" => create_bucket,
+                            // Cloud SQL
+            // PHASE2:                 "sql.Instance" => create_sql_instance,
+            // PHASE2:                 "sql.Database" => create_sql_database,
+            // PHASE2:                 "sql.User" => create_sql_user,
+                            // IAM
+            // PHASE2:                 "iam.ServiceAccount" => create_iam_serviceaccount,
+            // PHASE2:                 "iam.Role" => create_iam_role,
+            // PHASE2:                 "iam.ServiceAccountKey" => create_iam_serviceaccountkey,
+                            // Cloud DNS
+            // PHASE2:                 "dns.ManagedZone" => create_dns_managedzone,
+            // PHASE2:                 "dns.RecordSet" => create_dns_recordset,
+            // PHASE2:                 "dns.Policy" => create_dns_policy,
+                            // GKE
+            // PHASE2:                 "container.Cluster" => create_container_cluster,
+            // PHASE2:                 "container.NodePool" => create_container_nodepool,
+                            // Cloud Run
+                            "run.Service" => create_run_service,
+                            "run.Job" => create_run_job,
+                            // Cloud Functions
+                            "functions.Function" => create_functions_function,
+                            // Pub/Sub
+                            "pubsub.Topic" => create_topic,
+                            "pubsub.Subscription" => create_subscription,
+                            // KMS
+                            "kms.KeyRing" => create_kms_keyring,
+                            "kms.CryptoKey" => create_kms_cryptokey,
+                            // Secret Manager
+                            "secretmanager.Secret" => create_secretmanager_secret,
+            // PHASE2:                 "secretmanager.SecretVersion" => create_secretmanager_secretversion,
+                            // Cloud Logging
+            // PHASE2:                 "logging.LogSink" => create_logging_logsink,
+                            "logging.LogBucket" => create_logging_logbucket,
+            // PHASE2:                 "logging.LogExclusion" => create_logging_logexclusion,
+            // PHASE2:                 "logging.LogMetric" => create_logging_logmetric,
+                            // Cloud Monitoring
+            // PHASE2:                 "monitoring.AlertPolicy" => create_monitoring_alertpolicy,
+            // PHASE2:                 "monitoring.NotificationChannel" => create_monitoring_notificationchannel,
+            // PHASE2:                 "monitoring.UptimeCheckConfig" => create_monitoring_uptimecheckconfig,
+            // PHASE2:                 "monitoring.Group" => create_monitoring_group,
+                        })
         })
     }
 
@@ -594,39 +903,77 @@ impl Provider for GcpProvider {
         let provider_id = provider_id.to_string();
         let new_config = new_config.clone();
         Box::pin(async move {
-            gcp_dispatch_update!(self, resource_type.as_str(), provider_id, new_config,
-                updatable: {
-                    "compute.Instance" => update_instance,
-                    "compute.Network" => update_network,
-                    "compute.Subnetwork" => update_subnetwork,
-                    "compute.Firewall" => update_firewall,
-                    "compute.Disk" => update_disk,
-                    "storage.Bucket" => update_bucket,
-                    "sql.DatabaseInstance" => update_database_instance,
-                    "iam.ServiceAccount" => update_service_account,
-                    "iam.CustomRole" => update_custom_role,
-                    "dns.RecordSet" => update_record_set,
-                    "container.Cluster" => update_cluster,
-                    "container.NodePool" => update_node_pool,
-                    "run.Service" => update_run_service,
-                    "functions.Function" => update_function,
-                    "pubsub.Subscription" => update_subscription,
-                    "kms.CryptoKey" => update_crypto_key,
-                    "secretmanager.Secret" => update_secret,
-                    "logging.LogSink" => update_log_sink,
-                    "monitoring.AlertPolicy" => update_alert_policy,
-                    "lb.BackendService" => update_backend_service,
-                    "lb.HealthCheck" => update_health_check,
-                    "lb.ForwardingRule" => update_forwarding_rule,
-                },
-                replace: [
-                    "compute.Address",
-                    "compute.Route",
-                    "dns.ManagedZone",
-                    "pubsub.Topic",
-                    "kms.KeyRing",
-                ]
-            )
+            gcp_dispatch_update!(self, resource_type.as_str(), provider_id, new_config, {
+                            // Compute Engine
+                            "compute.Network" => update_compute_network,
+                            "compute.Subnetwork" => update_compute_subnetwork,
+                            "compute.Firewall" => update_compute_firewall,
+                            "compute.Address" => update_compute_address,
+                            "compute.Disk" => update_compute_disk,
+                            "compute.Instance" => update_compute_instance,
+                            "compute.Route" => update_compute_route,
+                            "compute.Autoscaler" => update_compute_autoscaler,
+                            "compute.Image" => update_compute_image,
+                            "compute.InstanceTemplate" => update_compute_instancetemplate,
+                            "compute.InstanceGroup" => update_compute_instancegroup,
+                            "compute.Router" => update_compute_router,
+                            "compute.SecurityPolicy" => update_compute_securitypolicy,
+                            "compute.Snapshot" => update_compute_snapshot,
+                            "compute.SslCertificate" => update_compute_sslcertificate,
+                            "compute.UrlMap" => update_compute_urlmap,
+                            "compute.TargetHttpProxy" => update_compute_targethttpproxy,
+                            "compute.TargetHttpsProxy" => update_compute_targethttpsproxy,
+                            "compute.VpnGateway" => update_compute_vpngateway,
+                            "compute.VpnTunnel" => update_compute_vpntunnel,
+                            "compute.Reservation" => update_compute_reservation,
+                            "compute.InterconnectAttachment" => update_compute_interconnectattachment,
+            // PHASE2:                 "compute.FirewallPolicy" => update_compute_firewallpolicy,
+                            "compute.ResourcePolicy" => update_compute_resourcepolicy,
+                            // Load Balancing
+                            "loadbalancing.BackendService" => update_loadbalancing_backendservice,
+                            "loadbalancing.HealthCheck" => update_loadbalancing_healthcheck,
+                            "loadbalancing.ForwardingRule" => update_loadbalancing_forwardingrule,
+                            // Cloud Storage
+                            "storage.Bucket" => update_bucket,
+                            // Cloud SQL
+            // PHASE2:                 "sql.Instance" => update_sql_instance,
+            // PHASE2:                 "sql.Database" => update_sql_database,
+            // PHASE2:                 "sql.User" => update_sql_user,
+                            // IAM
+            // PHASE2:                 "iam.ServiceAccount" => update_iam_serviceaccount,
+            // PHASE2:                 "iam.Role" => update_iam_role,
+            // PHASE2:                 "iam.ServiceAccountKey" => update_iam_serviceaccountkey,
+                            // Cloud DNS
+            // PHASE2:                 "dns.ManagedZone" => update_dns_managedzone,
+            // PHASE2:                 "dns.RecordSet" => update_dns_recordset,
+            // PHASE2:                 "dns.Policy" => update_dns_policy,
+                            // GKE
+            // PHASE2:                 "container.Cluster" => update_container_cluster,
+            // PHASE2:                 "container.NodePool" => update_container_nodepool,
+                            // Cloud Run
+                            "run.Service" => update_run_service,
+                            "run.Job" => update_run_job,
+                            // Cloud Functions
+                            "functions.Function" => update_functions_function,
+                            // Pub/Sub
+                            "pubsub.Subscription" => update_subscription,
+                            // KMS
+                            "kms.KeyRing" => update_kms_keyring,
+                            "kms.CryptoKey" => update_kms_cryptokey,
+                            // Secret Manager
+                            "secretmanager.Secret" => update_secretmanager_secret,
+            // PHASE2:                 "secretmanager.SecretVersion" => update_secretmanager_secretversion,
+                            // Cloud Logging
+            // PHASE2:                 "logging.LogSink" => update_logging_logsink,
+                            "logging.LogBucket" => update_logging_logbucket,
+            // PHASE2:                 "logging.LogExclusion" => update_logging_logexclusion,
+            // PHASE2:                 "logging.LogMetric" => update_logging_logmetric,
+                            // Cloud Monitoring
+            // PHASE2:                 "monitoring.AlertPolicy" => update_monitoring_alertpolicy,
+            // PHASE2:                 "monitoring.NotificationChannel" => update_monitoring_notificationchannel,
+            // PHASE2:                 "monitoring.UptimeCheckConfig" => update_monitoring_uptimecheckconfig,
+            // PHASE2:                 "monitoring.Group" => update_monitoring_group,
+                        })
         })
     }
 
@@ -639,34 +986,77 @@ impl Provider for GcpProvider {
         let provider_id = provider_id.to_string();
         Box::pin(async move {
             gcp_dispatch_delete!(self, resource_type.as_str(), provider_id, {
-                "compute.Instance" => delete_instance,
-                "compute.Network" => delete_network,
-                "compute.Subnetwork" => delete_subnetwork,
-                "compute.Firewall" => delete_firewall,
-                "compute.Address" => delete_address,
-                "compute.Disk" => delete_disk,
-                "compute.Route" => delete_route,
-                "storage.Bucket" => delete_bucket,
-                "sql.DatabaseInstance" => delete_database_instance,
-                "iam.ServiceAccount" => delete_service_account,
-                "iam.CustomRole" => delete_custom_role,
-                "dns.ManagedZone" => delete_managed_zone,
-                "dns.RecordSet" => delete_record_set,
-                "container.Cluster" => delete_cluster,
-                "container.NodePool" => delete_node_pool,
-                "run.Service" => delete_run_service,
-                "functions.Function" => delete_function,
-                "pubsub.Topic" => delete_topic,
-                "pubsub.Subscription" => delete_subscription,
-                "kms.KeyRing" => delete_key_ring,
-                "kms.CryptoKey" => delete_crypto_key,
-                "secretmanager.Secret" => delete_secret,
-                "logging.LogSink" => delete_log_sink,
-                "monitoring.AlertPolicy" => delete_alert_policy,
-                "lb.BackendService" => delete_backend_service,
-                "lb.HealthCheck" => delete_health_check,
-                "lb.ForwardingRule" => delete_forwarding_rule,
-            })
+                            // Compute Engine
+                            "compute.Network" => delete_compute_network,
+                            "compute.Subnetwork" => delete_compute_subnetwork,
+                            "compute.Firewall" => delete_compute_firewall,
+                            "compute.Address" => delete_compute_address,
+                            "compute.Disk" => delete_compute_disk,
+                            "compute.Instance" => delete_compute_instance,
+                            "compute.Route" => delete_compute_route,
+                            "compute.Autoscaler" => delete_compute_autoscaler,
+                            "compute.Image" => delete_compute_image,
+                            "compute.InstanceTemplate" => delete_compute_instancetemplate,
+                            "compute.InstanceGroup" => delete_compute_instancegroup,
+                            "compute.Router" => delete_compute_router,
+                            "compute.SecurityPolicy" => delete_compute_securitypolicy,
+                            "compute.Snapshot" => delete_compute_snapshot,
+                            "compute.SslCertificate" => delete_compute_sslcertificate,
+                            "compute.UrlMap" => delete_compute_urlmap,
+                            "compute.TargetHttpProxy" => delete_compute_targethttpproxy,
+                            "compute.TargetHttpsProxy" => delete_compute_targethttpsproxy,
+                            "compute.VpnGateway" => delete_compute_vpngateway,
+                            "compute.VpnTunnel" => delete_compute_vpntunnel,
+                            "compute.Reservation" => delete_compute_reservation,
+                            "compute.InterconnectAttachment" => delete_compute_interconnectattachment,
+            // PHASE2:                 "compute.FirewallPolicy" => delete_compute_firewallpolicy,
+                            "compute.ResourcePolicy" => delete_compute_resourcepolicy,
+                            // Load Balancing
+                            "loadbalancing.BackendService" => delete_loadbalancing_backendservice,
+                            "loadbalancing.HealthCheck" => delete_loadbalancing_healthcheck,
+                            "loadbalancing.ForwardingRule" => delete_loadbalancing_forwardingrule,
+                            // Cloud Storage
+                            "storage.Bucket" => delete_bucket,
+                            // Cloud SQL
+            // PHASE2:                 "sql.Instance" => delete_sql_instance,
+            // PHASE2:                 "sql.Database" => delete_sql_database,
+            // PHASE2:                 "sql.User" => delete_sql_user,
+                            // IAM
+            // PHASE2:                 "iam.ServiceAccount" => delete_iam_serviceaccount,
+            // PHASE2:                 "iam.Role" => delete_iam_role,
+            // PHASE2:                 "iam.ServiceAccountKey" => delete_iam_serviceaccountkey,
+                            // Cloud DNS
+            // PHASE2:                 "dns.ManagedZone" => delete_dns_managedzone,
+            // PHASE2:                 "dns.RecordSet" => delete_dns_recordset,
+            // PHASE2:                 "dns.Policy" => delete_dns_policy,
+                            // GKE
+            // PHASE2:                 "container.Cluster" => delete_container_cluster,
+            // PHASE2:                 "container.NodePool" => delete_container_nodepool,
+                            // Cloud Run
+                            "run.Service" => delete_run_service,
+                            "run.Job" => delete_run_job,
+                            // Cloud Functions
+                            "functions.Function" => delete_functions_function,
+                            // Pub/Sub
+                            "pubsub.Topic" => delete_topic,
+                            "pubsub.Subscription" => delete_subscription,
+                            // KMS
+                            "kms.KeyRing" => delete_kms_keyring,
+                            "kms.CryptoKey" => delete_kms_cryptokey,
+                            // Secret Manager
+                            "secretmanager.Secret" => delete_secretmanager_secret,
+            // PHASE2:                 "secretmanager.SecretVersion" => delete_secretmanager_secretversion,
+                            // Cloud Logging
+            // PHASE2:                 "logging.LogSink" => delete_logging_logsink,
+                            "logging.LogBucket" => delete_logging_logbucket,
+            // PHASE2:                 "logging.LogExclusion" => delete_logging_logexclusion,
+            // PHASE2:                 "logging.LogMetric" => delete_logging_logmetric,
+                            // Cloud Monitoring
+            // PHASE2:                 "monitoring.AlertPolicy" => delete_monitoring_alertpolicy,
+            // PHASE2:                 "monitoring.NotificationChannel" => delete_monitoring_notificationchannel,
+            // PHASE2:                 "monitoring.UptimeCheckConfig" => delete_monitoring_uptimecheckconfig,
+            // PHASE2:                 "monitoring.Group" => delete_monitoring_group,
+                        })
         })
     }
 
@@ -679,67 +1069,101 @@ impl Provider for GcpProvider {
         let mut changes = Vec::new();
         super::diff_values("", desired, actual, &mut changes);
 
+        // Use generated forces_replacement functions where available
         for change in &mut changes {
             change.forces_replacement = match resource_type {
-                // Compute Engine
-                "compute.Instance" => {
-                    matches!(change.path.as_str(), "sizing.zone" | "sizing.machine_type")
+                // Generated resources use per-type replacement functions
+                "compute.Network" => compute::compute_network_forces_replacement(&change.path),
+                "compute.Subnetwork" => {
+                    compute::compute_subnetwork_forces_replacement(&change.path)
                 }
-                "compute.Network" => change.path == "identity.name",
-                "compute.Subnetwork" => matches!(
-                    change.path.as_str(),
-                    "network.ip_cidr_range" | "network.region" | "network.network"
-                ),
-                "compute.Firewall" => change.path == "identity.name",
-                "compute.Address" | "compute.Route" => true,
-                "compute.Disk" => matches!(
-                    change.path.as_str(),
-                    "sizing.zone" | "sizing.type" | "identity.name"
-                ),
-                // Storage
+                "compute.Firewall" => compute::compute_firewall_forces_replacement(&change.path),
+                "compute.Address" => compute::compute_address_forces_replacement(&change.path),
+                "compute.Disk" => compute::compute_disk_forces_replacement(&change.path),
+                "compute.Instance" => compute::compute_instance_forces_replacement(&change.path),
+                "compute.Route" => compute::compute_route_forces_replacement(&change.path),
+                "compute.Autoscaler" => {
+                    compute::compute_autoscaler_forces_replacement(&change.path)
+                }
+                "compute.Image" => compute::compute_image_forces_replacement(&change.path),
+                "compute.InstanceTemplate" => {
+                    compute::compute_instancetemplate_forces_replacement(&change.path)
+                }
+                "compute.InstanceGroup" => {
+                    compute::compute_instancegroup_forces_replacement(&change.path)
+                }
+                "compute.Router" => compute::compute_router_forces_replacement(&change.path),
+                "compute.SecurityPolicy" => {
+                    compute::compute_securitypolicy_forces_replacement(&change.path)
+                }
+                "compute.Snapshot" => compute::compute_snapshot_forces_replacement(&change.path),
+                "compute.SslCertificate" => {
+                    compute::compute_sslcertificate_forces_replacement(&change.path)
+                }
+                "compute.UrlMap" => compute::compute_urlmap_forces_replacement(&change.path),
+                "compute.TargetHttpProxy" => {
+                    compute::compute_targethttpproxy_forces_replacement(&change.path)
+                }
+                "compute.TargetHttpsProxy" => {
+                    compute::compute_targethttpsproxy_forces_replacement(&change.path)
+                }
+                "compute.VpnGateway" => {
+                    compute::compute_vpngateway_forces_replacement(&change.path)
+                }
+                "compute.VpnTunnel" => compute::compute_vpntunnel_forces_replacement(&change.path),
+                "compute.Reservation" => {
+                    compute::compute_reservation_forces_replacement(&change.path)
+                }
+                "compute.InterconnectAttachment" => {
+                    compute::compute_interconnectattachment_forces_replacement(&change.path)
+                }
+                // PHASE2:                 "compute.FirewallPolicy" => compute::compute_firewallpolicy_forces_replacement(&change.path),
+                "compute.ResourcePolicy" => {
+                    compute::compute_resourcepolicy_forces_replacement(&change.path)
+                }
+                "loadbalancing.BackendService" => {
+                    loadbalancing::loadbalancing_backendservice_forces_replacement(&change.path)
+                }
+                "loadbalancing.HealthCheck" => {
+                    loadbalancing::loadbalancing_healthcheck_forces_replacement(&change.path)
+                }
+                "loadbalancing.ForwardingRule" => {
+                    loadbalancing::loadbalancing_forwardingrule_forces_replacement(&change.path)
+                }
+                // PHASE2:                 "sql.Instance" => sql::sql_instance_forces_replacement(&change.path),
+                // PHASE2:                 "sql.Database" => sql::sql_database_forces_replacement(&change.path),
+                // PHASE2:                 "sql.User" => sql::sql_user_forces_replacement(&change.path),
+                // PHASE2:                 "iam.ServiceAccount" => iam::iam_serviceaccount_forces_replacement(&change.path),
+                // PHASE2:                 "iam.Role" => iam::iam_role_forces_replacement(&change.path),
+                // PHASE2:                 "iam.ServiceAccountKey" => iam::iam_serviceaccountkey_forces_replacement(&change.path),
+                // PHASE2:                 "dns.ManagedZone" => dns::dns_managedzone_forces_replacement(&change.path),
+                // PHASE2:                 "dns.RecordSet" => dns::dns_recordset_forces_replacement(&change.path),
+                // PHASE2:                 "dns.Policy" => dns::dns_policy_forces_replacement(&change.path),
+                // PHASE2:                 "container.Cluster" => container::container_cluster_forces_replacement(&change.path),
+                // PHASE2:                 "container.NodePool" => container::container_nodepool_forces_replacement(&change.path),
+                "run.Service" => run::run_service_forces_replacement(&change.path),
+                "run.Job" => run::run_job_forces_replacement(&change.path),
+                "functions.Function" => {
+                    functions::functions_function_forces_replacement(&change.path)
+                }
+                "kms.KeyRing" => kms::kms_keyring_forces_replacement(&change.path),
+                "kms.CryptoKey" => kms::kms_cryptokey_forces_replacement(&change.path),
+                "secretmanager.Secret" => {
+                    secretmanager::secretmanager_secret_forces_replacement(&change.path)
+                }
+                // PHASE2:                 "secretmanager.SecretVersion" => secretmanager::secretmanager_secretversion_forces_replacement(&change.path),
+                // PHASE2:                 "logging.LogSink" => logging::logging_logsink_forces_replacement(&change.path),
+                "logging.LogBucket" => logging::logging_logbucket_forces_replacement(&change.path),
+                // PHASE2:                 "logging.LogExclusion" => logging::logging_logexclusion_forces_replacement(&change.path),
+                // PHASE2:                 "logging.LogMetric" => logging::logging_logmetric_forces_replacement(&change.path),
+                // PHASE2:                 "monitoring.AlertPolicy" => monitoring::monitoring_alertpolicy_forces_replacement(&change.path),
+                // PHASE2:                 "monitoring.NotificationChannel" => monitoring::monitoring_notificationchannel_forces_replacement(&change.path),
+                // PHASE2:                 "monitoring.UptimeCheckConfig" => monitoring::monitoring_uptimecheckconfig_forces_replacement(&change.path),
+                // PHASE2:                 "monitoring.Group" => monitoring::monitoring_group_forces_replacement(&change.path),
+                // Handwritten resources
                 "storage.Bucket" => change.path == "identity.name",
-                // Cloud SQL
-                "sql.DatabaseInstance" => matches!(
-                    change.path.as_str(),
-                    "identity.name" | "sizing.database_version" | "network.region"
-                ),
-                // IAM
-                "iam.ServiceAccount" => change.path == "identity.account_id",
-                "iam.CustomRole" => change.path == "identity.role_id",
-                // DNS
-                "dns.ManagedZone" => true,
-                "dns.RecordSet" => {
-                    matches!(change.path.as_str(), "dns.name" | "dns.type")
-                }
-                // GKE
-                "container.Cluster" => matches!(
-                    change.path.as_str(),
-                    "identity.name" | "network.network" | "network.subnetwork"
-                ),
-                "container.NodePool" => change.path == "identity.name",
-                // Cloud Run
-                "run.Service" => change.path == "identity.name",
-                // Cloud Functions
-                "functions.Function" => change.path == "identity.name",
-                // Pub/Sub
                 "pubsub.Topic" => true,
                 "pubsub.Subscription" => change.path == "identity.name",
-                // KMS
-                "kms.KeyRing" => true,
-                "kms.CryptoKey" => change.path == "identity.name",
-                // Secret Manager
-                "secretmanager.Secret" => change.path == "identity.name",
-                // Logging
-                "logging.LogSink" => change.path == "identity.name",
-                // Monitoring
-                "monitoring.AlertPolicy" => false,
-                // Load Balancing
-                "lb.BackendService" => change.path == "identity.name",
-                "lb.HealthCheck" => change.path == "identity.name",
-                "lb.ForwardingRule" => matches!(
-                    change.path.as_str(),
-                    "network.ip_address" | "network.port_range"
-                ),
                 _ => false,
             };
         }
@@ -752,42 +1176,52 @@ impl Provider for GcpProvider {
 mod tests {
     use super::*;
 
-    // We can't construct a full GcpProvider in tests without real credentials,
-    // so we test schemas and diff logic directly.
-
     #[test]
     fn gcp_provider_schema_count() {
         // Verify we can call all schema functions and they return valid data.
-        let schemas = vec![
-            GcpProvider::compute_instance_schema(),
-            GcpProvider::compute_network_schema(),
-            GcpProvider::compute_subnetwork_schema(),
-            GcpProvider::compute_firewall_schema(),
-            GcpProvider::compute_address_schema(),
-            GcpProvider::compute_disk_schema(),
-            GcpProvider::compute_route_schema(),
-            GcpProvider::storage_bucket_schema(),
-            GcpProvider::sql_database_instance_schema(),
-            GcpProvider::iam_service_account_schema(),
-            GcpProvider::iam_custom_role_schema(),
-            GcpProvider::dns_managed_zone_schema(),
-            GcpProvider::dns_record_set_schema(),
-            GcpProvider::container_cluster_schema(),
-            GcpProvider::container_node_pool_schema(),
-            GcpProvider::run_service_schema(),
-            GcpProvider::functions_function_schema(),
-            GcpProvider::pubsub_topic_schema(),
-            GcpProvider::pubsub_subscription_schema(),
-            GcpProvider::kms_key_ring_schema(),
-            GcpProvider::kms_crypto_key_schema(),
-            GcpProvider::secretmanager_secret_schema(),
-            GcpProvider::logging_log_sink_schema(),
-            GcpProvider::monitoring_alert_policy_schema(),
-            GcpProvider::lb_backend_service_schema(),
-            GcpProvider::lb_health_check_schema(),
-            GcpProvider::lb_forwarding_rule_schema(),
-        ];
-        assert_eq!(schemas.len(), 27);
+        // 53 generated + 2 pubsub + 1 storage = 56 total
+        let provider = GcpProvider {
+            project_id: "test".into(),
+            region: "us-central1".into(),
+            instances_client: tokio::sync::OnceCell::new(),
+            networks_client: tokio::sync::OnceCell::new(),
+            subnetworks_client: tokio::sync::OnceCell::new(),
+            firewalls_client: tokio::sync::OnceCell::new(),
+            addresses_client: tokio::sync::OnceCell::new(),
+            disks_client: tokio::sync::OnceCell::new(),
+            routes_client: tokio::sync::OnceCell::new(),
+            autoscalers_client: tokio::sync::OnceCell::new(),
+            images_client: tokio::sync::OnceCell::new(),
+            instance_templates_client: tokio::sync::OnceCell::new(),
+            instance_groups_client: tokio::sync::OnceCell::new(),
+            routers_client: tokio::sync::OnceCell::new(),
+            security_policies_client: tokio::sync::OnceCell::new(),
+            snapshots_client: tokio::sync::OnceCell::new(),
+            ssl_certificates_client: tokio::sync::OnceCell::new(),
+            url_maps_client: tokio::sync::OnceCell::new(),
+            target_http_proxies_client: tokio::sync::OnceCell::new(),
+            target_https_proxies_client: tokio::sync::OnceCell::new(),
+            vpn_gateways_client: tokio::sync::OnceCell::new(),
+            vpn_tunnels_client: tokio::sync::OnceCell::new(),
+            reservations_client: tokio::sync::OnceCell::new(),
+            interconnect_attachments_client: tokio::sync::OnceCell::new(),
+            resource_policies_client: tokio::sync::OnceCell::new(),
+            backend_services_client: tokio::sync::OnceCell::new(),
+            health_checks_client: tokio::sync::OnceCell::new(),
+            forwarding_rules_client: tokio::sync::OnceCell::new(),
+            storage_client: tokio::sync::OnceCell::new(),
+            run_services_client: tokio::sync::OnceCell::new(),
+            run_jobs_client: tokio::sync::OnceCell::new(),
+            functions_client: tokio::sync::OnceCell::new(),
+            topic_admin_client: tokio::sync::OnceCell::new(),
+            subscription_admin_client: tokio::sync::OnceCell::new(),
+            kms_client: tokio::sync::OnceCell::new(),
+            secretmanager_client: tokio::sync::OnceCell::new(),
+            logging_client: tokio::sync::OnceCell::new(),
+        };
+        // 23 compute + 3 LB + 1 storage + 2 run + 1 functions + 2 pubsub + 2 kms + 1 secret + 1 logging = 36
+        let schemas = provider.resource_types();
+        assert_eq!(schemas.len(), 36);
     }
 
     #[test]
@@ -797,29 +1231,14 @@ mod tests {
             GcpProvider::compute_network_schema(),
             GcpProvider::compute_subnetwork_schema(),
             GcpProvider::compute_firewall_schema(),
-            GcpProvider::compute_address_schema(),
-            GcpProvider::compute_disk_schema(),
-            GcpProvider::compute_route_schema(),
             GcpProvider::storage_bucket_schema(),
-            GcpProvider::sql_database_instance_schema(),
-            GcpProvider::iam_service_account_schema(),
-            GcpProvider::iam_custom_role_schema(),
-            GcpProvider::dns_managed_zone_schema(),
-            GcpProvider::dns_record_set_schema(),
-            GcpProvider::container_cluster_schema(),
-            GcpProvider::container_node_pool_schema(),
             GcpProvider::run_service_schema(),
             GcpProvider::functions_function_schema(),
             GcpProvider::pubsub_topic_schema(),
-            GcpProvider::pubsub_subscription_schema(),
-            GcpProvider::kms_key_ring_schema(),
-            GcpProvider::kms_crypto_key_schema(),
+            GcpProvider::kms_keyring_schema(),
             GcpProvider::secretmanager_secret_schema(),
-            GcpProvider::logging_log_sink_schema(),
-            GcpProvider::monitoring_alert_policy_schema(),
-            GcpProvider::lb_backend_service_schema(),
-            GcpProvider::lb_health_check_schema(),
-            GcpProvider::lb_forwarding_rule_schema(),
+            GcpProvider::logging_logbucket_schema(),
+            GcpProvider::loadbalancing_backendservice_schema(),
         ];
 
         for rt in &schemas {
@@ -838,9 +1257,6 @@ mod tests {
             GcpProvider::compute_instance_schema(),
             GcpProvider::compute_network_schema(),
             GcpProvider::storage_bucket_schema(),
-            GcpProvider::sql_database_instance_schema(),
-            GcpProvider::dns_managed_zone_schema(),
-            GcpProvider::container_cluster_schema(),
             GcpProvider::run_service_schema(),
         ];
 
@@ -863,7 +1279,6 @@ mod tests {
             GcpProvider::compute_instance_schema(),
             GcpProvider::compute_network_schema(),
             GcpProvider::storage_bucket_schema(),
-            GcpProvider::sql_database_instance_schema(),
         ];
 
         for rt in &schemas {
@@ -888,8 +1303,6 @@ mod tests {
         let schemas = vec![
             GcpProvider::compute_firewall_schema(),
             GcpProvider::compute_network_schema(),
-            GcpProvider::sql_database_instance_schema(),
-            GcpProvider::dns_record_set_schema(),
         ];
 
         for rt in &schemas {

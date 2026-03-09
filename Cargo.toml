@@ -78,6 +78,11 @@ google-cloud-compute-v1 = { version = "2", features = [
     "instances", "networks", "subnetworks", "firewalls", "addresses",
     "disks", "routes", "backend-services", "health-checks",
     "forwarding-rules", "global-addresses", "global-forwarding-rules",
+    "autoscalers", "images", "instance-templates", "instance-groups",
+    "routers", "security-policies", "snapshots", "ssl-certificates",
+    "url-maps", "target-http-proxies", "target-https-proxies",
+    "vpn-gateways", "vpn-tunnels", "reservations",
+    "interconnect-attachments", "firewall-policies", "resource-policies",
 ] }
 google-cloud-storage = "1"
 google-cloud-sql-v1 = "2"

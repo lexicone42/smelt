@@ -192,11 +192,19 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
         if let Some(ref r) = entry.crud_read {
             manifest.crud.read = r.clone();
         }
-        if entry.crud_update.is_some() {
-            manifest.crud.update = entry.crud_update.clone();
+        if let Some(ref u) = entry.crud_update {
+            if u.is_empty() {
+                manifest.crud.update = None;
+            } else {
+                manifest.crud.update = Some(u.clone());
+            }
         }
         if let Some(ref d) = entry.crud_delete {
-            manifest.crud.delete = d.clone();
+            if d.is_empty() {
+                manifest.crud.delete = None;
+            } else {
+                manifest.crud.delete = Some(d.clone());
+            }
         }
 
         // Fix provider_id_format for resource_name style
@@ -242,6 +250,7 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
                     output_only: false,
                     deprecated: false,
                     skip: false,
+                    optional: true,
                 },
             );
         }
@@ -278,25 +287,36 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
         combined.push_str("use crate::provider::*;\n");
         combined.push_str("use std::collections::HashMap;\n\n");
         combined.push_str("use super::GcpProvider;\n\n");
-        combined.push_str("impl GcpProvider {\n");
+
+        // Collect methods (inside impl block) and standalone functions separately
+        let mut methods = String::new();
+        let mut standalone = String::new();
 
         for (code, _entry) in entries {
-            // Strip the header/imports (they're already in the combined file)
             let body = strip_header(code);
-            // Indent all lines by 4 spaces
-            for line in body.lines() {
+            let (method_part, standalone_part) = split_methods_and_standalone(&body);
+
+            for line in method_part.lines() {
                 if line.is_empty() {
-                    combined.push('\n');
+                    methods.push('\n');
                 } else {
-                    combined.push_str("    ");
-                    combined.push_str(line);
-                    combined.push('\n');
+                    methods.push_str("    ");
+                    methods.push_str(line);
+                    methods.push('\n');
                 }
             }
-            combined.push('\n');
+            methods.push('\n');
+
+            if !standalone_part.is_empty() {
+                standalone.push_str(&standalone_part);
+                standalone.push('\n');
+            }
         }
 
-        combined.push_str("}\n");
+        combined.push_str("impl GcpProvider {\n");
+        combined.push_str(&methods);
+        combined.push_str("}\n\n");
+        combined.push_str(&standalone);
 
         let filename = format!("{service}.rs");
         let path = Path::new(output_dir).join(&filename);
@@ -333,6 +353,29 @@ fn strip_header(code: &str) -> String {
     }
 
     result
+}
+
+/// Split code into methods (schema/create/read/update/delete) and standalone functions (forces_replacement).
+/// The `// Diff:` comment marks the start of standalone functions.
+fn split_methods_and_standalone(code: &str) -> (String, String) {
+    let mut methods = String::new();
+    let mut standalone = String::new();
+    let mut in_standalone = false;
+
+    for line in code.lines() {
+        if line.starts_with("// Diff:") || line.starts_with("/ Diff:") {
+            in_standalone = true;
+        }
+        if in_standalone {
+            standalone.push_str(line);
+            standalone.push('\n');
+        } else {
+            methods.push_str(line);
+            methods.push('\n');
+        }
+    }
+
+    (methods, standalone)
 }
 
 fn snake_case(s: &str) -> String {

@@ -78,7 +78,8 @@ pub struct CrudMethods {
     pub read: String,
     #[serde(default)]
     pub update: Option<String>,
-    pub delete: String,
+    #[serde(default)]
+    pub delete: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -115,6 +116,13 @@ pub struct FieldDef {
     /// Skip this field entirely (set to true in the draft, user removes to include)
     #[serde(default)]
     pub skip: bool,
+    /// Whether the SDK field is wrapped in Option<T> (affects read response codegen)
+    #[serde(default = "default_true")]
+    pub optional: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 // ── Build a draft manifest from introspected fields ─────────────────────────
@@ -150,7 +158,7 @@ impl ResourceManifest {
                     create: "insert".into(),
                     read: "get".into(),
                     update: Some("patch".into()),
-                    delete: "delete".into(),
+                    delete: Some("delete".into()),
                 }
             } else {
                 let noun = snake_case_simple(struct_name);
@@ -158,7 +166,7 @@ impl ResourceManifest {
                     create: format!("create_{noun}"),
                     read: format!("get_{noun}"),
                     update: Some(format!("update_{noun}")),
-                    delete: format!("delete_{noun}"),
+                    delete: Some(format!("delete_{noun}")),
                 }
             }
         } else {
@@ -166,7 +174,7 @@ impl ResourceManifest {
                 create: "create".into(),
                 read: "describe".into(),
                 update: Some("modify".into()),
-                delete: "delete".into(),
+                delete: Some("delete".into()),
             }
         };
 
@@ -237,6 +245,7 @@ impl ResourceManifest {
                     output_only,
                     deprecated: false,
                     skip: output_only, // skip output-only fields by default
+                    optional: f.optional,
                 },
             );
         }

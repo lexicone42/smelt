@@ -104,6 +104,7 @@ fn write_field_schema(out: &mut String, name: &str, f: &FieldDef) {
         f.description
             .as_deref()
             .unwrap_or("")
+            .replace('\\', "\\\\")
             .replace('"', "\\\"")
     );
     let _ = writeln!(
@@ -168,6 +169,7 @@ fn write_create_fn(out: &mut String, m: &ResourceManifest) {
 
 fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
     let model = &m.resource.sdk_model;
+    let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
     let client_accessor = m.resource.client_accessor.clone().unwrap_or_else(|| snake_case(&m.resource.sdk_client));
     let create_method = &m.crud.create;
     let is_resource_name = m.resource.api_style == "resource_name";
@@ -180,7 +182,7 @@ fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
     let _ = writeln!(out, "    // Build SDK model");
     let _ = writeln!(
         out,
-        "    let mut model = crate::model::{model}::default();"
+        "    let mut model = {sdk_crate_mod}::model::{model}::default();"
     );
 
     // Set fields on the model
@@ -217,6 +219,15 @@ fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
         let _ = writeln!(out, "        .{body_setter}(model)");
     } else {
         // Compute style: set_project + set_zone/region + set_body
+        match m.resource.scope.as_str() {
+            "zonal" => {
+                let _ = writeln!(out, "    let zone = config.str_or(\"/sizing/zone\", &format!(\"{{}}-a\", self.region)).to_string();");
+            }
+            "regional" => {
+                let _ = writeln!(out, "    let region = config.str_or(\"/network/region\", &self.region).to_string();");
+            }
+            _ => {}
+        }
         let _ = writeln!(out, "    self.{client_accessor}().await?");
         let _ = writeln!(out, "        .{create_method}()");
         let _ = writeln!(out, "        .set_project(&self.project_id)");
@@ -435,6 +446,7 @@ fn write_update_fn(out: &mut String, m: &ResourceManifest) {
 
 fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
     let update_method = m.crud.update.as_deref().unwrap_or("patch");
+    let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
     let client_accessor = m.resource.client_accessor.clone().unwrap_or_else(|| snake_case(&m.resource.sdk_client));
     let model_name = &m.resource.sdk_model;
     let model = &m.resource.sdk_model;
@@ -443,7 +455,7 @@ fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
     // Re-extract fields from config for update
     let _ = writeln!(out, "    // Extract fields from config");
     for (name, field) in &m.fields {
-        if field.output_only || field.skip || name == "labels" {
+        if field.output_only || field.skip || name == "labels" || name == "name" || name == "zone" || name == "region" {
             continue;
         }
         write_field_extraction(out, name, field);
@@ -456,7 +468,7 @@ fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
 
     let _ = writeln!(
         out,
-        "    let mut model = crate::model::{model}::default();"
+        "    let mut model = {sdk_crate_mod}::model::{model}::default();"
     );
 
     // For resource_name style, set the name on the model
@@ -466,7 +478,7 @@ fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
 
     // Set updatable fields
     for (name, field) in &m.fields {
-        if field.output_only || field.skip || name == "labels" {
+        if field.output_only || field.skip || name == "labels" || name == "name" || name == "zone" || name == "region" {
             continue;
         }
         let sdk_field = field.sdk_field.as_deref().unwrap_or(name);
@@ -545,12 +557,19 @@ fn write_delete_fn(out: &mut String, m: &ResourceManifest) {
     let _ = writeln!(out, "    provider_id: &str,");
     let _ = writeln!(out, ") -> Result<(), ProviderError> {{");
 
+    if m.crud.delete.is_none() {
+        let _ = writeln!(out, "    Err(ProviderError::ApiError(\"delete not supported for this resource type\".into()))");
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
+        return;
+    }
+
     write_provider_id_parsing(out, m);
 
     if m.resource.provider == "gcp" {
         let client_accessor = m.resource.client_accessor.clone().unwrap_or_else(|| snake_case(&m.resource.sdk_client));
         let model_name = &m.resource.sdk_model;
-        let delete_method = &m.crud.delete;
+        let delete_method = m.crud.delete.as_deref().unwrap();
         let is_resource_name = m.resource.api_style == "resource_name";
 
         let _ = writeln!(out, "    self.{client_accessor}().await?");
@@ -631,6 +650,13 @@ fn write_diff_rules(out: &mut String, m: &ResourceManifest) {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+/// Convert SDK crate name to Rust module path.
+/// "google-cloud-compute-v1" → "google_cloud_compute_v1"
+/// "google-cloud-secretmanager-v1" → "google_cloud_secretmanager_v1"
+fn sdk_crate_to_mod(sdk_crate: &str) -> String {
+    sdk_crate.replace('-', "_")
+}
 
 fn schema_fn_name(type_path: &str) -> String {
     format!(
@@ -741,18 +767,18 @@ fn write_field_extraction(out: &mut String, name: &str, field: &FieldDef) {
             if field.required {
                 let _ = writeln!(
                     out,
-                    "    let {name} = config.require_str(\"{path}\")?;"
+                    "    let {name} = config.require_str(\"{path}\")?.to_string();"
                 );
             } else if let Some(ref default) = field.default {
                 let _ = writeln!(
                     out,
-                    "    let {name} = config.str_or(\"{path}\", {});",
+                    "    let {name} = config.str_or(\"{path}\", {}).to_string();",
                     toml_to_json_literal(default)
                 );
             } else {
                 let _ = writeln!(
                     out,
-                    "    let {name} = config.optional_str(\"{path}\");"
+                    "    let {name} = config.optional_str(\"{path}\").map(String::from);"
                 );
             }
         }
@@ -807,12 +833,40 @@ fn write_field_extraction(out: &mut String, name: &str, field: &FieldDef) {
 
 fn write_model_setter(out: &mut String, name: &str, setter: &str, field: &FieldDef) {
     match field.field_type.as_str() {
-        "String" | "Bool" | "Integer" | "Float" => {
+        "String" => {
+            if field.required {
+                let _ = writeln!(out, "    model = model.{setter}({name}.clone());");
+            } else {
+                let _ = writeln!(out, "    if let Some(v) = {name} {{");
+                let _ = writeln!(out, "        model = model.{setter}(v);");
+                let _ = writeln!(out, "    }}");
+            }
+        }
+        "Bool" => {
             if field.required {
                 let _ = writeln!(out, "    model = model.{setter}({name});");
             } else {
                 let _ = writeln!(out, "    if let Some(v) = {name} {{");
                 let _ = writeln!(out, "        model = model.{setter}(v);");
+                let _ = writeln!(out, "    }}");
+            }
+        }
+        "Integer" => {
+            // SDK often uses i32 but we extract i64; cast safely
+            if field.required {
+                let _ = writeln!(out, "    model = model.{setter}({name} as i32);");
+            } else {
+                let _ = writeln!(out, "    if let Some(v) = {name} {{");
+                let _ = writeln!(out, "        model = model.{setter}(v as i32);");
+                let _ = writeln!(out, "    }}");
+            }
+        }
+        "Float" => {
+            if field.required {
+                let _ = writeln!(out, "    model = model.{setter}({name} as f32);");
+            } else {
+                let _ = writeln!(out, "    if let Some(v) = {name} {{");
+                let _ = writeln!(out, "        model = model.{setter}(v as f32);");
                 let _ = writeln!(out, "    }}");
             }
         }
@@ -967,23 +1021,21 @@ fn field_read_accessor(model_var: &str, field_name: &str, field: &FieldDef) -> S
         return "user_labels".into();
     }
 
-    match field.field_type.as_str() {
-        "String" => {
-            format!("{model_var}.{sdk_field}.as_deref().unwrap_or(\"\")")
+    if field.optional {
+        // Field is Option<T> in the SDK
+        match field.field_type.as_str() {
+            "String" => format!("{model_var}.{sdk_field}.as_deref().unwrap_or(\"\")"),
+            "Bool" => format!("{model_var}.{sdk_field}.unwrap_or(false)"),
+            "Integer" => format!("{model_var}.{sdk_field}.unwrap_or(0)"),
+            "Float" => format!("{model_var}.{sdk_field}.unwrap_or(0.0)"),
+            _ => format!("serde_json::Value::Null /* TODO: {sdk_field} is complex type */"),
         }
-        "Bool" => {
-            format!("{model_var}.{sdk_field}.unwrap_or(false)")
-        }
-        "Integer" => {
-            format!("{model_var}.{sdk_field}.unwrap_or(0)")
-        }
-        "Float" => {
-            format!("{model_var}.{sdk_field}.unwrap_or(0.0)")
-        }
-        _ => {
-            format!(
-                "serde_json::json!({model_var}.{sdk_field}) /* TODO: complex type */",
-            )
+    } else {
+        // Field is bare T in the SDK (not wrapped in Option)
+        match field.field_type.as_str() {
+            "String" => format!("{model_var}.{sdk_field}.as_str()"),
+            "Bool" | "Integer" | "Float" => format!("{model_var}.{sdk_field}"),
+            _ => format!("serde_json::Value::Null /* TODO: {sdk_field} is complex type */"),
         }
     }
 }
