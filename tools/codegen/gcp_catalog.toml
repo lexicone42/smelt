@@ -1,0 +1,556 @@
+# GCP Resource Catalog for smelt-codegen batch generation.
+# Each [[resource]] entry maps a GCP SDK struct to its smelt resource type.
+
+# ─── Compute ────────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Network"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "Networks"
+api_style = "compute"
+scope = "global"
+
+[[resource]]
+struct_name = "Subnetwork"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "Subnetworks"
+api_style = "compute"
+scope = "regional"
+
+[[resource]]
+struct_name = "Firewall"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "Firewalls"
+api_style = "compute"
+scope = "global"
+
+[[resource]]
+struct_name = "Address"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "Addresses"
+api_style = "compute"
+scope = "regional"
+
+[[resource]]
+struct_name = "Disk"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "Disks"
+api_style = "compute"
+scope = "zonal"
+
+[[resource]]
+struct_name = "Instance"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "Instances"
+api_style = "compute"
+scope = "zonal"
+
+[[resource]]
+struct_name = "Route"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "Routes"
+api_style = "compute"
+scope = "global"
+
+[[resource]]
+struct_name = "BackendService"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "BackendServices"
+type_path = "loadbalancing.BackendService"
+api_style = "compute"
+scope = "global"
+
+[[resource]]
+struct_name = "HealthCheck"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "HealthChecks"
+type_path = "loadbalancing.HealthCheck"
+api_style = "compute"
+scope = "global"
+
+[[resource]]
+struct_name = "ForwardingRule"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "ForwardingRules"
+type_path = "loadbalancing.ForwardingRule"
+api_style = "compute"
+scope = "regional"
+
+[[resource]]
+struct_name = "Autoscaler"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "Autoscalers"
+api_style = "compute"
+scope = "zonal"
+
+[[resource]]
+struct_name = "Image"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "Images"
+api_style = "compute"
+scope = "global"
+
+[[resource]]
+struct_name = "InstanceTemplate"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "InstanceTemplates"
+api_style = "compute"
+scope = "global"
+
+[[resource]]
+struct_name = "InstanceGroup"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "InstanceGroups"
+api_style = "compute"
+scope = "zonal"
+
+[[resource]]
+struct_name = "Router"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "Routers"
+api_style = "compute"
+scope = "regional"
+
+[[resource]]
+struct_name = "SecurityPolicy"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "SecurityPolicies"
+api_style = "compute"
+scope = "global"
+
+[[resource]]
+struct_name = "Snapshot"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "Snapshots"
+api_style = "compute"
+scope = "global"
+
+[[resource]]
+struct_name = "SslCertificate"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "SslCertificates"
+api_style = "compute"
+scope = "global"
+
+[[resource]]
+struct_name = "UrlMap"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "UrlMaps"
+api_style = "compute"
+scope = "global"
+
+[[resource]]
+struct_name = "TargetHttpProxy"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "TargetHttpProxies"
+api_style = "compute"
+scope = "global"
+
+[[resource]]
+struct_name = "TargetHttpsProxy"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "TargetHttpsProxies"
+api_style = "compute"
+scope = "global"
+
+[[resource]]
+struct_name = "VpnGateway"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "VpnGateways"
+api_style = "compute"
+scope = "regional"
+
+[[resource]]
+struct_name = "VpnTunnel"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "VpnTunnels"
+api_style = "compute"
+scope = "regional"
+
+[[resource]]
+struct_name = "Reservation"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "Reservations"
+api_style = "compute"
+scope = "zonal"
+
+[[resource]]
+struct_name = "InterconnectAttachment"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "InterconnectAttachments"
+api_style = "compute"
+scope = "regional"
+
+[[resource]]
+struct_name = "FirewallPolicy"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "FirewallPolicies"
+api_style = "compute"
+scope = "global"
+
+[[resource]]
+struct_name = "ResourcePolicy"
+sdk_crate = "google-cloud-compute-v1"
+sdk_client = "ResourcePolicies"
+api_style = "compute"
+scope = "regional"
+
+# ─── Secret Manager ─────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Secret"
+sdk_crate = "google-cloud-secretmanager-v1"
+sdk_client = "SecretManagerService"
+client_accessor = "secretmanager"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+resource_id_setter = "set_secret_id"
+resource_body_setter = "set_secret"
+crud_create = "create_secret"
+crud_read = "get_secret"
+crud_update = "update_secret"
+crud_delete = "delete_secret"
+
+[[resource]]
+struct_name = "SecretVersion"
+sdk_crate = "google-cloud-secretmanager-v1"
+sdk_client = "SecretManagerService"
+client_accessor = "secretmanager"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}/secrets/{parent_resource}"
+crud_create = "add_secret_version"
+crud_read = "get_secret_version"
+crud_delete = "destroy_secret_version"
+
+# ─── GKE Container ──────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Cluster"
+sdk_crate = "google-cloud-container-v1"
+sdk_client = "ClusterManager"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_body_setter = "set_cluster"
+crud_create = "create_cluster"
+crud_read = "get_cluster"
+crud_update = "update_cluster"
+crud_delete = "delete_cluster"
+
+[[resource]]
+struct_name = "NodePool"
+sdk_crate = "google-cloud-container-v1"
+sdk_client = "ClusterManager"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}/clusters/{parent_resource}"
+resource_body_setter = "set_node_pool"
+crud_create = "create_node_pool"
+crud_read = "get_node_pool"
+crud_update = "update_node_pool"
+crud_delete = "delete_node_pool"
+
+# ─── Cloud Run ───────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Service"
+sdk_crate = "google-cloud-run-v2"
+sdk_client = "Services"
+client_accessor = "run_services"
+type_path = "run.Service"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_body_setter = "set_service"
+crud_create = "create_service"
+crud_read = "get_service"
+crud_update = "update_service"
+crud_delete = "delete_service"
+
+[[resource]]
+struct_name = "Job"
+sdk_crate = "google-cloud-run-v2"
+sdk_client = "Jobs"
+client_accessor = "run_jobs"
+type_path = "run.Job"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_body_setter = "set_job"
+crud_create = "create_job"
+crud_read = "get_job"
+crud_update = "update_job"
+crud_delete = "delete_job"
+
+# ─── Cloud Functions ─────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Function"
+sdk_crate = "google-cloud-functions-v2"
+sdk_client = "FunctionService"
+client_accessor = "functions"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_body_setter = "set_function"
+resource_id_setter = "set_function_id"
+crud_create = "create_function"
+crud_read = "get_function"
+crud_update = "update_function"
+crud_delete = "delete_function"
+
+# ─── Cloud DNS ───────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "ManagedZone"
+sdk_crate = "google-cloud-dns-v1"
+sdk_client = "ManagedZones"
+api_style = "compute"
+scope = "global"
+
+[[resource]]
+struct_name = "ResourceRecordSet"
+sdk_crate = "google-cloud-dns-v1"
+sdk_client = "ResourceRecordSets"
+type_path = "dns.RecordSet"
+api_style = "compute"
+scope = "global"
+
+[[resource]]
+struct_name = "Policy"
+sdk_crate = "google-cloud-dns-v1"
+sdk_client = "Policies"
+type_path = "dns.Policy"
+api_style = "compute"
+scope = "global"
+
+# ─── Cloud KMS ───────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "KeyRing"
+sdk_crate = "google-cloud-kms-v1"
+sdk_client = "KeyManagementService"
+client_accessor = "kms"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_key_ring_id"
+resource_body_setter = "set_key_ring"
+crud_create = "create_key_ring"
+crud_read = "get_key_ring"
+crud_delete = "delete_key_ring"
+
+[[resource]]
+struct_name = "CryptoKey"
+sdk_crate = "google-cloud-kms-v1"
+sdk_client = "KeyManagementService"
+client_accessor = "kms"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}/keyRings/{parent_resource}"
+resource_id_setter = "set_crypto_key_id"
+resource_body_setter = "set_crypto_key"
+crud_create = "create_crypto_key"
+crud_read = "get_crypto_key"
+crud_update = "update_crypto_key"
+crud_delete = "delete_crypto_key"
+
+# ─── IAM ─────────────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "ServiceAccount"
+sdk_crate = "google-cloud-iam-admin-v1"
+sdk_client = "Iam"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+resource_body_setter = "set_service_account"
+crud_create = "create_service_account"
+crud_read = "get_service_account"
+crud_update = "patch_service_account"
+crud_delete = "delete_service_account"
+
+[[resource]]
+struct_name = "ServiceAccountKey"
+sdk_crate = "google-cloud-iam-admin-v1"
+sdk_client = "Iam"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}/serviceAccounts/{parent_resource}"
+crud_create = "create_service_account_key"
+crud_read = "get_service_account_key"
+crud_delete = "delete_service_account_key"
+
+[[resource]]
+struct_name = "Role"
+sdk_crate = "google-cloud-iam-admin-v1"
+sdk_client = "Iam"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+resource_body_setter = "set_role"
+crud_create = "create_role"
+crud_read = "get_role"
+crud_update = "update_role"
+crud_delete = "delete_role"
+
+# ─── Monitoring ──────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "AlertPolicy"
+sdk_crate = "google-cloud-monitoring-v3"
+sdk_client = "AlertPolicyService"
+client_accessor = "monitoring"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+resource_body_setter = "set_alert_policy"
+crud_create = "create_alert_policy"
+crud_read = "get_alert_policy"
+crud_update = "update_alert_policy"
+crud_delete = "delete_alert_policy"
+
+[[resource]]
+struct_name = "NotificationChannel"
+sdk_crate = "google-cloud-monitoring-v3"
+sdk_client = "NotificationChannelService"
+client_accessor = "notification_channels"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+resource_body_setter = "set_notification_channel"
+crud_create = "create_notification_channel"
+crud_read = "get_notification_channel"
+crud_update = "update_notification_channel"
+crud_delete = "delete_notification_channel"
+
+[[resource]]
+struct_name = "UptimeCheckConfig"
+sdk_crate = "google-cloud-monitoring-v3"
+sdk_client = "UptimeCheckService"
+client_accessor = "uptime_checks"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+resource_body_setter = "set_uptime_check_config"
+crud_create = "create_uptime_check_config"
+crud_read = "get_uptime_check_config"
+crud_update = "update_uptime_check_config"
+crud_delete = "delete_uptime_check_config"
+
+[[resource]]
+struct_name = "Group"
+sdk_crate = "google-cloud-monitoring-v3"
+sdk_client = "GroupService"
+client_accessor = "monitoring_groups"
+type_path = "monitoring.Group"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+resource_body_setter = "set_group"
+crud_create = "create_group"
+crud_read = "get_group"
+crud_update = "update_group"
+crud_delete = "delete_group"
+
+# ─── Logging ─────────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "LogSink"
+sdk_crate = "google-cloud-logging-v2"
+sdk_client = "ConfigServiceV2"
+client_accessor = "logging"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+resource_body_setter = "set_sink"
+crud_create = "create_sink"
+crud_read = "get_sink"
+crud_update = "update_sink"
+crud_delete = "delete_sink"
+
+[[resource]]
+struct_name = "LogBucket"
+sdk_crate = "google-cloud-logging-v2"
+sdk_client = "ConfigServiceV2"
+client_accessor = "logging"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_body_setter = "set_bucket"
+resource_id_setter = "set_bucket_id"
+crud_create = "create_bucket"
+crud_read = "get_bucket"
+crud_update = "update_bucket"
+crud_delete = "delete_bucket"
+
+[[resource]]
+struct_name = "LogExclusion"
+sdk_crate = "google-cloud-logging-v2"
+sdk_client = "ConfigServiceV2"
+client_accessor = "logging"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+resource_body_setter = "set_exclusion"
+crud_create = "create_exclusion"
+crud_read = "get_exclusion"
+crud_update = "update_exclusion"
+crud_delete = "delete_exclusion"
+
+[[resource]]
+struct_name = "LogMetric"
+sdk_crate = "google-cloud-logging-v2"
+sdk_client = "MetricsServiceV2"
+client_accessor = "logging_metrics"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+resource_body_setter = "set_metric"
+crud_create = "create_log_metric"
+crud_read = "get_log_metric"
+crud_update = "update_log_metric"
+crud_delete = "delete_log_metric"
+
+# ─── Cloud SQL ───────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "DatabaseInstance"
+sdk_crate = "google-cloud-sql-v1"
+sdk_client = "SqlInstancesService"
+client_accessor = "sql_instances"
+type_path = "sql.Instance"
+api_style = "compute"
+scope = "global"
+crud_create = "insert"
+crud_read = "get"
+crud_update = "patch"
+crud_delete = "delete"
+
+[[resource]]
+struct_name = "Database"
+sdk_crate = "google-cloud-sql-v1"
+sdk_client = "SqlDatabasesService"
+client_accessor = "sql_databases"
+type_path = "sql.Database"
+api_style = "compute"
+scope = "global"
+crud_create = "insert"
+crud_read = "get"
+crud_update = "patch"
+crud_delete = "delete"
+
+[[resource]]
+struct_name = "User"
+sdk_crate = "google-cloud-sql-v1"
+sdk_client = "SqlUsersService"
+client_accessor = "sql_users"
+type_path = "sql.User"
+api_style = "compute"
+scope = "global"
+crud_create = "insert"
+crud_read = "get"
+crud_update = "update"
+crud_delete = "delete"

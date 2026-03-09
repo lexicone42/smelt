@@ -42,10 +42,34 @@ pub struct ResourceMeta {
     /// Scope: "global", "regional", or "zonal"
     #[serde(default = "default_scope")]
     pub scope: String,
+    /// API style: "compute" (set_project/set_zone/set_body) or "resource_name"
+    /// (set_parent/set_name with hierarchical resource paths)
+    #[serde(default = "default_api_style")]
+    pub api_style: String,
+    /// For resource_name style: parent format, e.g. "projects/{project}" or
+    /// "projects/{project}/locations/{location}"
+    #[serde(default)]
+    pub parent_format: Option<String>,
+    /// For resource_name style: setter for the resource ID on create,
+    /// e.g. "set_secret_id". If empty, the resource name is set on the model itself.
+    #[serde(default)]
+    pub resource_id_setter: Option<String>,
+    /// For resource_name style: setter for the model body on create/update,
+    /// e.g. "set_secret". Defaults to "set_body" for compute style.
+    #[serde(default)]
+    pub resource_body_setter: Option<String>,
+    /// Client accessor method name on GcpProvider (e.g. "secretmanager", "networks").
+    /// If not set, defaults to snake_case of sdk_client.
+    #[serde(default)]
+    pub client_accessor: Option<String>,
 }
 
 fn default_scope() -> String {
     "global".into()
+}
+
+fn default_api_style() -> String {
+    "compute".into()
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -115,12 +139,27 @@ impl ResourceManifest {
             _ => "{name}".into(),
         };
 
+        // Detect API style: compute SDK uses insert/get/patch/delete,
+        // other GCP SDKs use create_noun/get_noun/update_noun/delete_noun
+        let is_compute = sdk_crate.contains("compute");
+        let api_style = if is_compute { "compute" } else { "resource_name" };
+
         let crud = if provider == "gcp" {
-            CrudMethods {
-                create: "insert".into(),
-                read: "get".into(),
-                update: Some("patch".into()),
-                delete: "delete".into(),
+            if is_compute {
+                CrudMethods {
+                    create: "insert".into(),
+                    read: "get".into(),
+                    update: Some("patch".into()),
+                    delete: "delete".into(),
+                }
+            } else {
+                let noun = snake_case_simple(struct_name);
+                CrudMethods {
+                    create: format!("create_{noun}"),
+                    read: format!("get_{noun}"),
+                    update: Some(format!("update_{noun}")),
+                    delete: format!("delete_{noun}"),
+                }
             }
         } else {
             CrudMethods {
@@ -129,6 +168,28 @@ impl ResourceManifest {
                 update: Some("modify".into()),
                 delete: "delete".into(),
             }
+        };
+
+        let parent_format = if !is_compute {
+            if scope == "regional" || scope == "zonal" {
+                Some("projects/{project}/locations/{location}".into())
+            } else {
+                Some("projects/{project}".into())
+            }
+        } else {
+            None
+        };
+
+        let resource_id_setter = if !is_compute {
+            Some(format!("set_{}_id", snake_case_simple(struct_name)))
+        } else {
+            None
+        };
+
+        let resource_body_setter = if !is_compute {
+            Some(format!("set_{}", snake_case_simple(struct_name)))
+        } else {
+            None
         };
 
         let mut field_defs = BTreeMap::new();
@@ -190,6 +251,11 @@ impl ResourceManifest {
                 sdk_client: client_name,
                 provider_id_format,
                 scope,
+                api_style: api_style.into(),
+                parent_format,
+                resource_id_setter,
+                resource_body_setter,
+                client_accessor: None,
             },
             crud,
             fields: field_defs,
@@ -306,6 +372,17 @@ fn is_output_only(field_name: &str, doc: &str) -> bool {
         || field_name.contains("fingerprint")
         || field_name == "kind"
         || field_name == "status"
+}
+
+fn snake_case_simple(s: &str) -> String {
+    let mut result = String::with_capacity(s.len() + 4);
+    for (i, ch) in s.chars().enumerate() {
+        if ch.is_uppercase() && i > 0 {
+            result.push('_');
+        }
+        result.push(ch.to_ascii_lowercase());
+    }
+    result
 }
 
 fn is_sensitive(field_name: &str) -> bool {

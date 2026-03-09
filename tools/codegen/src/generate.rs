@@ -168,11 +168,12 @@ fn write_create_fn(out: &mut String, m: &ResourceManifest) {
 
 fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
     let model = &m.resource.sdk_model;
-    let client_accessor = m.resource.sdk_client.to_lowercase();
+    let client_accessor = m.resource.client_accessor.clone().unwrap_or_else(|| snake_case(&m.resource.sdk_client));
     let create_method = &m.crud.create;
+    let is_resource_name = m.resource.api_style == "resource_name";
 
     // Extract labels if any identity.labels field
-    if m.fields.values().any(|f| f.section == "identity") {
+    if m.fields.contains_key("labels") {
         let _ = writeln!(out, "    let labels = super::extract_labels(config);");
     }
 
@@ -184,7 +185,7 @@ fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
 
     // Set fields on the model
     for (name, field) in &m.fields {
-        if field.output_only || field.skip {
+        if field.output_only || field.skip || name == "labels" {
             continue;
         }
         let sdk_field = field.sdk_field.as_deref().unwrap_or(name);
@@ -199,34 +200,40 @@ fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
 
     let _ = writeln!(out);
     let _ = writeln!(out, "    // Make API call");
-    let _ = writeln!(
-        out,
-        "    self.{client_accessor}().await?"
-    );
-    let _ = writeln!(out, "        .{create_method}()");
-    let _ = writeln!(
-        out,
-        "        .set_project(&self.project_id)"
-    );
 
-    // Add scope parameters
-    match m.resource.scope.as_str() {
-        "zonal" => {
-            let _ = writeln!(
-                out,
-                "        .set_zone(&zone)"
-            );
+    if is_resource_name {
+        // Resource-name style: set_parent + set_resource_id + set_resource(model)
+        let parent = build_parent_expr(m);
+        let _ = writeln!(out, "    let parent = {parent};");
+        let _ = writeln!(out, "    self.{client_accessor}().await?");
+        let _ = writeln!(out, "        .{create_method}()");
+        let _ = writeln!(out, "        .set_parent(&parent)");
+
+        if let Some(ref id_setter) = m.resource.resource_id_setter {
+            let _ = writeln!(out, "        .{id_setter}(&name)");
         }
-        "regional" => {
-            let _ = writeln!(
-                out,
-                "        .set_region(&region)"
-            );
+
+        let body_setter = m.resource.resource_body_setter.as_deref().unwrap_or("set_body");
+        let _ = writeln!(out, "        .{body_setter}(model)");
+    } else {
+        // Compute style: set_project + set_zone/region + set_body
+        let _ = writeln!(out, "    self.{client_accessor}().await?");
+        let _ = writeln!(out, "        .{create_method}()");
+        let _ = writeln!(out, "        .set_project(&self.project_id)");
+
+        match m.resource.scope.as_str() {
+            "zonal" => {
+                let _ = writeln!(out, "        .set_zone(&zone)");
+            }
+            "regional" => {
+                let _ = writeln!(out, "        .set_region(&region)");
+            }
+            _ => {}
         }
-        _ => {}
+
+        let _ = writeln!(out, "        .set_body(model)");
     }
 
-    let _ = writeln!(out, "        .set_body(model)");
     let _ = writeln!(out, "        .send()");
     let _ = writeln!(out, "        .await");
     let _ = writeln!(
@@ -306,27 +313,34 @@ fn write_read_fn(out: &mut String, m: &ResourceManifest) {
 
 fn write_gcp_read_body(out: &mut String, m: &ResourceManifest) {
     let model_var = snake_case(&m.resource.sdk_model);
-    let client_accessor = m.resource.sdk_client.to_lowercase();
+    let client_accessor = m.resource.client_accessor.clone().unwrap_or_else(|| snake_case(&m.resource.sdk_client));
     let read_method = &m.crud.read;
     let model_name = &m.resource.sdk_model;
-    let resource_setter = format!("set_{}", snake_case(&m.resource.sdk_model));
+    let is_resource_name = m.resource.api_style == "resource_name";
 
     let _ = writeln!(out, "    let {model_var} = self");
     let _ = writeln!(out, "        .{client_accessor}().await?");
     let _ = writeln!(out, "        .{read_method}()");
-    let _ = writeln!(out, "        .set_project(&self.project_id)");
 
-    match m.resource.scope.as_str() {
-        "zonal" => {
-            let _ = writeln!(out, "        .set_zone(&zone)");
+    if is_resource_name {
+        // Resource-name style: just set_name with the full resource path
+        let _ = writeln!(out, "        .set_name(provider_id)");
+    } else {
+        // Compute style: set_project + scope + resource name
+        let _ = writeln!(out, "        .set_project(&self.project_id)");
+        match m.resource.scope.as_str() {
+            "zonal" => {
+                let _ = writeln!(out, "        .set_zone(&zone)");
+            }
+            "regional" => {
+                let _ = writeln!(out, "        .set_region(&region)");
+            }
+            _ => {}
         }
-        "regional" => {
-            let _ = writeln!(out, "        .set_region(&region)");
-        }
-        _ => {}
+        let resource_setter = format!("set_{}", snake_case(&m.resource.sdk_model));
+        let _ = writeln!(out, "        .{resource_setter}(&name)");
     }
 
-    let _ = writeln!(out, "        .{resource_setter}(&name)");
     let _ = writeln!(out, "        .send()");
     let _ = writeln!(out, "        .await");
     let _ = writeln!(
@@ -340,15 +354,21 @@ fn write_gcp_read_body(out: &mut String, m: &ResourceManifest) {
 
     // Build outputs
     let _ = writeln!(out, "    let mut outputs = HashMap::new();");
-    let _ = writeln!(
-        out,
-        "    outputs.insert(\"self_link\".into(), serde_json::json!({model_var}.self_link.as_deref().unwrap_or(\"\")));"
-    );
+    if is_resource_name {
+        let _ = writeln!(
+            out,
+            "    outputs.insert(\"name\".into(), serde_json::json!(&{model_var}.name));"
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "    outputs.insert(\"self_link\".into(), serde_json::json!({model_var}.self_link.as_deref().unwrap_or(\"\")));"
+        );
+    }
     let _ = writeln!(out);
 
-    write_provider_id_construction(out, m);
     let _ = writeln!(out, "    Ok(ResourceOutput {{");
-    let _ = writeln!(out, "        provider_id,");
+    let _ = writeln!(out, "        provider_id: provider_id.to_string(),");
     let _ = writeln!(out, "        state,");
     let _ = writeln!(out, "        outputs,");
     let _ = writeln!(out, "    }})");
@@ -415,20 +435,21 @@ fn write_update_fn(out: &mut String, m: &ResourceManifest) {
 
 fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
     let update_method = m.crud.update.as_deref().unwrap_or("patch");
-    let client_accessor = m.resource.sdk_client.to_lowercase();
+    let client_accessor = m.resource.client_accessor.clone().unwrap_or_else(|| snake_case(&m.resource.sdk_client));
     let model_name = &m.resource.sdk_model;
     let model = &m.resource.sdk_model;
+    let is_resource_name = m.resource.api_style == "resource_name";
 
     // Re-extract fields from config for update
     let _ = writeln!(out, "    // Extract fields from config");
     for (name, field) in &m.fields {
-        if field.output_only || field.skip {
+        if field.output_only || field.skip || name == "labels" {
             continue;
         }
         write_field_extraction(out, name, field);
     }
 
-    if m.fields.values().any(|f| f.section == "identity") {
+    if m.fields.contains_key("labels") {
         let _ = writeln!(out, "    let labels = super::extract_labels(config);");
     }
     let _ = writeln!(out);
@@ -438,9 +459,14 @@ fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
         "    let mut model = crate::model::{model}::default();"
     );
 
+    // For resource_name style, set the name on the model
+    if is_resource_name {
+        let _ = writeln!(out, "    model = model.set_name(provider_id);");
+    }
+
     // Set updatable fields
     for (name, field) in &m.fields {
-        if field.output_only || field.skip {
+        if field.output_only || field.skip || name == "labels" {
             continue;
         }
         let sdk_field = field.sdk_field.as_deref().unwrap_or(name);
@@ -455,21 +481,30 @@ fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
 
     let _ = writeln!(out, "    self.{client_accessor}().await?");
     let _ = writeln!(out, "        .{update_method}()");
-    let _ = writeln!(out, "        .set_project(&self.project_id)");
 
-    match m.resource.scope.as_str() {
-        "zonal" => {
-            let _ = writeln!(out, "        .set_zone(&zone)");
+    if is_resource_name {
+        // Resource-name style: set the model body (which contains the name)
+        let body_setter = m.resource.resource_body_setter.as_deref().unwrap_or("set_body");
+        let _ = writeln!(out, "        .{body_setter}(model)");
+        // Most resource_name APIs require an update_mask
+        let _ = writeln!(out, "        .set_update_mask(google_cloud_wkt::FieldMask::default())");
+    } else {
+        // Compute style: set_project + scope + resource name + body
+        let _ = writeln!(out, "        .set_project(&self.project_id)");
+        match m.resource.scope.as_str() {
+            "zonal" => {
+                let _ = writeln!(out, "        .set_zone(&zone)");
+            }
+            "regional" => {
+                let _ = writeln!(out, "        .set_region(&region)");
+            }
+            _ => {}
         }
-        "regional" => {
-            let _ = writeln!(out, "        .set_region(&region)");
-        }
-        _ => {}
+        let resource_setter = format!("set_{}", snake_case(&m.resource.sdk_model));
+        let _ = writeln!(out, "        .{resource_setter}(&name)");
+        let _ = writeln!(out, "        .set_body(model)");
     }
 
-    let resource_setter = format!("set_{}", snake_case(&m.resource.sdk_model));
-    let _ = writeln!(out, "        .{resource_setter}(&name)");
-    let _ = writeln!(out, "        .set_body(model)");
     let _ = writeln!(out, "        .send()");
     let _ = writeln!(out, "        .await");
     let _ = writeln!(
@@ -513,25 +548,31 @@ fn write_delete_fn(out: &mut String, m: &ResourceManifest) {
     write_provider_id_parsing(out, m);
 
     if m.resource.provider == "gcp" {
-        let client_accessor = m.resource.sdk_client.to_lowercase();
+        let client_accessor = m.resource.client_accessor.clone().unwrap_or_else(|| snake_case(&m.resource.sdk_client));
         let model_name = &m.resource.sdk_model;
-        let resource_setter = format!("set_{}", snake_case(&m.resource.sdk_model));
+        let delete_method = &m.crud.delete;
+        let is_resource_name = m.resource.api_style == "resource_name";
 
         let _ = writeln!(out, "    self.{client_accessor}().await?");
-        let _ = writeln!(out, "        .delete()");
-        let _ = writeln!(out, "        .set_project(&self.project_id)");
+        let _ = writeln!(out, "        .{delete_method}()");
 
-        match m.resource.scope.as_str() {
-            "zonal" => {
-                let _ = writeln!(out, "        .set_zone(&zone)");
+        if is_resource_name {
+            let _ = writeln!(out, "        .set_name(provider_id)");
+        } else {
+            let _ = writeln!(out, "        .set_project(&self.project_id)");
+            match m.resource.scope.as_str() {
+                "zonal" => {
+                    let _ = writeln!(out, "        .set_zone(&zone)");
+                }
+                "regional" => {
+                    let _ = writeln!(out, "        .set_region(&region)");
+                }
+                _ => {}
             }
-            "regional" => {
-                let _ = writeln!(out, "        .set_region(&region)");
-            }
-            _ => {}
+            let resource_setter = format!("set_{}", snake_case(&m.resource.sdk_model));
+            let _ = writeln!(out, "        .{resource_setter}(&name)");
         }
 
-        let _ = writeln!(out, "        .{resource_setter}(&name)");
         let _ = writeln!(out, "        .send()");
         let _ = writeln!(out, "        .await");
         let _ = writeln!(
@@ -782,45 +823,100 @@ fn write_model_setter(out: &mut String, name: &str, setter: &str, field: &FieldD
 }
 
 fn write_provider_id_parsing(out: &mut String, m: &ResourceManifest) {
-    match m.resource.scope.as_str() {
-        "zonal" => {
-            let _ = writeln!(
-                out,
-                "    let (zone, name) = super::parse_zone_resource(provider_id, &self.region);"
-            );
-        }
-        "regional" => {
-            let _ = writeln!(
-                out,
-                "    let (region, name) = super::parse_region_resource(provider_id, &self.region);"
-            );
-        }
-        _ => {
-            let _ = writeln!(
-                out,
-                "    let name = provider_id.to_string();"
-            );
+    if m.resource.api_style == "resource_name" {
+        // Resource-name style: provider_id IS the full resource name
+        // Extract the short name from the last path segment
+        let _ = writeln!(
+            out,
+            "    let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();"
+        );
+    } else {
+        match m.resource.scope.as_str() {
+            "zonal" => {
+                let _ = writeln!(
+                    out,
+                    "    let (zone, name) = super::parse_zone_resource(provider_id, &self.region);"
+                );
+            }
+            "regional" => {
+                let _ = writeln!(
+                    out,
+                    "    let (region, name) = super::parse_region_resource(provider_id, &self.region);"
+                );
+            }
+            _ => {
+                let _ = writeln!(
+                    out,
+                    "    let name = provider_id.to_string();"
+                );
+            }
         }
     }
 }
 
 fn write_provider_id_construction(out: &mut String, m: &ResourceManifest) {
-    match m.resource.scope.as_str() {
-        "zonal" => {
-            let _ = writeln!(
-                out,
-                "    let provider_id = format!(\"{{zone}}/{{name}}\");"
-            );
-        }
-        "regional" => {
-            let _ = writeln!(
-                out,
-                "    let provider_id = format!(\"{{region}}/{{name}}\");"
-            );
-        }
-        _ => {
+    if m.resource.api_style == "resource_name" {
+        // Resource-name style: build full resource path
+        if let Some(ref parent_fmt) = m.resource.parent_format {
+            // Replace {project} and {location} placeholders
+            let parent = parent_fmt
+                .replace("{project}", "{}")
+                .replace("{location}", "{}");
+            let noun = snake_case(&m.resource.sdk_model);
+            let noun_plural = format!("{noun}s");
+
+            // Build the format string
+            let has_project = parent_fmt.contains("{project}");
+            let has_location = parent_fmt.contains("{location}");
+
+            if has_project && has_location {
+                let _ = writeln!(
+                    out,
+                    "    let provider_id = format!(\"projects/{{}}/locations/{{}}/{noun_plural}/{{}}\", self.project_id, self.region, name);"
+                );
+            } else if has_project {
+                let _ = writeln!(
+                    out,
+                    "    let provider_id = format!(\"projects/{{}}/{noun_plural}/{{}}\", self.project_id, name);"
+                );
+            } else {
+                let _ = writeln!(out, "    let provider_id = name.to_string();");
+            }
+        } else {
             let _ = writeln!(out, "    let provider_id = name.to_string();");
         }
+    } else {
+        match m.resource.scope.as_str() {
+            "zonal" => {
+                let _ = writeln!(
+                    out,
+                    "    let provider_id = format!(\"{{zone}}/{{name}}\");"
+                );
+            }
+            "regional" => {
+                let _ = writeln!(
+                    out,
+                    "    let provider_id = format!(\"{{region}}/{{name}}\");"
+                );
+            }
+            _ => {
+                let _ = writeln!(out, "    let provider_id = name.to_string();");
+            }
+        }
+    }
+}
+
+/// Build the parent expression for resource_name style create calls.
+fn build_parent_expr(m: &ResourceManifest) -> String {
+    if let Some(ref parent_fmt) = m.resource.parent_format {
+        let has_location = parent_fmt.contains("{location}");
+        if has_location {
+            "format!(\"projects/{}/locations/{}\", self.project_id, self.region)".into()
+        } else {
+            "format!(\"projects/{}\", self.project_id)".into()
+        }
+    } else {
+        "format!(\"projects/{}\", self.project_id)".into()
     }
 }
 

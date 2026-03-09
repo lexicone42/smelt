@@ -1,12 +1,14 @@
 //! smelt-codegen: Generate smelt provider code from SDK crate introspection.
 //!
-//! Three modes:
+//! Four modes:
 //! 1. `introspect` — Parse an SDK model struct and generate a resource manifest
 //! 2. `generate`   — Read a resource manifest and emit Rust provider code
 //! 3. `scan`       — Discover all resource-like structs in an SDK model file
+//! 4. `batch`      — Generate all resources from a catalog TOML
 //!
 //! Supports both GCP (`google-cloud-*`) and AWS (`aws-sdk-*`) SDK crates.
 
+mod catalog;
 mod introspect;
 mod manifest;
 mod generate;
@@ -65,6 +67,17 @@ enum Command {
         /// Provider type: "gcp" or "aws"
         #[arg(long, default_value = "gcp")]
         provider: String,
+    },
+
+    /// Batch-generate all resources from a catalog TOML
+    Batch {
+        /// Path to the catalog TOML file
+        #[arg(long)]
+        catalog: String,
+
+        /// Output directory for generated files
+        #[arg(long)]
+        output_dir: String,
     },
 }
 
@@ -191,6 +204,11 @@ fn main() {
             if enums.len() > 20 {
                 println!("  ... and {} more", enums.len() - 20);
             }
+        }
+
+        Command::Batch { catalog, output_dir } => {
+            eprintln!("Batch generating from {catalog} -> {output_dir}");
+            catalog::batch_generate(&catalog, &output_dir);
         }
     }
 }
