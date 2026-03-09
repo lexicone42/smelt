@@ -119,6 +119,12 @@ pub struct FieldDef {
     /// Whether the SDK field is wrapped in Option<T> (affects read response codegen)
     #[serde(default = "default_true")]
     pub optional: bool,
+    /// Resolved SDK type path for complex types (after stripping Option wrapper).
+    /// Used to generate `from_name()` calls for enums and `serde_json::from_value::<T>()` for nested types.
+    /// Contains `crate::` prefix which codegen replaces with the SDK crate module path.
+    /// Example: `crate::model::network::RoutingMode` or `Vec<crate::model::Backend>`
+    #[serde(default)]
+    pub sdk_type_path: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -227,6 +233,18 @@ impl ResourceManifest {
                 _ => Vec::new(),
             };
 
+            // Compute SDK type path for complex types (used by codegen for
+            // From<&str> on enums and serde_json::from_value() on nested types)
+            let sdk_type_path = match &f.simplified_type {
+                SimplifiedType::Enum(_)
+                | SimplifiedType::Nested(_)
+                | SimplifiedType::Vec(_)
+                | SimplifiedType::HashMap(_, _)
+                | SimplifiedType::Duration
+                | SimplifiedType::Timestamp => extract_inner_type(&f.raw_type),
+                _ => None,
+            };
+
             field_defs.insert(
                 f.name.clone(),
                 FieldDef {
@@ -246,6 +264,7 @@ impl ResourceManifest {
                     deprecated: false,
                     skip: output_only, // skip output-only fields by default
                     optional: f.optional,
+                    sdk_type_path,
                 },
             );
         }
@@ -290,11 +309,21 @@ impl ResourceManifest {
             .map(|e| (e.name.as_str(), e.variant_strings.as_slice()))
             .collect();
 
-        // Fill in real variants for Enum fields
+        // Fill in real variants for Enum fields.
+        // If an Enum type's variants couldn't be resolved (still has "TODO:" placeholder),
+        // it's likely a proto oneof (union type) rather than a named enum.
+        // Proto oneofs don't implement From<&str>, Serialize, or Deserialize —
+        // clear their sdk_type_path so the codegen generates TODO comments instead of broken code.
         for field_def in manifest.fields.values_mut() {
             if let Some(enum_name) = extract_enum_name(&field_def.field_type) {
                 if let Some(variants) = enum_lookup.get(enum_name.as_str()) {
                     field_def.variants = variants.iter().cloned().collect();
+                } else {
+                    // Proto oneof: no Serialize/Deserialize, no From<&str>.
+                    // Clear sdk_type_path so codegen falls back to TODO comments.
+                    field_def.field_type = format!("Nested({enum_name})");
+                    field_def.variants.clear();
+                    field_def.sdk_type_path = None;
                 }
             }
         }
@@ -310,6 +339,48 @@ fn extract_enum_name(field_type: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+/// Extract the inner Rust type from a raw SDK type string, stripping Option<> wrapper
+/// and normalizing std:: prefixes. Returns None if the type is malformed (e.g., from
+/// multi-line field declarations that the regex parser truncated).
+///
+/// Examples:
+///   "std::option::Option<crate::model::network::RoutingMode>" → Some("crate::model::network::RoutingMode")
+///   "std::option::Option<std::vec::Vec<crate::model::Backend>>" → Some("Vec<crate::model::Backend>")
+///   "std::option::Option<bool>" → Some("bool")
+///   "std::option::Option<" → None (truncated multi-line type)
+fn extract_inner_type(raw: &str) -> Option<String> {
+    let t = raw
+        .replace("::std::option::Option", "Option")
+        .replace("std::option::Option", "Option")
+        .replace("::std::vec::Vec", "Vec")
+        .replace("std::vec::Vec", "Vec")
+        .replace("::std::string::String", "String")
+        .replace("std::string::String", "String")
+        .replace("::std::collections::HashMap", "HashMap")
+        .replace("std::collections::HashMap", "HashMap");
+
+    // Normalize external crate re-exports used by GCP SDKs
+    // wkt:: → google_cloud_wkt:: (Duration, Timestamp, FieldMask)
+    // google_cloud_api:: → not a real crate path, strip to bare type name
+    let t = t.replace("wkt::", "google_cloud_wkt::");
+
+    // Strip Option<> wrapper
+    let inner = if t.starts_with("Option<") && t.ends_with('>') {
+        t[7..t.len() - 1].to_string()
+    } else {
+        t
+    };
+
+    // Validate: balanced angle brackets and no trailing `<`
+    let open = inner.chars().filter(|&c| c == '<').count();
+    let close = inner.chars().filter(|&c| c == '>').count();
+    if open != close || inner.ends_with('<') || inner.is_empty() {
+        return None;
+    }
+
+    Some(inner)
 }
 
 // ── Heuristics ──────────────────────────────────────────────────────────────
@@ -406,9 +477,9 @@ fn simplified_to_manifest_type(st: &SimplifiedType) -> String {
     match st {
         SimplifiedType::String => "String".into(),
         SimplifiedType::Bool => "Bool".into(),
-        SimplifiedType::I32 | SimplifiedType::I64 | SimplifiedType::U32 | SimplifiedType::U64 => {
-            "Integer".into()
-        }
+        SimplifiedType::I32 | SimplifiedType::I64 => "Integer".into(),
+        SimplifiedType::U32 => "Integer_u32".into(),
+        SimplifiedType::U64 => "Integer_u64".into(),
         SimplifiedType::F64 => "Float".into(),
         SimplifiedType::Bytes => "Bytes".into(),
         SimplifiedType::Duration => "Duration".into(),

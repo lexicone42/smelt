@@ -59,7 +59,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "binary_authorization".into(),
                                 description: "Optional. Settings for the Binary Authorization feature.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(BinaryAuthorization) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -67,7 +67,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "build_config".into(),
                                 description: "Optional. Configuration for building a Cloud Run function.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(BuildConfig) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -139,7 +139,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "launch_stage".into(),
                                 description: "Optional. The launch stage as defined by [Google Cloud Platform".into(),
-                                field_type: crate::provider::FieldType::Enum(vec!["TODO: list variants for LaunchStage".into()]),
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -147,7 +147,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "multi_region_settings".into(),
                                 description: "Optional. Settings for multi-region deployment.".into(),
-                                field_type: crate::provider::FieldType::Enum(vec!["TODO: list variants for MultiRegionSettings".into()]),
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -155,7 +155,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "scaling".into(),
                                 description: "Optional. Specifies service-level scaling settings".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(ServiceScaling) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -163,7 +163,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "template".into(),
                                 description: "Required. The template used to create revisions for this Service.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(RevisionTemplate) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -171,7 +171,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "traffic".into(),
                                 description: "Optional. Specifies how to distribute traffic over a collection of".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(TrafficTarget) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -188,43 +188,77 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        // TODO: extract annotations (Record) from config["/config/annotations"]
-        // TODO: extract binary_authorization (Nested(BinaryAuthorization)) from config["/config/binary_authorization"]
-        // TODO: extract build_config (Nested(BuildConfig)) from config["/config/build_config"]
+        let annotations = config
+            .pointer("/config/annotations")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        let binary_authorization = config
+            .pointer("/config/binary_authorization")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_run_v2::model::BinaryAuthorization>(v.clone())
+                    .ok()
+            });
+        let build_config = config.pointer("/config/build_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_run_v2::model::BuildConfig>(v.clone()).ok()
+        });
         let client = config.optional_str("/config/client").map(String::from);
         let client_version = config
             .optional_str("/config/client_version")
             .map(String::from);
-        // TODO: extract custom_audiences (Array(String)) from config["/config/custom_audiences"]
+        let custom_audiences = config
+            .pointer("/config/custom_audiences")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let default_uri_disabled = config.optional_bool("/config/default_uri_disabled");
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
         let etag = config.optional_str("/config/etag").map(String::from);
         let iap_enabled = config.optional_bool("/config/iap_enabled");
-        // TODO: extract ingress (Enum(IngressTraffic)) from config["/config/ingress"]
+        let ingress = config.optional_str("/config/ingress").map(String::from);
         let invoker_iam_disabled = config.optional_bool("/config/invoker_iam_disabled");
-        // TODO: extract labels (Record) from config["/identity/labels"]
-        // TODO: extract launch_stage (Enum(LaunchStage)) from config["/config/launch_stage"]
-        // TODO: extract multi_region_settings (Enum(MultiRegionSettings)) from config["/config/multi_region_settings"]
+        let _labels = config
+            .pointer("/identity/labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        // TODO: extract launch_stage (Nested(LaunchStage)) from config["/config/launch_stage"] — type path unknown
+        let multi_region_settings = config
+            .pointer("/config/multi_region_settings")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_run_v2::model::service::MultiRegionSettings>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract scaling (Nested(ServiceScaling)) from config["/config/scaling"]
-        // TODO: extract template (Nested(RevisionTemplate)) from config["/config/template"]
-        // TODO: extract traffic (Array(Nested(TrafficTarget))) from config["/config/traffic"]
+        let scaling = config.pointer("/config/scaling").and_then(|v| {
+            serde_json::from_value::<google_cloud_run_v2::model::ServiceScaling>(v.clone()).ok()
+        });
+        let template = config.pointer("/config/template").and_then(|v| {
+            serde_json::from_value::<google_cloud_run_v2::model::RevisionTemplate>(v.clone()).ok()
+        });
+        let traffic = config.pointer("/config/traffic").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_run_v2::model::TrafficTarget>>(v.clone()).ok()
+        });
 
         let labels = super::extract_labels(config);
         // Build SDK model
         let mut model = google_cloud_run_v2::model::Service::default();
-        // TODO: set annotations on model via .set_annotations()
-        // TODO: set binary_authorization on model via .set_binary_authorization()
-        // TODO: set build_config on model via .set_build_config()
+        if let Some(v) = annotations {
+            model = model.set_annotations(v);
+        }
+        if let Some(v) = binary_authorization {
+            model = model.set_binary_authorization(v);
+        }
+        if let Some(v) = build_config {
+            model = model.set_build_config(v);
+        }
         if let Some(v) = client {
             model = model.set_client(v);
         }
         if let Some(v) = client_version {
             model = model.set_client_version(v);
         }
-        // TODO: set custom_audiences on model via .set_custom_audiences()
+        if let Some(v) = custom_audiences {
+            model = model.set_custom_audiences(v);
+        }
         if let Some(v) = default_uri_disabled {
             model = model.set_default_uri_disabled(v);
         }
@@ -237,16 +271,26 @@ impl GcpProvider {
         if let Some(v) = iap_enabled {
             model = model.set_iap_enabled(v);
         }
-        // TODO: set ingress on model via .set_ingress()
+        if let Some(ref s) = ingress {
+            model = model.set_ingress(google_cloud_run_v2::model::IngressTraffic::from(s.as_str()));
+        }
         if let Some(v) = invoker_iam_disabled {
             model = model.set_invoker_iam_disabled(v);
         }
-        // TODO: set launch_stage on model via .set_launch_stage()
-        // TODO: set multi_region_settings on model via .set_multi_region_settings()
+        // TODO: set launch_stage on model via .set_launch_stage() — type path unknown
+        if let Some(v) = multi_region_settings {
+            model = model.set_multi_region_settings(v);
+        }
         model = model.set_name(name.clone());
-        // TODO: set scaling on model via .set_scaling()
-        // TODO: set template on model via .set_template()
-        // TODO: set traffic on model via .set_traffic()
+        if let Some(v) = scaling {
+            model = model.set_scaling(v);
+        }
+        if let Some(v) = template {
+            model = model.set_template(v);
+        }
+        if let Some(v) = traffic {
+            model = model.set_traffic(v);
+        }
         model = model.set_labels(labels);
 
         // Make API call
@@ -300,22 +344,22 @@ impl GcpProvider {
                 "name": service.name.as_str(),
             },
             "config": {
-                "annotations": serde_json::Value::Null /* TODO: annotations is complex type */,
-                "binary_authorization": serde_json::Value::Null /* TODO: binary_authorization is complex type */,
-                "build_config": serde_json::Value::Null /* TODO: build_config is complex type */,
+                "annotations": &service.annotations,
+                "binary_authorization": &service.binary_authorization,
+                "build_config": &service.build_config,
                 "client": service.client.as_str(),
                 "client_version": service.client_version.as_str(),
-                "custom_audiences": serde_json::Value::Null /* TODO: custom_audiences is complex type */,
+                "custom_audiences": &service.custom_audiences,
                 "default_uri_disabled": service.default_uri_disabled,
                 "etag": service.etag.as_str(),
                 "iap_enabled": service.iap_enabled,
-                "ingress": serde_json::Value::Null /* TODO: ingress is complex type */,
+                "ingress": &service.ingress,
                 "invoker_iam_disabled": service.invoker_iam_disabled,
-                "launch_stage": serde_json::Value::Null /* TODO: launch_stage is complex type */,
-                "multi_region_settings": serde_json::Value::Null /* TODO: multi_region_settings is complex type */,
-                "scaling": serde_json::Value::Null /* TODO: scaling is complex type */,
-                "template": serde_json::Value::Null /* TODO: template is complex type */,
-                "traffic": serde_json::Value::Null /* TODO: traffic is complex type */,
+                "launch_stage": serde_json::Value::Null,
+                "multi_region_settings": &service.multi_region_settings,
+                "scaling": &service.scaling,
+                "template": &service.template,
+                "traffic": &service.traffic,
             },
         });
 
@@ -398,7 +442,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "binary_authorization".into(),
                                 description: "Settings for the Binary Authorization feature.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(BinaryAuthorization) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -422,7 +466,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "create_execution".into(),
                                 description: "".into(),
-                                field_type: crate::provider::FieldType::Enum(vec!["TODO: list variants for CreateExecution".into()]),
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -438,7 +482,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "launch_stage".into(),
                                 description: "The launch stage as defined by [Google Cloud Platform".into(),
-                                field_type: crate::provider::FieldType::Enum(vec!["TODO: list variants for LaunchStage".into()]),
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -446,7 +490,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "template".into(),
                                 description: "Required. The template used to create executions for this Job.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(ExecutionTemplate) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -463,37 +507,54 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        // TODO: extract annotations (Record) from config["/config/annotations"]
-        // TODO: extract binary_authorization (Nested(BinaryAuthorization)) from config["/config/binary_authorization"]
+        let annotations = config
+            .pointer("/config/annotations")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        let binary_authorization = config
+            .pointer("/config/binary_authorization")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_run_v2::model::BinaryAuthorization>(v.clone())
+                    .ok()
+            });
         let client = config.optional_str("/config/client").map(String::from);
         let client_version = config
             .optional_str("/config/client_version")
             .map(String::from);
-        // TODO: extract create_execution (Enum(CreateExecution)) from config["/config/create_execution"]
+        // TODO: extract create_execution (Nested(CreateExecution)) from config["/config/create_execution"] — type path unknown
         let etag = config.optional_str("/config/etag").map(String::from);
-        // TODO: extract labels (Record) from config["/identity/labels"]
-        // TODO: extract launch_stage (Enum(LaunchStage)) from config["/config/launch_stage"]
+        let _labels = config
+            .pointer("/identity/labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        // TODO: extract launch_stage (Nested(LaunchStage)) from config["/config/launch_stage"] — type path unknown
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract template (Nested(ExecutionTemplate)) from config["/config/template"]
+        let template = config.pointer("/config/template").and_then(|v| {
+            serde_json::from_value::<google_cloud_run_v2::model::ExecutionTemplate>(v.clone()).ok()
+        });
 
         let labels = super::extract_labels(config);
         // Build SDK model
         let mut model = google_cloud_run_v2::model::Job::default();
-        // TODO: set annotations on model via .set_annotations()
-        // TODO: set binary_authorization on model via .set_binary_authorization()
+        if let Some(v) = annotations {
+            model = model.set_annotations(v);
+        }
+        if let Some(v) = binary_authorization {
+            model = model.set_binary_authorization(v);
+        }
         if let Some(v) = client {
             model = model.set_client(v);
         }
         if let Some(v) = client_version {
             model = model.set_client_version(v);
         }
-        // TODO: set create_execution on model via .set_create_execution()
+        // TODO: set create_execution on model via .set_create_execution() — type path unknown
         if let Some(v) = etag {
             model = model.set_etag(v);
         }
-        // TODO: set launch_stage on model via .set_launch_stage()
+        // TODO: set launch_stage on model via .set_launch_stage() — type path unknown
         model = model.set_name(name.clone());
-        // TODO: set template on model via .set_template()
+        if let Some(v) = template {
+            model = model.set_template(v);
+        }
         model = model.set_labels(labels);
 
         // Make API call
@@ -546,14 +607,14 @@ impl GcpProvider {
                 "name": job.name.as_str(),
             },
             "config": {
-                "annotations": serde_json::Value::Null /* TODO: annotations is complex type */,
-                "binary_authorization": serde_json::Value::Null /* TODO: binary_authorization is complex type */,
+                "annotations": &job.annotations,
+                "binary_authorization": &job.binary_authorization,
                 "client": job.client.as_str(),
                 "client_version": job.client_version.as_str(),
-                "create_execution": serde_json::Value::Null /* TODO: create_execution is complex type */,
+                "create_execution": serde_json::Value::Null,
                 "etag": job.etag.as_str(),
-                "launch_stage": serde_json::Value::Null /* TODO: launch_stage is complex type */,
-                "template": serde_json::Value::Null /* TODO: template is complex type */,
+                "launch_stage": serde_json::Value::Null,
+                "template": &job.template,
             },
         });
 

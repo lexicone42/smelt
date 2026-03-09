@@ -59,7 +59,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "customer_managed_encryption".into(),
                                 description: "Optional. The customer-managed encryption configuration of the regionalized".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(CustomerManagedEncryption) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -75,7 +75,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "expiration".into(),
                                 description: "Expiration policy attached to the".into(),
-                                field_type: crate::provider::FieldType::Enum(vec!["TODO: list variants for Expiration".into()]),
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -83,7 +83,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "rotation".into(),
                                 description: "Optional. Rotation policy attached to the".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(Rotation) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -91,7 +91,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "topics".into(),
                                 description: "Optional. A list of up to 10 Pub/Sub topics to which messages are published".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(Topic) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -107,7 +107,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "version_destroy_ttl".into(),
                                 description: "Optional. Secret Version TTL after destruction request".into(),
-                                field_type: crate::provider::FieldType::String /* Duration */,
+                                field_type: crate::provider::FieldType::String,
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -121,7 +121,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "replication".into(),
                                 description: "Optional. Immutable. The replication policy of the secret data attached to".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(Replication) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -138,35 +138,76 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        // TODO: extract annotations (Record) from config["/config/annotations"]
-        // TODO: extract customer_managed_encryption (Nested(CustomerManagedEncryption)) from config["/config/customer_managed_encryption"]
+        let annotations = config
+            .pointer("/config/annotations")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        let customer_managed_encryption = config
+            .pointer("/config/customer_managed_encryption")
+            .and_then(|v| {
+                serde_json::from_value::<
+                    google_cloud_secretmanager_v1::model::CustomerManagedEncryption,
+                >(v.clone())
+                .ok()
+            });
         let etag = config.optional_str("/config/etag").map(String::from);
-        // TODO: extract expiration (Enum(Expiration)) from config["/config/expiration"]
-        // TODO: extract labels (Record) from config["/identity/labels"]
+        // TODO: extract expiration (Nested(Expiration)) from config["/config/expiration"] — type path unknown
+        let _labels = config
+            .pointer("/identity/labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract replication (Nested(Replication)) from config["/reliability/replication"]
-        // TODO: extract rotation (Nested(Rotation)) from config["/config/rotation"]
-        // TODO: extract tags (Record) from config["/identity/tags"]
-        // TODO: extract topics (Array(Nested(Topic))) from config["/config/topics"]
-        // TODO: extract version_aliases (Record) from config["/config/version_aliases"]
-        // TODO: extract version_destroy_ttl (Duration) from config["/config/version_destroy_ttl"]
+        let replication = config.pointer("/reliability/replication").and_then(|v| {
+            serde_json::from_value::<google_cloud_secretmanager_v1::model::Replication>(v.clone())
+                .ok()
+        });
+        let rotation = config.pointer("/config/rotation").and_then(|v| {
+            serde_json::from_value::<google_cloud_secretmanager_v1::model::Rotation>(v.clone()).ok()
+        });
+        let tags = config
+            .pointer("/identity/tags")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        let topics = config.pointer("/config/topics").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_secretmanager_v1::model::Topic>>(v.clone())
+                .ok()
+        });
+        let version_aliases = config
+            .pointer("/config/version_aliases")
+            .and_then(|v| serde_json::from_value::<HashMap<String, i64>>(v.clone()).ok());
+        let version_destroy_ttl = config
+            .pointer("/config/version_destroy_ttl")
+            .and_then(|v| serde_json::from_value::<google_cloud_wkt::Duration>(v.clone()).ok());
 
         let labels = super::extract_labels(config);
         // Build SDK model
         let mut model = google_cloud_secretmanager_v1::model::Secret::default();
-        // TODO: set annotations on model via .set_annotations()
-        // TODO: set customer_managed_encryption on model via .set_customer_managed_encryption()
+        if let Some(v) = annotations {
+            model = model.set_annotations(v);
+        }
+        if let Some(v) = customer_managed_encryption {
+            model = model.set_customer_managed_encryption(v);
+        }
         if let Some(v) = etag {
             model = model.set_etag(v);
         }
-        // TODO: set expiration on model via .set_expiration()
+        // TODO: set expiration on model via .set_expiration() — type path unknown
         model = model.set_name(name.clone());
-        // TODO: set replication on model via .set_replication()
-        // TODO: set rotation on model via .set_rotation()
-        // TODO: set tags on model via .set_tags()
-        // TODO: set topics on model via .set_topics()
-        // TODO: set version_aliases on model via .set_version_aliases()
-        // TODO: set version_destroy_ttl on model via .set_version_destroy_ttl()
+        if let Some(v) = replication {
+            model = model.set_replication(v);
+        }
+        if let Some(v) = rotation {
+            model = model.set_rotation(v);
+        }
+        if let Some(v) = tags {
+            model = model.set_tags(v);
+        }
+        if let Some(v) = topics {
+            model = model.set_topics(v);
+        }
+        if let Some(v) = version_aliases {
+            model = model.set_version_aliases(v);
+        }
+        if let Some(v) = version_destroy_ttl {
+            model = model.set_version_destroy_ttl(v);
+        }
         model = model.set_labels(labels);
 
         // Make API call
@@ -214,20 +255,20 @@ impl GcpProvider {
             "identity": {
                 "labels": user_labels,
                 "name": secret.name.as_str(),
-                "tags": serde_json::Value::Null /* TODO: tags is complex type */,
+                "tags": &secret.tags,
             },
             "config": {
-                "annotations": serde_json::Value::Null /* TODO: annotations is complex type */,
-                "customer_managed_encryption": serde_json::Value::Null /* TODO: customer_managed_encryption is complex type */,
+                "annotations": &secret.annotations,
+                "customer_managed_encryption": &secret.customer_managed_encryption,
                 "etag": secret.etag.as_str(),
-                "expiration": serde_json::Value::Null /* TODO: expiration is complex type */,
-                "rotation": serde_json::Value::Null /* TODO: rotation is complex type */,
-                "topics": serde_json::Value::Null /* TODO: topics is complex type */,
-                "version_aliases": serde_json::Value::Null /* TODO: version_aliases is complex type */,
-                "version_destroy_ttl": serde_json::Value::Null /* TODO: version_destroy_ttl is complex type */,
+                "expiration": serde_json::Value::Null,
+                "rotation": &secret.rotation,
+                "topics": &secret.topics,
+                "version_aliases": &secret.version_aliases,
+                "version_destroy_ttl": &secret.version_destroy_ttl,
             },
             "reliability": {
-                "replication": serde_json::Value::Null /* TODO: replication is complex type */,
+                "replication": &secret.replication,
             },
         });
 
@@ -252,32 +293,71 @@ impl GcpProvider {
             .unwrap_or(provider_id)
             .to_string();
         // Extract fields from config
-        // TODO: extract annotations (Record) from config["/config/annotations"]
-        // TODO: extract customer_managed_encryption (Nested(CustomerManagedEncryption)) from config["/config/customer_managed_encryption"]
+        let annotations = config
+            .pointer("/config/annotations")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        let customer_managed_encryption = config
+            .pointer("/config/customer_managed_encryption")
+            .and_then(|v| {
+                serde_json::from_value::<
+                    google_cloud_secretmanager_v1::model::CustomerManagedEncryption,
+                >(v.clone())
+                .ok()
+            });
         let etag = config.optional_str("/config/etag").map(String::from);
-        // TODO: extract expiration (Enum(Expiration)) from config["/config/expiration"]
-        // TODO: extract replication (Nested(Replication)) from config["/reliability/replication"]
-        // TODO: extract rotation (Nested(Rotation)) from config["/config/rotation"]
-        // TODO: extract tags (Record) from config["/identity/tags"]
-        // TODO: extract topics (Array(Nested(Topic))) from config["/config/topics"]
-        // TODO: extract version_aliases (Record) from config["/config/version_aliases"]
-        // TODO: extract version_destroy_ttl (Duration) from config["/config/version_destroy_ttl"]
+        // TODO: extract expiration (Nested(Expiration)) from config["/config/expiration"] — type path unknown
+        let replication = config.pointer("/reliability/replication").and_then(|v| {
+            serde_json::from_value::<google_cloud_secretmanager_v1::model::Replication>(v.clone())
+                .ok()
+        });
+        let rotation = config.pointer("/config/rotation").and_then(|v| {
+            serde_json::from_value::<google_cloud_secretmanager_v1::model::Rotation>(v.clone()).ok()
+        });
+        let tags = config
+            .pointer("/identity/tags")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        let topics = config.pointer("/config/topics").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_secretmanager_v1::model::Topic>>(v.clone())
+                .ok()
+        });
+        let version_aliases = config
+            .pointer("/config/version_aliases")
+            .and_then(|v| serde_json::from_value::<HashMap<String, i64>>(v.clone()).ok());
+        let version_destroy_ttl = config
+            .pointer("/config/version_destroy_ttl")
+            .and_then(|v| serde_json::from_value::<google_cloud_wkt::Duration>(v.clone()).ok());
         let labels = super::extract_labels(config);
 
         let mut model = google_cloud_secretmanager_v1::model::Secret::default();
         model = model.set_name(provider_id);
-        // TODO: set annotations on model via .set_annotations()
-        // TODO: set customer_managed_encryption on model via .set_customer_managed_encryption()
+        if let Some(v) = annotations {
+            model = model.set_annotations(v);
+        }
+        if let Some(v) = customer_managed_encryption {
+            model = model.set_customer_managed_encryption(v);
+        }
         if let Some(v) = etag {
             model = model.set_etag(v);
         }
-        // TODO: set expiration on model via .set_expiration()
-        // TODO: set replication on model via .set_replication()
-        // TODO: set rotation on model via .set_rotation()
-        // TODO: set tags on model via .set_tags()
-        // TODO: set topics on model via .set_topics()
-        // TODO: set version_aliases on model via .set_version_aliases()
-        // TODO: set version_destroy_ttl on model via .set_version_destroy_ttl()
+        // TODO: set expiration on model via .set_expiration() — type path unknown
+        if let Some(v) = replication {
+            model = model.set_replication(v);
+        }
+        if let Some(v) = rotation {
+            model = model.set_rotation(v);
+        }
+        if let Some(v) = tags {
+            model = model.set_tags(v);
+        }
+        if let Some(v) = topics {
+            model = model.set_topics(v);
+        }
+        if let Some(v) = version_aliases {
+            model = model.set_version_aliases(v);
+        }
+        if let Some(v) = version_destroy_ttl {
+            model = model.set_version_destroy_ttl(v);
+        }
         model = model.set_labels(labels);
 
         self.secretmanager()

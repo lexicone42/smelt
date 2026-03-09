@@ -51,7 +51,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "build_config".into(),
                                 description: "Describes the Build step of the function that builds a container from the".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(BuildConfig) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -67,7 +67,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "event_trigger".into(),
                                 description: "An Eventarc trigger managed by Google Cloud Functions that fires events in".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(EventTrigger) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -75,7 +75,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "service_config".into(),
                                 description: "Describes the Service being deployed. Currently deploys services to Cloud".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(ServiceConfig) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -106,33 +106,52 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        // TODO: extract build_config (Nested(BuildConfig)) from config["/config/build_config"]
+        let build_config = config.pointer("/config/build_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_functions_v2::model::BuildConfig>(v.clone()).ok()
+        });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract environment (Enum(Environment)) from config["/config/environment"]
-        // TODO: extract event_trigger (Nested(EventTrigger)) from config["/config/event_trigger"]
+        let environment = config.optional_str("/config/environment").map(String::from);
+        let event_trigger = config.pointer("/config/event_trigger").and_then(|v| {
+            serde_json::from_value::<google_cloud_functions_v2::model::EventTrigger>(v.clone()).ok()
+        });
         let kms_key_name = config
             .optional_str("/security/kms_key_name")
             .map(String::from);
-        // TODO: extract labels (Record) from config["/identity/labels"]
+        let _labels = config
+            .pointer("/identity/labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract service_config (Nested(ServiceConfig)) from config["/config/service_config"]
+        let service_config = config.pointer("/config/service_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_functions_v2::model::ServiceConfig>(v.clone())
+                .ok()
+        });
 
         let labels = super::extract_labels(config);
         // Build SDK model
         let mut model = google_cloud_functions_v2::model::Function::default();
-        // TODO: set build_config on model via .set_build_config()
+        if let Some(v) = build_config {
+            model = model.set_build_config(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set environment on model via .set_environment()
-        // TODO: set event_trigger on model via .set_event_trigger()
+        if let Some(ref s) = environment {
+            model = model.set_environment(google_cloud_functions_v2::model::Environment::from(
+                s.as_str(),
+            ));
+        }
+        if let Some(v) = event_trigger {
+            model = model.set_event_trigger(v);
+        }
         if let Some(v) = kms_key_name {
             model = model.set_kms_key_name(v);
         }
         model = model.set_name(name.clone());
-        // TODO: set service_config on model via .set_service_config()
+        if let Some(v) = service_config {
+            model = model.set_service_config(v);
+        }
         model = model.set_labels(labels);
 
         // Make API call
@@ -186,10 +205,10 @@ impl GcpProvider {
                 "name": function.name.as_str(),
             },
             "config": {
-                "build_config": serde_json::Value::Null /* TODO: build_config is complex type */,
-                "environment": serde_json::Value::Null /* TODO: environment is complex type */,
-                "event_trigger": serde_json::Value::Null /* TODO: event_trigger is complex type */,
-                "service_config": serde_json::Value::Null /* TODO: service_config is complex type */,
+                "build_config": &function.build_config,
+                "environment": &function.environment,
+                "event_trigger": &function.event_trigger,
+                "service_config": &function.service_config,
             },
             "security": {
                 "kms_key_name": function.kms_key_name.as_str(),
@@ -217,30 +236,47 @@ impl GcpProvider {
             .unwrap_or(provider_id)
             .to_string();
         // Extract fields from config
-        // TODO: extract build_config (Nested(BuildConfig)) from config["/config/build_config"]
+        let build_config = config.pointer("/config/build_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_functions_v2::model::BuildConfig>(v.clone()).ok()
+        });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract environment (Enum(Environment)) from config["/config/environment"]
-        // TODO: extract event_trigger (Nested(EventTrigger)) from config["/config/event_trigger"]
+        let environment = config.optional_str("/config/environment").map(String::from);
+        let event_trigger = config.pointer("/config/event_trigger").and_then(|v| {
+            serde_json::from_value::<google_cloud_functions_v2::model::EventTrigger>(v.clone()).ok()
+        });
         let kms_key_name = config
             .optional_str("/security/kms_key_name")
             .map(String::from);
-        // TODO: extract service_config (Nested(ServiceConfig)) from config["/config/service_config"]
+        let service_config = config.pointer("/config/service_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_functions_v2::model::ServiceConfig>(v.clone())
+                .ok()
+        });
         let labels = super::extract_labels(config);
 
         let mut model = google_cloud_functions_v2::model::Function::default();
         model = model.set_name(provider_id);
-        // TODO: set build_config on model via .set_build_config()
+        if let Some(v) = build_config {
+            model = model.set_build_config(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set environment on model via .set_environment()
-        // TODO: set event_trigger on model via .set_event_trigger()
+        if let Some(ref s) = environment {
+            model = model.set_environment(google_cloud_functions_v2::model::Environment::from(
+                s.as_str(),
+            ));
+        }
+        if let Some(v) = event_trigger {
+            model = model.set_event_trigger(v);
+        }
         if let Some(v) = kms_key_name {
             model = model.set_kms_key_name(v);
         }
-        // TODO: set service_config on model via .set_service_config()
+        if let Some(v) = service_config {
+            model = model.set_service_config(v);
+        }
         model = model.set_labels(labels);
 
         self.functions()

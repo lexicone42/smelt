@@ -332,8 +332,9 @@ fn resolve_type(st: &mut SimplifiedType, source: &str) {
     // Extract the type name to check, avoiding borrow issues
     let reclassify = match st {
         SimplifiedType::Enum(type_name) => {
-            let top_struct = format!(r"(?m)^pub struct {}\b", regex::escape(type_name));
-            if Regex::new(&top_struct).unwrap().is_match(source) {
+            // Check if this type name is a struct (possibly inside a module, hence \s*)
+            let struct_re = format!(r"(?m)^\s*pub struct {}\b", regex::escape(type_name));
+            if Regex::new(&struct_re).unwrap().is_match(source) {
                 Some(SimplifiedType::Nested(type_name.clone()))
             } else {
                 None
@@ -448,7 +449,7 @@ fn classify_type_inner(t: &str) -> (SimplifiedType, bool) {
         "i64" => (SimplifiedType::I64, false),
         "u32" => (SimplifiedType::U32, false),
         "u64" => (SimplifiedType::U64, false),
-        "f64" => (SimplifiedType::F64, false),
+        "f32" | "f64" => (SimplifiedType::F64, false),
         "bytes::Bytes" => (SimplifiedType::Bytes, false),
         s if s.contains("Duration") => (SimplifiedType::Duration, false),
         s if s.contains("Timestamp") => (SimplifiedType::Timestamp, false),

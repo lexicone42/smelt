@@ -251,6 +251,7 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
                     deprecated: false,
                     skip: false,
                     optional: true,
+                    sdk_type_path: None,
                 },
             );
         }

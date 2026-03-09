@@ -4236,6 +4236,7 @@ dependencies = [
  "chumsky",
  "clap",
  "futures",
+ "google-cloud-api",
  "google-cloud-auth",
  "google-cloud-compute-v1",
  "google-cloud-container-v1",

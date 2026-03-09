@@ -152,7 +152,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "destroy_scheduled_duration".into(),
                                 description: "Immutable. The period of time that versions of this key spend in the".into(),
-                                field_type: crate::provider::FieldType::String /* Duration */,
+                                field_type: crate::provider::FieldType::String,
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -168,7 +168,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "next_rotation_time".into(),
                                 description: "At [next_rotation_time][google.cloud.kms.v1.CryptoKey.next_rotation_time],".into(),
-                                field_type: crate::provider::FieldType::String /* Timestamp */,
+                                field_type: crate::provider::FieldType::String,
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -184,7 +184,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "rotation_schedule".into(),
                                 description: "Controls the rate of automatic rotation.".into(),
-                                field_type: crate::provider::FieldType::Enum(vec!["TODO: list variants for RotationSchedule".into()]),
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -192,7 +192,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "version_template".into(),
                                 description: "A template describing settings for new".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(CryptoKeyVersionTemplate) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -212,14 +212,25 @@ impl GcpProvider {
         let crypto_key_backend = config
             .optional_str("/config/crypto_key_backend")
             .map(String::from);
-        // TODO: extract destroy_scheduled_duration (Duration) from config["/config/destroy_scheduled_duration"]
+        let destroy_scheduled_duration = config
+            .pointer("/config/destroy_scheduled_duration")
+            .and_then(|v| serde_json::from_value::<google_cloud_wkt::Duration>(v.clone()).ok());
         let import_only = config.optional_bool("/config/import_only");
-        // TODO: extract labels (Record) from config["/identity/labels"]
+        let _labels = config
+            .pointer("/identity/labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract next_rotation_time (Timestamp) from config["/config/next_rotation_time"]
-        // TODO: extract purpose (Enum(CryptoKeyPurpose)) from config["/config/purpose"]
-        // TODO: extract rotation_schedule (Enum(RotationSchedule)) from config["/config/rotation_schedule"]
-        // TODO: extract version_template (Nested(CryptoKeyVersionTemplate)) from config["/config/version_template"]
+        let next_rotation_time = config
+            .pointer("/config/next_rotation_time")
+            .and_then(|v| serde_json::from_value::<google_cloud_wkt::Timestamp>(v.clone()).ok());
+        let purpose = config.optional_str("/config/purpose").map(String::from);
+        // TODO: extract rotation_schedule (Nested(RotationSchedule)) from config["/config/rotation_schedule"] — type path unknown
+        let version_template = config.pointer("/config/version_template").and_then(|v| {
+            serde_json::from_value::<google_cloud_kms_v1::model::CryptoKeyVersionTemplate>(
+                v.clone(),
+            )
+            .ok()
+        });
 
         let labels = super::extract_labels(config);
         // Build SDK model
@@ -227,15 +238,25 @@ impl GcpProvider {
         if let Some(v) = crypto_key_backend {
             model = model.set_crypto_key_backend(v);
         }
-        // TODO: set destroy_scheduled_duration on model via .set_destroy_scheduled_duration()
+        if let Some(v) = destroy_scheduled_duration {
+            model = model.set_destroy_scheduled_duration(v);
+        }
         if let Some(v) = import_only {
             model = model.set_import_only(v);
         }
         model = model.set_name(name.clone());
-        // TODO: set next_rotation_time on model via .set_next_rotation_time()
-        // TODO: set purpose on model via .set_purpose()
-        // TODO: set rotation_schedule on model via .set_rotation_schedule()
-        // TODO: set version_template on model via .set_version_template()
+        if let Some(v) = next_rotation_time {
+            model = model.set_next_rotation_time(v);
+        }
+        if let Some(ref s) = purpose {
+            model = model.set_purpose(
+                google_cloud_kms_v1::model::crypto_key::CryptoKeyPurpose::from(s.as_str()),
+            );
+        }
+        // TODO: set rotation_schedule on model via .set_rotation_schedule() — type path unknown
+        if let Some(v) = version_template {
+            model = model.set_version_template(v);
+        }
         model = model.set_labels(labels);
 
         // Make API call
@@ -289,12 +310,12 @@ impl GcpProvider {
             },
             "config": {
                 "crypto_key_backend": crypto_key.crypto_key_backend.as_str(),
-                "destroy_scheduled_duration": serde_json::Value::Null /* TODO: destroy_scheduled_duration is complex type */,
+                "destroy_scheduled_duration": &crypto_key.destroy_scheduled_duration,
                 "import_only": crypto_key.import_only,
-                "next_rotation_time": serde_json::Value::Null /* TODO: next_rotation_time is complex type */,
-                "purpose": serde_json::Value::Null /* TODO: purpose is complex type */,
-                "rotation_schedule": serde_json::Value::Null /* TODO: rotation_schedule is complex type */,
-                "version_template": serde_json::Value::Null /* TODO: version_template is complex type */,
+                "next_rotation_time": &crypto_key.next_rotation_time,
+                "purpose": &crypto_key.purpose,
+                "rotation_schedule": serde_json::Value::Null,
+                "version_template": &crypto_key.version_template,
             },
         });
 
@@ -322,12 +343,21 @@ impl GcpProvider {
         let crypto_key_backend = config
             .optional_str("/config/crypto_key_backend")
             .map(String::from);
-        // TODO: extract destroy_scheduled_duration (Duration) from config["/config/destroy_scheduled_duration"]
+        let destroy_scheduled_duration = config
+            .pointer("/config/destroy_scheduled_duration")
+            .and_then(|v| serde_json::from_value::<google_cloud_wkt::Duration>(v.clone()).ok());
         let import_only = config.optional_bool("/config/import_only");
-        // TODO: extract next_rotation_time (Timestamp) from config["/config/next_rotation_time"]
-        // TODO: extract purpose (Enum(CryptoKeyPurpose)) from config["/config/purpose"]
-        // TODO: extract rotation_schedule (Enum(RotationSchedule)) from config["/config/rotation_schedule"]
-        // TODO: extract version_template (Nested(CryptoKeyVersionTemplate)) from config["/config/version_template"]
+        let next_rotation_time = config
+            .pointer("/config/next_rotation_time")
+            .and_then(|v| serde_json::from_value::<google_cloud_wkt::Timestamp>(v.clone()).ok());
+        let purpose = config.optional_str("/config/purpose").map(String::from);
+        // TODO: extract rotation_schedule (Nested(RotationSchedule)) from config["/config/rotation_schedule"] — type path unknown
+        let version_template = config.pointer("/config/version_template").and_then(|v| {
+            serde_json::from_value::<google_cloud_kms_v1::model::CryptoKeyVersionTemplate>(
+                v.clone(),
+            )
+            .ok()
+        });
         let labels = super::extract_labels(config);
 
         let mut model = google_cloud_kms_v1::model::CryptoKey::default();
@@ -335,14 +365,24 @@ impl GcpProvider {
         if let Some(v) = crypto_key_backend {
             model = model.set_crypto_key_backend(v);
         }
-        // TODO: set destroy_scheduled_duration on model via .set_destroy_scheduled_duration()
+        if let Some(v) = destroy_scheduled_duration {
+            model = model.set_destroy_scheduled_duration(v);
+        }
         if let Some(v) = import_only {
             model = model.set_import_only(v);
         }
-        // TODO: set next_rotation_time on model via .set_next_rotation_time()
-        // TODO: set purpose on model via .set_purpose()
-        // TODO: set rotation_schedule on model via .set_rotation_schedule()
-        // TODO: set version_template on model via .set_version_template()
+        if let Some(v) = next_rotation_time {
+            model = model.set_next_rotation_time(v);
+        }
+        if let Some(ref s) = purpose {
+            model = model.set_purpose(
+                google_cloud_kms_v1::model::crypto_key::CryptoKeyPurpose::from(s.as_str()),
+            );
+        }
+        // TODO: set rotation_schedule on model via .set_rotation_schedule() — type path unknown
+        if let Some(v) = version_template {
+            model = model.set_version_template(v);
+        }
         model = model.set_labels(labels);
 
         self.kms()

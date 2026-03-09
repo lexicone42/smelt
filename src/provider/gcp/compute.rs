@@ -67,7 +67,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "params".into(),
                                 description: "Input only. [Input Only] Additional params passed with the request, but not persisted".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(NetworkParams) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -97,7 +97,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "routing_config".into(),
                                 description: "The network-level routing configuration for this network.  Used by Cloud".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(NetworkRoutingConfig) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -127,8 +127,15 @@ impl GcpProvider {
         let network_profile = config
             .optional_str("/config/network_profile")
             .map(String::from);
-        // TODO: extract params (Nested(NetworkParams)) from config["/config/params"]
-        // TODO: extract routing_config (Nested(NetworkRoutingConfig)) from config["/network/routing_config"]
+        let params = config.pointer("/config/params").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::NetworkParams>(v.clone()).ok()
+        });
+        let routing_config = config.pointer("/network/routing_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::NetworkRoutingConfig>(
+                v.clone(),
+            )
+            .ok()
+        });
 
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::Network::default();
@@ -151,8 +158,12 @@ impl GcpProvider {
         if let Some(v) = network_profile {
             model = model.set_network_profile(v);
         }
-        // TODO: set params on model via .set_params()
-        // TODO: set routing_config on model via .set_routing_config()
+        if let Some(v) = params {
+            model = model.set_params(v);
+        }
+        if let Some(v) = routing_config {
+            model = model.set_routing_config(v);
+        }
 
         // Make API call
         self.networks()
@@ -192,12 +203,12 @@ impl GcpProvider {
                 "enable_ula_internal_ipv_6": network.enable_ula_internal_ipv_6.unwrap_or(false),
                 "internal_ipv_6_range": network.internal_ipv_6_range.as_deref().unwrap_or(""),
                 "network_profile": network.network_profile.as_deref().unwrap_or(""),
-                "params": serde_json::Value::Null /* TODO: params is complex type */,
+                "params": &network.params,
             },
             "network": {
                 "auto_create_subnetworks": network.auto_create_subnetworks.unwrap_or(false),
                 "mtu": network.mtu.unwrap_or(0),
-                "routing_config": serde_json::Value::Null /* TODO: routing_config is complex type */,
+                "routing_config": &network.routing_config,
             },
         });
 
@@ -233,8 +244,15 @@ impl GcpProvider {
         let network_profile = config
             .optional_str("/config/network_profile")
             .map(String::from);
-        // TODO: extract params (Nested(NetworkParams)) from config["/config/params"]
-        // TODO: extract routing_config (Nested(NetworkRoutingConfig)) from config["/network/routing_config"]
+        let params = config.pointer("/config/params").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::NetworkParams>(v.clone()).ok()
+        });
+        let routing_config = config.pointer("/network/routing_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::NetworkRoutingConfig>(
+                v.clone(),
+            )
+            .ok()
+        });
 
         let mut model = google_cloud_compute_v1::model::Network::default();
         if let Some(v) = auto_create_subnetworks {
@@ -255,8 +273,12 @@ impl GcpProvider {
         if let Some(v) = network_profile {
             model = model.set_network_profile(v);
         }
-        // TODO: set params on model via .set_params()
-        // TODO: set routing_config on model via .set_routing_config()
+        if let Some(v) = params {
+            model = model.set_params(v);
+        }
+        if let Some(v) = routing_config {
+            model = model.set_routing_config(v);
+        }
 
         self.networks()
             .await?
@@ -370,7 +392,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "log_config".into(),
                                 description: "This field denotes the VPC flow logging options for this subnetwork.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(SubnetworkLogConfig) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -378,7 +400,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "params".into(),
                                 description: "Input only. [Input Only] Additional params passed with the request, but not persisted".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(SubnetworkParams) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -426,7 +448,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "secondary_ip_ranges".into(),
                                 description: "An array of configurations for secondary IP ranges for VM instances".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(SubnetworkSecondaryRange) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -505,21 +527,36 @@ impl GcpProvider {
         let ip_collection = config
             .optional_str("/config/ip_collection")
             .map(String::from);
-        // TODO: extract ipv_6_access_type (Enum(Ipv6AccessType)) from config["/config/ipv_6_access_type"]
-        // TODO: extract log_config (Nested(SubnetworkLogConfig)) from config["/config/log_config"]
+        let ipv_6_access_type = config
+            .optional_str("/config/ipv_6_access_type")
+            .map(String::from);
+        let log_config = config.pointer("/config/log_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::SubnetworkLogConfig>(v.clone())
+                .ok()
+        });
         let name = config.require_str("/identity/name")?.to_string();
         let network = config.optional_str("/network/network").map(String::from);
-        // TODO: extract params (Nested(SubnetworkParams)) from config["/config/params"]
+        let params = config.pointer("/config/params").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::SubnetworkParams>(v.clone())
+                .ok()
+        });
         let private_ip_google_access = config.optional_bool("/config/private_ip_google_access");
-        // TODO: extract purpose (Enum(Purpose)) from config["/config/purpose"]
+        let purpose = config.optional_str("/config/purpose").map(String::from);
         let region = config.optional_str("/sizing/region").map(String::from);
         let reserved_internal_range = config
             .optional_str("/config/reserved_internal_range")
             .map(String::from);
-        // TODO: extract resolve_subnet_mask (Enum(ResolveSubnetMask)) from config["/config/resolve_subnet_mask"]
-        // TODO: extract role (Enum(Role)) from config["/config/role"]
-        // TODO: extract secondary_ip_ranges (Array(Nested(SubnetworkSecondaryRange))) from config["/config/secondary_ip_ranges"]
-        // TODO: extract stack_type (Enum(StackType)) from config["/config/stack_type"]
+        let resolve_subnet_mask = config
+            .optional_str("/config/resolve_subnet_mask")
+            .map(String::from);
+        let role = config.optional_str("/config/role").map(String::from);
+        let secondary_ip_ranges = config.pointer("/config/secondary_ip_ranges").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::SubnetworkSecondaryRange>>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let stack_type = config.optional_str("/config/stack_type").map(String::from);
 
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::Subnetwork::default();
@@ -544,27 +581,53 @@ impl GcpProvider {
         if let Some(v) = ip_collection {
             model = model.set_ip_collection(v);
         }
-        // TODO: set ipv_6_access_type on model via .set_ipv_6_access_type()
-        // TODO: set log_config on model via .set_log_config()
+        if let Some(ref s) = ipv_6_access_type {
+            model = model.set_ipv_6_access_type(
+                google_cloud_compute_v1::model::subnetwork::Ipv6AccessType::from(s.as_str()),
+            );
+        }
+        if let Some(v) = log_config {
+            model = model.set_log_config(v);
+        }
         model = model.set_name(name.clone());
         if let Some(v) = network {
             model = model.set_network(v);
         }
-        // TODO: set params on model via .set_params()
+        if let Some(v) = params {
+            model = model.set_params(v);
+        }
         if let Some(v) = private_ip_google_access {
             model = model.set_private_ip_google_access(v);
         }
-        // TODO: set purpose on model via .set_purpose()
+        if let Some(ref s) = purpose {
+            model = model.set_purpose(google_cloud_compute_v1::model::subnetwork::Purpose::from(
+                s.as_str(),
+            ));
+        }
         if let Some(v) = region {
             model = model.set_region(v);
         }
         if let Some(v) = reserved_internal_range {
             model = model.set_reserved_internal_range(v);
         }
-        // TODO: set resolve_subnet_mask on model via .set_resolve_subnet_mask()
-        // TODO: set role on model via .set_role()
-        // TODO: set secondary_ip_ranges on model via .set_secondary_ip_ranges()
-        // TODO: set stack_type on model via .set_stack_type()
+        if let Some(ref s) = resolve_subnet_mask {
+            model = model.set_resolve_subnet_mask(
+                google_cloud_compute_v1::model::subnetwork::ResolveSubnetMask::from(s.as_str()),
+            );
+        }
+        if let Some(ref s) = role {
+            model = model.set_role(google_cloud_compute_v1::model::subnetwork::Role::from(
+                s.as_str(),
+            ));
+        }
+        if let Some(v) = secondary_ip_ranges {
+            model = model.set_secondary_ip_ranges(v);
+        }
+        if let Some(ref s) = stack_type {
+            model = model.set_stack_type(
+                google_cloud_compute_v1::model::subnetwork::StackType::from(s.as_str()),
+            );
+        }
 
         // Make API call
         let region = config.str_or("/network/region", &self.region).to_string();
@@ -609,16 +672,16 @@ impl GcpProvider {
                 "external_ipv_6_prefix": subnetwork.external_ipv_6_prefix.as_deref().unwrap_or(""),
                 "internal_ipv_6_prefix": subnetwork.internal_ipv_6_prefix.as_deref().unwrap_or(""),
                 "ip_collection": subnetwork.ip_collection.as_deref().unwrap_or(""),
-                "ipv_6_access_type": serde_json::Value::Null /* TODO: ipv_6_access_type is complex type */,
-                "log_config": serde_json::Value::Null /* TODO: log_config is complex type */,
-                "params": serde_json::Value::Null /* TODO: params is complex type */,
+                "ipv_6_access_type": &subnetwork.ipv_6_access_type,
+                "log_config": &subnetwork.log_config,
+                "params": &subnetwork.params,
                 "private_ip_google_access": subnetwork.private_ip_google_access.unwrap_or(false),
-                "purpose": serde_json::Value::Null /* TODO: purpose is complex type */,
+                "purpose": &subnetwork.purpose,
                 "reserved_internal_range": subnetwork.reserved_internal_range.as_deref().unwrap_or(""),
-                "resolve_subnet_mask": serde_json::Value::Null /* TODO: resolve_subnet_mask is complex type */,
-                "role": serde_json::Value::Null /* TODO: role is complex type */,
-                "secondary_ip_ranges": serde_json::Value::Null /* TODO: secondary_ip_ranges is complex type */,
-                "stack_type": serde_json::Value::Null /* TODO: stack_type is complex type */,
+                "resolve_subnet_mask": &subnetwork.resolve_subnet_mask,
+                "role": &subnetwork.role,
+                "secondary_ip_ranges": &subnetwork.secondary_ip_ranges,
+                "stack_type": &subnetwork.stack_type,
             },
             "network": {
                 "ip_cidr_range": subnetwork.ip_cidr_range.as_deref().unwrap_or(""),
@@ -667,19 +730,34 @@ impl GcpProvider {
         let ip_collection = config
             .optional_str("/config/ip_collection")
             .map(String::from);
-        // TODO: extract ipv_6_access_type (Enum(Ipv6AccessType)) from config["/config/ipv_6_access_type"]
-        // TODO: extract log_config (Nested(SubnetworkLogConfig)) from config["/config/log_config"]
+        let ipv_6_access_type = config
+            .optional_str("/config/ipv_6_access_type")
+            .map(String::from);
+        let log_config = config.pointer("/config/log_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::SubnetworkLogConfig>(v.clone())
+                .ok()
+        });
         let network = config.optional_str("/network/network").map(String::from);
-        // TODO: extract params (Nested(SubnetworkParams)) from config["/config/params"]
+        let params = config.pointer("/config/params").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::SubnetworkParams>(v.clone())
+                .ok()
+        });
         let private_ip_google_access = config.optional_bool("/config/private_ip_google_access");
-        // TODO: extract purpose (Enum(Purpose)) from config["/config/purpose"]
+        let purpose = config.optional_str("/config/purpose").map(String::from);
         let reserved_internal_range = config
             .optional_str("/config/reserved_internal_range")
             .map(String::from);
-        // TODO: extract resolve_subnet_mask (Enum(ResolveSubnetMask)) from config["/config/resolve_subnet_mask"]
-        // TODO: extract role (Enum(Role)) from config["/config/role"]
-        // TODO: extract secondary_ip_ranges (Array(Nested(SubnetworkSecondaryRange))) from config["/config/secondary_ip_ranges"]
-        // TODO: extract stack_type (Enum(StackType)) from config["/config/stack_type"]
+        let resolve_subnet_mask = config
+            .optional_str("/config/resolve_subnet_mask")
+            .map(String::from);
+        let role = config.optional_str("/config/role").map(String::from);
+        let secondary_ip_ranges = config.pointer("/config/secondary_ip_ranges").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::SubnetworkSecondaryRange>>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let stack_type = config.optional_str("/config/stack_type").map(String::from);
 
         let mut model = google_cloud_compute_v1::model::Subnetwork::default();
         if let Some(v) = allow_subnet_cidr_routes_overlap {
@@ -703,23 +781,49 @@ impl GcpProvider {
         if let Some(v) = ip_collection {
             model = model.set_ip_collection(v);
         }
-        // TODO: set ipv_6_access_type on model via .set_ipv_6_access_type()
-        // TODO: set log_config on model via .set_log_config()
+        if let Some(ref s) = ipv_6_access_type {
+            model = model.set_ipv_6_access_type(
+                google_cloud_compute_v1::model::subnetwork::Ipv6AccessType::from(s.as_str()),
+            );
+        }
+        if let Some(v) = log_config {
+            model = model.set_log_config(v);
+        }
         if let Some(v) = network {
             model = model.set_network(v);
         }
-        // TODO: set params on model via .set_params()
+        if let Some(v) = params {
+            model = model.set_params(v);
+        }
         if let Some(v) = private_ip_google_access {
             model = model.set_private_ip_google_access(v);
         }
-        // TODO: set purpose on model via .set_purpose()
+        if let Some(ref s) = purpose {
+            model = model.set_purpose(google_cloud_compute_v1::model::subnetwork::Purpose::from(
+                s.as_str(),
+            ));
+        }
         if let Some(v) = reserved_internal_range {
             model = model.set_reserved_internal_range(v);
         }
-        // TODO: set resolve_subnet_mask on model via .set_resolve_subnet_mask()
-        // TODO: set role on model via .set_role()
-        // TODO: set secondary_ip_ranges on model via .set_secondary_ip_ranges()
-        // TODO: set stack_type on model via .set_stack_type()
+        if let Some(ref s) = resolve_subnet_mask {
+            model = model.set_resolve_subnet_mask(
+                google_cloud_compute_v1::model::subnetwork::ResolveSubnetMask::from(s.as_str()),
+            );
+        }
+        if let Some(ref s) = role {
+            model = model.set_role(google_cloud_compute_v1::model::subnetwork::Role::from(
+                s.as_str(),
+            ));
+        }
+        if let Some(v) = secondary_ip_ranges {
+            model = model.set_secondary_ip_ranges(v);
+        }
+        if let Some(ref s) = stack_type {
+            model = model.set_stack_type(
+                google_cloud_compute_v1::model::subnetwork::StackType::from(s.as_str()),
+            );
+        }
 
         self.subnetworks()
             .await?
@@ -803,7 +907,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "log_config".into(),
                                 description: "This field denotes the logging options for a particular firewall rule. If".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(FirewallLogConfig) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -811,7 +915,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "params".into(),
                                 description: "Input only. [Input Only] Additional params passed with the request, but not persisted".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(FirewallParams) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -855,7 +959,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "allowed".into(),
                                 description: "The list of ALLOW rules specified by this firewall. Each rule specifies a".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* TODO: Enum variants */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -863,7 +967,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "denied".into(),
                                 description: "The list of DENY rules specified by this firewall. Each rule specifies a".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* TODO: Enum variants */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -920,51 +1024,102 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        // TODO: extract allowed (Array(Enum(Allowed))) from config["/security/allowed"]
-        // TODO: extract denied (Array(Enum(Denied))) from config["/security/denied"]
+        let allowed = config.pointer("/security/allowed").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::firewall::Allowed>>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let denied = config.pointer("/security/denied").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::firewall::Denied>>(
+                v.clone(),
+            )
+            .ok()
+        });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract destination_ranges (Array(String)) from config["/config/destination_ranges"]
-        // TODO: extract direction (Enum(Direction)) from config["/security/direction"]
+        let destination_ranges = config
+            .pointer("/config/destination_ranges")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let direction = config.optional_str("/security/direction").map(String::from);
         let disabled = config.optional_bool("/config/disabled");
-        // TODO: extract log_config (Nested(FirewallLogConfig)) from config["/config/log_config"]
+        let log_config = config.pointer("/config/log_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::FirewallLogConfig>(v.clone())
+                .ok()
+        });
         let name = config.require_str("/identity/name")?.to_string();
         let network = config.optional_str("/network/network").map(String::from);
-        // TODO: extract params (Nested(FirewallParams)) from config["/config/params"]
+        let params = config.pointer("/config/params").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::FirewallParams>(v.clone()).ok()
+        });
         let priority = config.optional_i64("/security/priority");
-        // TODO: extract source_ranges (Array(String)) from config["/security/source_ranges"]
-        // TODO: extract source_service_accounts (Array(String)) from config["/config/source_service_accounts"]
-        // TODO: extract source_tags (Array(String)) from config["/security/source_tags"]
-        // TODO: extract target_service_accounts (Array(String)) from config["/config/target_service_accounts"]
-        // TODO: extract target_tags (Array(String)) from config["/security/target_tags"]
+        let source_ranges = config
+            .pointer("/security/source_ranges")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let source_service_accounts = config
+            .pointer("/config/source_service_accounts")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let source_tags = config
+            .pointer("/security/source_tags")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let target_service_accounts = config
+            .pointer("/config/target_service_accounts")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let target_tags = config
+            .pointer("/security/target_tags")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
 
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::Firewall::default();
-        // TODO: set allowed on model via .set_allowed()
-        // TODO: set denied on model via .set_denied()
+        if let Some(v) = allowed {
+            model = model.set_allowed(v);
+        }
+        if let Some(v) = denied {
+            model = model.set_denied(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set destination_ranges on model via .set_destination_ranges()
-        // TODO: set direction on model via .set_direction()
+        if let Some(v) = destination_ranges {
+            model = model.set_destination_ranges(v);
+        }
+        if let Some(ref s) = direction {
+            model = model.set_direction(google_cloud_compute_v1::model::firewall::Direction::from(
+                s.as_str(),
+            ));
+        }
         if let Some(v) = disabled {
             model = model.set_disabled(v);
         }
-        // TODO: set log_config on model via .set_log_config()
+        if let Some(v) = log_config {
+            model = model.set_log_config(v);
+        }
         model = model.set_name(name.clone());
         if let Some(v) = network {
             model = model.set_network(v);
         }
-        // TODO: set params on model via .set_params()
+        if let Some(v) = params {
+            model = model.set_params(v);
+        }
         if let Some(v) = priority {
             model = model.set_priority(v as i32);
         }
-        // TODO: set source_ranges on model via .set_source_ranges()
-        // TODO: set source_service_accounts on model via .set_source_service_accounts()
-        // TODO: set source_tags on model via .set_source_tags()
-        // TODO: set target_service_accounts on model via .set_target_service_accounts()
-        // TODO: set target_tags on model via .set_target_tags()
+        if let Some(v) = source_ranges {
+            model = model.set_source_ranges(v);
+        }
+        if let Some(v) = source_service_accounts {
+            model = model.set_source_service_accounts(v);
+        }
+        if let Some(v) = source_tags {
+            model = model.set_source_tags(v);
+        }
+        if let Some(v) = target_service_accounts {
+            model = model.set_target_service_accounts(v);
+        }
+        if let Some(v) = target_tags {
+            model = model.set_target_tags(v);
+        }
 
         // Make API call
         self.firewalls()
@@ -1001,24 +1156,24 @@ impl GcpProvider {
                 "name": firewall.name.as_deref().unwrap_or(""),
             },
             "config": {
-                "destination_ranges": serde_json::Value::Null /* TODO: destination_ranges is complex type */,
+                "destination_ranges": &firewall.destination_ranges,
                 "disabled": firewall.disabled.unwrap_or(false),
-                "log_config": serde_json::Value::Null /* TODO: log_config is complex type */,
-                "params": serde_json::Value::Null /* TODO: params is complex type */,
-                "source_service_accounts": serde_json::Value::Null /* TODO: source_service_accounts is complex type */,
-                "target_service_accounts": serde_json::Value::Null /* TODO: target_service_accounts is complex type */,
+                "log_config": &firewall.log_config,
+                "params": &firewall.params,
+                "source_service_accounts": &firewall.source_service_accounts,
+                "target_service_accounts": &firewall.target_service_accounts,
             },
             "network": {
                 "network": firewall.network.as_deref().unwrap_or(""),
             },
             "security": {
-                "allowed": serde_json::Value::Null /* TODO: allowed is complex type */,
-                "denied": serde_json::Value::Null /* TODO: denied is complex type */,
-                "direction": serde_json::Value::Null /* TODO: direction is complex type */,
+                "allowed": &firewall.allowed,
+                "denied": &firewall.denied,
+                "direction": &firewall.direction,
                 "priority": firewall.priority.unwrap_or(0),
-                "source_ranges": serde_json::Value::Null /* TODO: source_ranges is complex type */,
-                "source_tags": serde_json::Value::Null /* TODO: source_tags is complex type */,
-                "target_tags": serde_json::Value::Null /* TODO: target_tags is complex type */,
+                "source_ranges": &firewall.source_ranges,
+                "source_tags": &firewall.source_tags,
+                "target_tags": &firewall.target_tags,
             },
         });
 
@@ -1042,48 +1197,99 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let name = provider_id.to_string();
         // Extract fields from config
-        // TODO: extract allowed (Array(Enum(Allowed))) from config["/security/allowed"]
-        // TODO: extract denied (Array(Enum(Denied))) from config["/security/denied"]
+        let allowed = config.pointer("/security/allowed").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::firewall::Allowed>>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let denied = config.pointer("/security/denied").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::firewall::Denied>>(
+                v.clone(),
+            )
+            .ok()
+        });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract destination_ranges (Array(String)) from config["/config/destination_ranges"]
-        // TODO: extract direction (Enum(Direction)) from config["/security/direction"]
+        let destination_ranges = config
+            .pointer("/config/destination_ranges")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let direction = config.optional_str("/security/direction").map(String::from);
         let disabled = config.optional_bool("/config/disabled");
-        // TODO: extract log_config (Nested(FirewallLogConfig)) from config["/config/log_config"]
+        let log_config = config.pointer("/config/log_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::FirewallLogConfig>(v.clone())
+                .ok()
+        });
         let network = config.optional_str("/network/network").map(String::from);
-        // TODO: extract params (Nested(FirewallParams)) from config["/config/params"]
+        let params = config.pointer("/config/params").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::FirewallParams>(v.clone()).ok()
+        });
         let priority = config.optional_i64("/security/priority");
-        // TODO: extract source_ranges (Array(String)) from config["/security/source_ranges"]
-        // TODO: extract source_service_accounts (Array(String)) from config["/config/source_service_accounts"]
-        // TODO: extract source_tags (Array(String)) from config["/security/source_tags"]
-        // TODO: extract target_service_accounts (Array(String)) from config["/config/target_service_accounts"]
-        // TODO: extract target_tags (Array(String)) from config["/security/target_tags"]
+        let source_ranges = config
+            .pointer("/security/source_ranges")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let source_service_accounts = config
+            .pointer("/config/source_service_accounts")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let source_tags = config
+            .pointer("/security/source_tags")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let target_service_accounts = config
+            .pointer("/config/target_service_accounts")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let target_tags = config
+            .pointer("/security/target_tags")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
 
         let mut model = google_cloud_compute_v1::model::Firewall::default();
-        // TODO: set allowed on model via .set_allowed()
-        // TODO: set denied on model via .set_denied()
+        if let Some(v) = allowed {
+            model = model.set_allowed(v);
+        }
+        if let Some(v) = denied {
+            model = model.set_denied(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set destination_ranges on model via .set_destination_ranges()
-        // TODO: set direction on model via .set_direction()
+        if let Some(v) = destination_ranges {
+            model = model.set_destination_ranges(v);
+        }
+        if let Some(ref s) = direction {
+            model = model.set_direction(google_cloud_compute_v1::model::firewall::Direction::from(
+                s.as_str(),
+            ));
+        }
         if let Some(v) = disabled {
             model = model.set_disabled(v);
         }
-        // TODO: set log_config on model via .set_log_config()
+        if let Some(v) = log_config {
+            model = model.set_log_config(v);
+        }
         if let Some(v) = network {
             model = model.set_network(v);
         }
-        // TODO: set params on model via .set_params()
+        if let Some(v) = params {
+            model = model.set_params(v);
+        }
         if let Some(v) = priority {
             model = model.set_priority(v as i32);
         }
-        // TODO: set source_ranges on model via .set_source_ranges()
-        // TODO: set source_service_accounts on model via .set_source_service_accounts()
-        // TODO: set source_tags on model via .set_source_tags()
-        // TODO: set target_service_accounts on model via .set_target_service_accounts()
-        // TODO: set target_tags on model via .set_target_tags()
+        if let Some(v) = source_ranges {
+            model = model.set_source_ranges(v);
+        }
+        if let Some(v) = source_service_accounts {
+            model = model.set_source_service_accounts(v);
+        }
+        if let Some(v) = source_tags {
+            model = model.set_source_tags(v);
+        }
+        if let Some(v) = target_service_accounts {
+            model = model.set_target_service_accounts(v);
+        }
+        if let Some(v) = target_tags {
+            model = model.set_target_tags(v);
+        }
 
         self.firewalls()
             .await?
@@ -1253,21 +1459,29 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
         let address = config.optional_str("/config/address").map(String::from);
-        // TODO: extract address_type (Enum(AddressType)) from config["/config/address_type"]
+        let address_type = config
+            .optional_str("/config/address_type")
+            .map(String::from);
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
         let ip_collection = config
             .optional_str("/config/ip_collection")
             .map(String::from);
-        // TODO: extract ip_version (Enum(IpVersion)) from config["/config/ip_version"]
-        // TODO: extract ipv_6_endpoint_type (Enum(Ipv6EndpointType)) from config["/config/ipv_6_endpoint_type"]
-        // TODO: extract labels (Record) from config["/identity/labels"]
+        let ip_version = config.optional_str("/config/ip_version").map(String::from);
+        let ipv_6_endpoint_type = config
+            .optional_str("/config/ipv_6_endpoint_type")
+            .map(String::from);
+        let _labels = config
+            .pointer("/identity/labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
         let network = config.optional_str("/network/network").map(String::from);
-        // TODO: extract network_tier (Enum(NetworkTier)) from config["/config/network_tier"]
+        let network_tier = config
+            .optional_str("/config/network_tier")
+            .map(String::from);
         let prefix_length = config.optional_i64("/config/prefix_length");
-        // TODO: extract purpose (Enum(Purpose)) from config["/config/purpose"]
+        let purpose = config.optional_str("/config/purpose").map(String::from);
         let subnetwork = config.optional_str("/network/subnetwork").map(String::from);
 
         let labels = super::extract_labels(config);
@@ -1276,24 +1490,44 @@ impl GcpProvider {
         if let Some(v) = address {
             model = model.set_address(v);
         }
-        // TODO: set address_type on model via .set_address_type()
+        if let Some(ref s) = address_type {
+            model = model.set_address_type(
+                google_cloud_compute_v1::model::address::AddressType::from(s.as_str()),
+            );
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
         if let Some(v) = ip_collection {
             model = model.set_ip_collection(v);
         }
-        // TODO: set ip_version on model via .set_ip_version()
-        // TODO: set ipv_6_endpoint_type on model via .set_ipv_6_endpoint_type()
+        if let Some(ref s) = ip_version {
+            model = model.set_ip_version(google_cloud_compute_v1::model::address::IpVersion::from(
+                s.as_str(),
+            ));
+        }
+        if let Some(ref s) = ipv_6_endpoint_type {
+            model = model.set_ipv_6_endpoint_type(
+                google_cloud_compute_v1::model::address::Ipv6EndpointType::from(s.as_str()),
+            );
+        }
         model = model.set_name(name.clone());
         if let Some(v) = network {
             model = model.set_network(v);
         }
-        // TODO: set network_tier on model via .set_network_tier()
+        if let Some(ref s) = network_tier {
+            model = model.set_network_tier(
+                google_cloud_compute_v1::model::address::NetworkTier::from(s.as_str()),
+            );
+        }
         if let Some(v) = prefix_length {
             model = model.set_prefix_length(v as i32);
         }
-        // TODO: set purpose on model via .set_purpose()
+        if let Some(ref s) = purpose {
+            model = model.set_purpose(google_cloud_compute_v1::model::address::Purpose::from(
+                s.as_str(),
+            ));
+        }
         if let Some(v) = subnetwork {
             model = model.set_subnetwork(v);
         }
@@ -1346,13 +1580,13 @@ impl GcpProvider {
             },
             "config": {
                 "address": address.address.as_deref().unwrap_or(""),
-                "address_type": serde_json::Value::Null /* TODO: address_type is complex type */,
+                "address_type": &address.address_type,
                 "ip_collection": address.ip_collection.as_deref().unwrap_or(""),
-                "ip_version": serde_json::Value::Null /* TODO: ip_version is complex type */,
-                "ipv_6_endpoint_type": serde_json::Value::Null /* TODO: ipv_6_endpoint_type is complex type */,
-                "network_tier": serde_json::Value::Null /* TODO: network_tier is complex type */,
+                "ip_version": &address.ip_version,
+                "ipv_6_endpoint_type": &address.ipv_6_endpoint_type,
+                "network_tier": &address.network_tier,
                 "prefix_length": address.prefix_length.unwrap_or(0),
-                "purpose": serde_json::Value::Null /* TODO: purpose is complex type */,
+                "purpose": &address.purpose,
             },
             "network": {
                 "network": address.network.as_deref().unwrap_or(""),
@@ -1459,7 +1693,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "async_primary_disk".into(),
                                 description: "Disk asynchronously replicated into this disk.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(DiskAsyncReplication) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -1467,7 +1701,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "disk_encryption_key".into(),
                                 description: "Encrypts the disk using a".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(CustomerEncryptionKey) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -1483,7 +1717,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "guest_os_features".into(),
                                 description: "A list of features to enable on the guest operating system. Applicable".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(GuestOsFeature) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -1523,7 +1757,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "params".into(),
                                 description: "Input only. [Input Only] Additional params passed with the request, but not persisted".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(DiskParams) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -1587,7 +1821,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "source_image_encryption_key".into(),
                                 description: "Thecustomer-supplied".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(CustomerEncryptionKey) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -1611,7 +1845,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "source_snapshot_encryption_key".into(),
                                 description: "Thecustomer-supplied".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(CustomerEncryptionKey) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -1658,43 +1892,84 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        // TODO: extract access_mode (Enum(AccessMode)) from config["/config/access_mode"]
-        // TODO: extract architecture (Enum(Architecture)) from config["/config/architecture"]
-        // TODO: extract async_primary_disk (Nested(DiskAsyncReplication)) from config["/config/async_primary_disk"]
+        let access_mode = config.optional_str("/config/access_mode").map(String::from);
+        let architecture = config
+            .optional_str("/config/architecture")
+            .map(String::from);
+        let async_primary_disk = config.pointer("/config/async_primary_disk").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::DiskAsyncReplication>(
+                v.clone(),
+            )
+            .ok()
+        });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract disk_encryption_key (Nested(CustomerEncryptionKey)) from config["/config/disk_encryption_key"]
+        let disk_encryption_key = config.pointer("/config/disk_encryption_key").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::CustomerEncryptionKey>(
+                v.clone(),
+            )
+            .ok()
+        });
         let enable_confidential_compute =
             config.optional_bool("/config/enable_confidential_compute");
-        // TODO: extract guest_os_features (Array(Nested(GuestOsFeature))) from config["/config/guest_os_features"]
-        // TODO: extract labels (Record) from config["/identity/labels"]
-        // TODO: extract license_codes (Array(Integer)) from config["/config/license_codes"]
-        // TODO: extract licenses (Array(String)) from config["/config/licenses"]
+        let guest_os_features = config.pointer("/config/guest_os_features").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::GuestOsFeature>>(v.clone())
+                .ok()
+        });
+        let _labels = config
+            .pointer("/identity/labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        let license_codes = config
+            .pointer("/config/license_codes")
+            .and_then(|v| serde_json::from_value::<Vec<i64>>(v.clone()).ok());
+        let licenses = config
+            .pointer("/config/licenses")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let location_hint = config
             .optional_str("/config/location_hint")
             .map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
         let options = config.optional_str("/config/options").map(String::from);
-        // TODO: extract params (Nested(DiskParams)) from config["/config/params"]
+        let params = config.pointer("/config/params").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::DiskParams>(v.clone()).ok()
+        });
         let physical_block_size_bytes = config.optional_i64("/config/physical_block_size_bytes");
         let provisioned_iops = config.optional_i64("/config/provisioned_iops");
         let provisioned_throughput = config.optional_i64("/config/provisioned_throughput");
-        // TODO: extract replica_zones (Array(String)) from config["/config/replica_zones"]
-        // TODO: extract resource_policies (Array(String)) from config["/config/resource_policies"]
+        let replica_zones = config
+            .pointer("/config/replica_zones")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let resource_policies = config
+            .pointer("/config/resource_policies")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let size_gb = config.optional_i64("/config/size_gb");
         let source_disk = config.optional_str("/config/source_disk").map(String::from);
         let source_image = config
             .optional_str("/runtime/source_image")
             .map(String::from);
-        // TODO: extract source_image_encryption_key (Nested(CustomerEncryptionKey)) from config["/config/source_image_encryption_key"]
+        let source_image_encryption_key = config
+            .pointer("/config/source_image_encryption_key")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::CustomerEncryptionKey>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let source_instant_snapshot = config
             .optional_str("/config/source_instant_snapshot")
             .map(String::from);
         let source_snapshot = config
             .optional_str("/config/source_snapshot")
             .map(String::from);
-        // TODO: extract source_snapshot_encryption_key (Nested(CustomerEncryptionKey)) from config["/config/source_snapshot_encryption_key"]
+        let source_snapshot_encryption_key = config
+            .pointer("/config/source_snapshot_encryption_key")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::CustomerEncryptionKey>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let source_storage_object = config
             .optional_str("/config/source_storage_object")
             .map(String::from);
@@ -1705,19 +1980,37 @@ impl GcpProvider {
         let labels = super::extract_labels(config);
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::Disk::default();
-        // TODO: set access_mode on model via .set_access_mode()
-        // TODO: set architecture on model via .set_architecture()
-        // TODO: set async_primary_disk on model via .set_async_primary_disk()
+        if let Some(ref s) = access_mode {
+            model = model.set_access_mode(google_cloud_compute_v1::model::disk::AccessMode::from(
+                s.as_str(),
+            ));
+        }
+        if let Some(ref s) = architecture {
+            model = model.set_architecture(
+                google_cloud_compute_v1::model::disk::Architecture::from(s.as_str()),
+            );
+        }
+        if let Some(v) = async_primary_disk {
+            model = model.set_async_primary_disk(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set disk_encryption_key on model via .set_disk_encryption_key()
+        if let Some(v) = disk_encryption_key {
+            model = model.set_disk_encryption_key(v);
+        }
         if let Some(v) = enable_confidential_compute {
             model = model.set_enable_confidential_compute(v);
         }
-        // TODO: set guest_os_features on model via .set_guest_os_features()
-        // TODO: set license_codes on model via .set_license_codes()
-        // TODO: set licenses on model via .set_licenses()
+        if let Some(v) = guest_os_features {
+            model = model.set_guest_os_features(v);
+        }
+        if let Some(v) = license_codes {
+            model = model.set_license_codes(v);
+        }
+        if let Some(v) = licenses {
+            model = model.set_licenses(v);
+        }
         if let Some(v) = location_hint {
             model = model.set_location_hint(v);
         }
@@ -1725,7 +2018,9 @@ impl GcpProvider {
         if let Some(v) = options {
             model = model.set_options(v);
         }
-        // TODO: set params on model via .set_params()
+        if let Some(v) = params {
+            model = model.set_params(v);
+        }
         if let Some(v) = physical_block_size_bytes {
             model = model.set_physical_block_size_bytes(v as i32);
         }
@@ -1735,8 +2030,12 @@ impl GcpProvider {
         if let Some(v) = provisioned_throughput {
             model = model.set_provisioned_throughput(v as i32);
         }
-        // TODO: set replica_zones on model via .set_replica_zones()
-        // TODO: set resource_policies on model via .set_resource_policies()
+        if let Some(v) = replica_zones {
+            model = model.set_replica_zones(v);
+        }
+        if let Some(v) = resource_policies {
+            model = model.set_resource_policies(v);
+        }
         if let Some(v) = size_gb {
             model = model.set_size_gb(v as i32);
         }
@@ -1746,14 +2045,18 @@ impl GcpProvider {
         if let Some(v) = source_image {
             model = model.set_source_image(v);
         }
-        // TODO: set source_image_encryption_key on model via .set_source_image_encryption_key()
+        if let Some(v) = source_image_encryption_key {
+            model = model.set_source_image_encryption_key(v);
+        }
         if let Some(v) = source_instant_snapshot {
             model = model.set_source_instant_snapshot(v);
         }
         if let Some(v) = source_snapshot {
             model = model.set_source_snapshot(v);
         }
-        // TODO: set source_snapshot_encryption_key on model via .set_source_snapshot_encryption_key()
+        if let Some(v) = source_snapshot_encryption_key {
+            model = model.set_source_snapshot_encryption_key(v);
+        }
         if let Some(v) = source_storage_object {
             model = model.set_source_storage_object(v);
         }
@@ -1810,28 +2113,28 @@ impl GcpProvider {
                 "name": disk.name.as_deref().unwrap_or(""),
             },
             "config": {
-                "access_mode": serde_json::Value::Null /* TODO: access_mode is complex type */,
-                "architecture": serde_json::Value::Null /* TODO: architecture is complex type */,
-                "async_primary_disk": serde_json::Value::Null /* TODO: async_primary_disk is complex type */,
-                "disk_encryption_key": serde_json::Value::Null /* TODO: disk_encryption_key is complex type */,
+                "access_mode": &disk.access_mode,
+                "architecture": &disk.architecture,
+                "async_primary_disk": &disk.async_primary_disk,
+                "disk_encryption_key": &disk.disk_encryption_key,
                 "enable_confidential_compute": disk.enable_confidential_compute.unwrap_or(false),
-                "guest_os_features": serde_json::Value::Null /* TODO: guest_os_features is complex type */,
-                "license_codes": serde_json::Value::Null /* TODO: license_codes is complex type */,
-                "licenses": serde_json::Value::Null /* TODO: licenses is complex type */,
+                "guest_os_features": &disk.guest_os_features,
+                "license_codes": &disk.license_codes,
+                "licenses": &disk.licenses,
                 "location_hint": disk.location_hint.as_deref().unwrap_or(""),
                 "options": disk.options.as_deref().unwrap_or(""),
-                "params": serde_json::Value::Null /* TODO: params is complex type */,
+                "params": &disk.params,
                 "physical_block_size_bytes": disk.physical_block_size_bytes.unwrap_or(0),
                 "provisioned_iops": disk.provisioned_iops.unwrap_or(0),
                 "provisioned_throughput": disk.provisioned_throughput.unwrap_or(0),
-                "replica_zones": serde_json::Value::Null /* TODO: replica_zones is complex type */,
-                "resource_policies": serde_json::Value::Null /* TODO: resource_policies is complex type */,
+                "replica_zones": &disk.replica_zones,
+                "resource_policies": &disk.resource_policies,
                 "size_gb": disk.size_gb.unwrap_or(0),
                 "source_disk": disk.source_disk.as_deref().unwrap_or(""),
-                "source_image_encryption_key": serde_json::Value::Null /* TODO: source_image_encryption_key is complex type */,
+                "source_image_encryption_key": &disk.source_image_encryption_key,
                 "source_instant_snapshot": disk.source_instant_snapshot.as_deref().unwrap_or(""),
                 "source_snapshot": disk.source_snapshot.as_deref().unwrap_or(""),
-                "source_snapshot_encryption_key": serde_json::Value::Null /* TODO: source_snapshot_encryption_key is complex type */,
+                "source_snapshot_encryption_key": &disk.source_snapshot_encryption_key,
                 "source_storage_object": disk.source_storage_object.as_deref().unwrap_or(""),
                 "storage_pool": disk.storage_pool.as_deref().unwrap_or(""),
             },
@@ -1860,41 +2163,80 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let (zone, name) = super::parse_zone_resource(provider_id, &self.region);
         // Extract fields from config
-        // TODO: extract access_mode (Enum(AccessMode)) from config["/config/access_mode"]
-        // TODO: extract architecture (Enum(Architecture)) from config["/config/architecture"]
-        // TODO: extract async_primary_disk (Nested(DiskAsyncReplication)) from config["/config/async_primary_disk"]
+        let access_mode = config.optional_str("/config/access_mode").map(String::from);
+        let architecture = config
+            .optional_str("/config/architecture")
+            .map(String::from);
+        let async_primary_disk = config.pointer("/config/async_primary_disk").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::DiskAsyncReplication>(
+                v.clone(),
+            )
+            .ok()
+        });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract disk_encryption_key (Nested(CustomerEncryptionKey)) from config["/config/disk_encryption_key"]
+        let disk_encryption_key = config.pointer("/config/disk_encryption_key").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::CustomerEncryptionKey>(
+                v.clone(),
+            )
+            .ok()
+        });
         let enable_confidential_compute =
             config.optional_bool("/config/enable_confidential_compute");
-        // TODO: extract guest_os_features (Array(Nested(GuestOsFeature))) from config["/config/guest_os_features"]
-        // TODO: extract license_codes (Array(Integer)) from config["/config/license_codes"]
-        // TODO: extract licenses (Array(String)) from config["/config/licenses"]
+        let guest_os_features = config.pointer("/config/guest_os_features").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::GuestOsFeature>>(v.clone())
+                .ok()
+        });
+        let license_codes = config
+            .pointer("/config/license_codes")
+            .and_then(|v| serde_json::from_value::<Vec<i64>>(v.clone()).ok());
+        let licenses = config
+            .pointer("/config/licenses")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let location_hint = config
             .optional_str("/config/location_hint")
             .map(String::from);
         let options = config.optional_str("/config/options").map(String::from);
-        // TODO: extract params (Nested(DiskParams)) from config["/config/params"]
+        let params = config.pointer("/config/params").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::DiskParams>(v.clone()).ok()
+        });
         let physical_block_size_bytes = config.optional_i64("/config/physical_block_size_bytes");
         let provisioned_iops = config.optional_i64("/config/provisioned_iops");
         let provisioned_throughput = config.optional_i64("/config/provisioned_throughput");
-        // TODO: extract replica_zones (Array(String)) from config["/config/replica_zones"]
-        // TODO: extract resource_policies (Array(String)) from config["/config/resource_policies"]
+        let replica_zones = config
+            .pointer("/config/replica_zones")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let resource_policies = config
+            .pointer("/config/resource_policies")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let size_gb = config.optional_i64("/config/size_gb");
         let source_disk = config.optional_str("/config/source_disk").map(String::from);
         let source_image = config
             .optional_str("/runtime/source_image")
             .map(String::from);
-        // TODO: extract source_image_encryption_key (Nested(CustomerEncryptionKey)) from config["/config/source_image_encryption_key"]
+        let source_image_encryption_key = config
+            .pointer("/config/source_image_encryption_key")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::CustomerEncryptionKey>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let source_instant_snapshot = config
             .optional_str("/config/source_instant_snapshot")
             .map(String::from);
         let source_snapshot = config
             .optional_str("/config/source_snapshot")
             .map(String::from);
-        // TODO: extract source_snapshot_encryption_key (Nested(CustomerEncryptionKey)) from config["/config/source_snapshot_encryption_key"]
+        let source_snapshot_encryption_key = config
+            .pointer("/config/source_snapshot_encryption_key")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::CustomerEncryptionKey>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let source_storage_object = config
             .optional_str("/config/source_storage_object")
             .map(String::from);
@@ -1904,26 +2246,46 @@ impl GcpProvider {
         let labels = super::extract_labels(config);
 
         let mut model = google_cloud_compute_v1::model::Disk::default();
-        // TODO: set access_mode on model via .set_access_mode()
-        // TODO: set architecture on model via .set_architecture()
-        // TODO: set async_primary_disk on model via .set_async_primary_disk()
+        if let Some(ref s) = access_mode {
+            model = model.set_access_mode(google_cloud_compute_v1::model::disk::AccessMode::from(
+                s.as_str(),
+            ));
+        }
+        if let Some(ref s) = architecture {
+            model = model.set_architecture(
+                google_cloud_compute_v1::model::disk::Architecture::from(s.as_str()),
+            );
+        }
+        if let Some(v) = async_primary_disk {
+            model = model.set_async_primary_disk(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set disk_encryption_key on model via .set_disk_encryption_key()
+        if let Some(v) = disk_encryption_key {
+            model = model.set_disk_encryption_key(v);
+        }
         if let Some(v) = enable_confidential_compute {
             model = model.set_enable_confidential_compute(v);
         }
-        // TODO: set guest_os_features on model via .set_guest_os_features()
-        // TODO: set license_codes on model via .set_license_codes()
-        // TODO: set licenses on model via .set_licenses()
+        if let Some(v) = guest_os_features {
+            model = model.set_guest_os_features(v);
+        }
+        if let Some(v) = license_codes {
+            model = model.set_license_codes(v);
+        }
+        if let Some(v) = licenses {
+            model = model.set_licenses(v);
+        }
         if let Some(v) = location_hint {
             model = model.set_location_hint(v);
         }
         if let Some(v) = options {
             model = model.set_options(v);
         }
-        // TODO: set params on model via .set_params()
+        if let Some(v) = params {
+            model = model.set_params(v);
+        }
         if let Some(v) = physical_block_size_bytes {
             model = model.set_physical_block_size_bytes(v as i32);
         }
@@ -1933,8 +2295,12 @@ impl GcpProvider {
         if let Some(v) = provisioned_throughput {
             model = model.set_provisioned_throughput(v as i32);
         }
-        // TODO: set replica_zones on model via .set_replica_zones()
-        // TODO: set resource_policies on model via .set_resource_policies()
+        if let Some(v) = replica_zones {
+            model = model.set_replica_zones(v);
+        }
+        if let Some(v) = resource_policies {
+            model = model.set_resource_policies(v);
+        }
         if let Some(v) = size_gb {
             model = model.set_size_gb(v as i32);
         }
@@ -1944,14 +2310,18 @@ impl GcpProvider {
         if let Some(v) = source_image {
             model = model.set_source_image(v);
         }
-        // TODO: set source_image_encryption_key on model via .set_source_image_encryption_key()
+        if let Some(v) = source_image_encryption_key {
+            model = model.set_source_image_encryption_key(v);
+        }
         if let Some(v) = source_instant_snapshot {
             model = model.set_source_instant_snapshot(v);
         }
         if let Some(v) = source_snapshot {
             model = model.set_source_snapshot(v);
         }
-        // TODO: set source_snapshot_encryption_key on model via .set_source_snapshot_encryption_key()
+        if let Some(v) = source_snapshot_encryption_key {
+            model = model.set_source_snapshot_encryption_key(v);
+        }
         if let Some(v) = source_storage_object {
             model = model.set_source_storage_object(v);
         }
@@ -2025,7 +2395,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "tags".into(),
                                 description: "Tags to apply to this instance. Tags are used to identify valid".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(Tags) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -2039,7 +2409,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "advanced_machine_features".into(),
                                 description: "Controls for advanced machine-related behavior features.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(AdvancedMachineFeatures) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -2055,7 +2425,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "confidential_instance_config".into(),
                                 description: "".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(ConfidentialInstanceConfig) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -2071,7 +2441,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "disks".into(),
                                 description: "Array of disks associated with this instance. Persistent disks must be".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(AttachedDisk) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -2079,7 +2449,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "display_device".into(),
                                 description: "Enables display device for the instance.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(DisplayDevice) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -2087,7 +2457,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "guest_accelerators".into(),
                                 description: "A list of the type and count of accelerator cards attached to the instance.".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(AcceleratorConfig) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -2103,7 +2473,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "instance_encryption_key".into(),
                                 description: "Encrypts suspended data for an instance with acustomer-managed".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(CustomerEncryptionKey) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -2119,7 +2489,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "network_performance_config".into(),
                                 description: "".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(NetworkPerformanceConfig) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -2127,7 +2497,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "params".into(),
                                 description: "Input only. [Input Only] Additional params passed with the request, but not persisted".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(InstanceParams) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -2135,7 +2505,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "reservation_affinity".into(),
                                 description: "Specifies the reservations that this instance can consume from.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(ReservationAffinity) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -2151,7 +2521,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "scheduling".into(),
                                 description: "Sets the scheduling options for this instance.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(Scheduling) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -2159,7 +2529,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "service_accounts".into(),
                                 description: "A list of service accounts, with their specified scopes, authorized for".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(ServiceAccount) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -2167,7 +2537,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "shielded_instance_config".into(),
                                 description: "".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(ShieldedInstanceConfig) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -2183,7 +2553,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "workload_identity_config".into(),
                                 description: "".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(WorkloadIdentityConfig) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -2197,7 +2567,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "network_interfaces".into(),
                                 description: "An array of network configurations for this instance. These specify how".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(NetworkInterface) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -2211,7 +2581,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "metadata".into(),
                                 description: "The metadata key/value pairs assigned".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(Metadata) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -2242,83 +2612,197 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        // TODO: extract advanced_machine_features (Nested(AdvancedMachineFeatures)) from config["/config/advanced_machine_features"]
+        let advanced_machine_features = config
+            .pointer("/config/advanced_machine_features")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::AdvancedMachineFeatures>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let can_ip_forward = config.optional_bool("/config/can_ip_forward");
-        // TODO: extract confidential_instance_config (Nested(ConfidentialInstanceConfig)) from config["/config/confidential_instance_config"]
+        let confidential_instance_config = config
+            .pointer("/config/confidential_instance_config")
+            .and_then(|v| {
+                serde_json::from_value::<
+                        google_cloud_compute_v1::model::ConfidentialInstanceConfig,
+                    >(v.clone())
+                    .ok()
+            });
         let deletion_protection = config.optional_bool("/config/deletion_protection");
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract disks (Array(Nested(AttachedDisk))) from config["/config/disks"]
-        // TODO: extract display_device (Nested(DisplayDevice)) from config["/config/display_device"]
-        // TODO: extract guest_accelerators (Array(Nested(AcceleratorConfig))) from config["/config/guest_accelerators"]
+        let disks = config.pointer("/config/disks").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::AttachedDisk>>(v.clone())
+                .ok()
+        });
+        let display_device = config.pointer("/config/display_device").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::DisplayDevice>(v.clone()).ok()
+        });
+        let guest_accelerators = config.pointer("/config/guest_accelerators").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::AcceleratorConfig>>(
+                v.clone(),
+            )
+            .ok()
+        });
         let hostname = config.optional_str("/config/hostname").map(String::from);
-        // TODO: extract instance_encryption_key (Nested(CustomerEncryptionKey)) from config["/config/instance_encryption_key"]
-        // TODO: extract labels (Record) from config["/identity/labels"]
+        let instance_encryption_key =
+            config
+                .pointer("/config/instance_encryption_key")
+                .and_then(|v| {
+                    serde_json::from_value::<google_cloud_compute_v1::model::CustomerEncryptionKey>(
+                        v.clone(),
+                    )
+                    .ok()
+                });
+        let _labels = config
+            .pointer("/identity/labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let machine_type = config
             .optional_str("/sizing/machine_type")
             .map(String::from);
-        // TODO: extract metadata (Nested(Metadata)) from config["/runtime/metadata"]
+        let metadata = config.pointer("/runtime/metadata").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::Metadata>(v.clone()).ok()
+        });
         let min_cpu_platform = config
             .optional_str("/config/min_cpu_platform")
             .map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract network_interfaces (Array(Nested(NetworkInterface))) from config["/network/network_interfaces"]
-        // TODO: extract network_performance_config (Nested(NetworkPerformanceConfig)) from config["/config/network_performance_config"]
-        // TODO: extract params (Nested(InstanceParams)) from config["/config/params"]
-        // TODO: extract reservation_affinity (Nested(ReservationAffinity)) from config["/config/reservation_affinity"]
-        // TODO: extract resource_policies (Array(String)) from config["/config/resource_policies"]
-        // TODO: extract scheduling (Nested(Scheduling)) from config["/config/scheduling"]
-        // TODO: extract service_accounts (Array(Nested(ServiceAccount))) from config["/config/service_accounts"]
-        // TODO: extract shielded_instance_config (Nested(ShieldedInstanceConfig)) from config["/config/shielded_instance_config"]
+        let network_interfaces = config.pointer("/network/network_interfaces").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::NetworkInterface>>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let network_performance_config = config
+            .pointer("/config/network_performance_config")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::NetworkPerformanceConfig>(
+                    v.clone(),
+                )
+                .ok()
+            });
+        let params = config.pointer("/config/params").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::InstanceParams>(v.clone()).ok()
+        });
+        let reservation_affinity = config
+            .pointer("/config/reservation_affinity")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::ReservationAffinity>(
+                    v.clone(),
+                )
+                .ok()
+            });
+        let resource_policies = config
+            .pointer("/config/resource_policies")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let scheduling = config.pointer("/config/scheduling").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::Scheduling>(v.clone()).ok()
+        });
+        let service_accounts = config.pointer("/config/service_accounts").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::ServiceAccount>>(v.clone())
+                .ok()
+        });
+        let shielded_instance_config = config.pointer("/config/shielded_instance_config").and_then(
+            |v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::ShieldedInstanceConfig>(
+                    v.clone(),
+                )
+                .ok()
+            },
+        );
         let source_machine_image = config
             .optional_str("/config/source_machine_image")
             .map(String::from);
-        // TODO: extract tags (Nested(Tags)) from config["/identity/tags"]
-        // TODO: extract workload_identity_config (Nested(WorkloadIdentityConfig)) from config["/config/workload_identity_config"]
+        let tags = config.pointer("/identity/tags").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::Tags>(v.clone()).ok()
+        });
+        let workload_identity_config = config.pointer("/config/workload_identity_config").and_then(
+            |v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::WorkloadIdentityConfig>(
+                    v.clone(),
+                )
+                .ok()
+            },
+        );
 
         let labels = super::extract_labels(config);
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::Instance::default();
-        // TODO: set advanced_machine_features on model via .set_advanced_machine_features()
+        if let Some(v) = advanced_machine_features {
+            model = model.set_advanced_machine_features(v);
+        }
         if let Some(v) = can_ip_forward {
             model = model.set_can_ip_forward(v);
         }
-        // TODO: set confidential_instance_config on model via .set_confidential_instance_config()
+        if let Some(v) = confidential_instance_config {
+            model = model.set_confidential_instance_config(v);
+        }
         if let Some(v) = deletion_protection {
             model = model.set_deletion_protection(v);
         }
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set disks on model via .set_disks()
-        // TODO: set display_device on model via .set_display_device()
-        // TODO: set guest_accelerators on model via .set_guest_accelerators()
+        if let Some(v) = disks {
+            model = model.set_disks(v);
+        }
+        if let Some(v) = display_device {
+            model = model.set_display_device(v);
+        }
+        if let Some(v) = guest_accelerators {
+            model = model.set_guest_accelerators(v);
+        }
         if let Some(v) = hostname {
             model = model.set_hostname(v);
         }
-        // TODO: set instance_encryption_key on model via .set_instance_encryption_key()
+        if let Some(v) = instance_encryption_key {
+            model = model.set_instance_encryption_key(v);
+        }
         if let Some(v) = machine_type {
             model = model.set_machine_type(v);
         }
-        // TODO: set metadata on model via .set_metadata()
+        if let Some(v) = metadata {
+            model = model.set_metadata(v);
+        }
         if let Some(v) = min_cpu_platform {
             model = model.set_min_cpu_platform(v);
         }
         model = model.set_name(name.clone());
-        // TODO: set network_interfaces on model via .set_network_interfaces()
-        // TODO: set network_performance_config on model via .set_network_performance_config()
-        // TODO: set params on model via .set_params()
-        // TODO: set reservation_affinity on model via .set_reservation_affinity()
-        // TODO: set resource_policies on model via .set_resource_policies()
-        // TODO: set scheduling on model via .set_scheduling()
-        // TODO: set service_accounts on model via .set_service_accounts()
-        // TODO: set shielded_instance_config on model via .set_shielded_instance_config()
+        if let Some(v) = network_interfaces {
+            model = model.set_network_interfaces(v);
+        }
+        if let Some(v) = network_performance_config {
+            model = model.set_network_performance_config(v);
+        }
+        if let Some(v) = params {
+            model = model.set_params(v);
+        }
+        if let Some(v) = reservation_affinity {
+            model = model.set_reservation_affinity(v);
+        }
+        if let Some(v) = resource_policies {
+            model = model.set_resource_policies(v);
+        }
+        if let Some(v) = scheduling {
+            model = model.set_scheduling(v);
+        }
+        if let Some(v) = service_accounts {
+            model = model.set_service_accounts(v);
+        }
+        if let Some(v) = shielded_instance_config {
+            model = model.set_shielded_instance_config(v);
+        }
         if let Some(v) = source_machine_image {
             model = model.set_source_machine_image(v);
         }
-        // TODO: set tags on model via .set_tags()
-        // TODO: set workload_identity_config on model via .set_workload_identity_config()
+        if let Some(v) = tags {
+            model = model.set_tags(v);
+        }
+        if let Some(v) = workload_identity_config {
+            model = model.set_workload_identity_config(v);
+        }
         model = model.set_labels(labels);
 
         // Make API call
@@ -2367,34 +2851,34 @@ impl GcpProvider {
                 "description": instance.description.as_deref().unwrap_or(""),
                 "labels": user_labels,
                 "name": instance.name.as_deref().unwrap_or(""),
-                "tags": serde_json::Value::Null /* TODO: tags is complex type */,
+                "tags": &instance.tags,
             },
             "config": {
-                "advanced_machine_features": serde_json::Value::Null /* TODO: advanced_machine_features is complex type */,
+                "advanced_machine_features": &instance.advanced_machine_features,
                 "can_ip_forward": instance.can_ip_forward.unwrap_or(false),
-                "confidential_instance_config": serde_json::Value::Null /* TODO: confidential_instance_config is complex type */,
+                "confidential_instance_config": &instance.confidential_instance_config,
                 "deletion_protection": instance.deletion_protection.unwrap_or(false),
-                "disks": serde_json::Value::Null /* TODO: disks is complex type */,
-                "display_device": serde_json::Value::Null /* TODO: display_device is complex type */,
-                "guest_accelerators": serde_json::Value::Null /* TODO: guest_accelerators is complex type */,
+                "disks": &instance.disks,
+                "display_device": &instance.display_device,
+                "guest_accelerators": &instance.guest_accelerators,
                 "hostname": instance.hostname.as_deref().unwrap_or(""),
-                "instance_encryption_key": serde_json::Value::Null /* TODO: instance_encryption_key is complex type */,
+                "instance_encryption_key": &instance.instance_encryption_key,
                 "min_cpu_platform": instance.min_cpu_platform.as_deref().unwrap_or(""),
-                "network_performance_config": serde_json::Value::Null /* TODO: network_performance_config is complex type */,
-                "params": serde_json::Value::Null /* TODO: params is complex type */,
-                "reservation_affinity": serde_json::Value::Null /* TODO: reservation_affinity is complex type */,
-                "resource_policies": serde_json::Value::Null /* TODO: resource_policies is complex type */,
-                "scheduling": serde_json::Value::Null /* TODO: scheduling is complex type */,
-                "service_accounts": serde_json::Value::Null /* TODO: service_accounts is complex type */,
-                "shielded_instance_config": serde_json::Value::Null /* TODO: shielded_instance_config is complex type */,
+                "network_performance_config": &instance.network_performance_config,
+                "params": &instance.params,
+                "reservation_affinity": &instance.reservation_affinity,
+                "resource_policies": &instance.resource_policies,
+                "scheduling": &instance.scheduling,
+                "service_accounts": &instance.service_accounts,
+                "shielded_instance_config": &instance.shielded_instance_config,
                 "source_machine_image": instance.source_machine_image.as_deref().unwrap_or(""),
-                "workload_identity_config": serde_json::Value::Null /* TODO: workload_identity_config is complex type */,
+                "workload_identity_config": &instance.workload_identity_config,
             },
             "network": {
-                "network_interfaces": serde_json::Value::Null /* TODO: network_interfaces is complex type */,
+                "network_interfaces": &instance.network_interfaces,
             },
             "runtime": {
-                "metadata": serde_json::Value::Null /* TODO: metadata is complex type */,
+                "metadata": &instance.metadata,
             },
             "sizing": {
                 "machine_type": instance.machine_type.as_deref().unwrap_or(""),
@@ -2421,79 +2905,191 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let (zone, name) = super::parse_zone_resource(provider_id, &self.region);
         // Extract fields from config
-        // TODO: extract advanced_machine_features (Nested(AdvancedMachineFeatures)) from config["/config/advanced_machine_features"]
+        let advanced_machine_features = config
+            .pointer("/config/advanced_machine_features")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::AdvancedMachineFeatures>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let can_ip_forward = config.optional_bool("/config/can_ip_forward");
-        // TODO: extract confidential_instance_config (Nested(ConfidentialInstanceConfig)) from config["/config/confidential_instance_config"]
+        let confidential_instance_config = config
+            .pointer("/config/confidential_instance_config")
+            .and_then(|v| {
+                serde_json::from_value::<
+                        google_cloud_compute_v1::model::ConfidentialInstanceConfig,
+                    >(v.clone())
+                    .ok()
+            });
         let deletion_protection = config.optional_bool("/config/deletion_protection");
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract disks (Array(Nested(AttachedDisk))) from config["/config/disks"]
-        // TODO: extract display_device (Nested(DisplayDevice)) from config["/config/display_device"]
-        // TODO: extract guest_accelerators (Array(Nested(AcceleratorConfig))) from config["/config/guest_accelerators"]
+        let disks = config.pointer("/config/disks").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::AttachedDisk>>(v.clone())
+                .ok()
+        });
+        let display_device = config.pointer("/config/display_device").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::DisplayDevice>(v.clone()).ok()
+        });
+        let guest_accelerators = config.pointer("/config/guest_accelerators").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::AcceleratorConfig>>(
+                v.clone(),
+            )
+            .ok()
+        });
         let hostname = config.optional_str("/config/hostname").map(String::from);
-        // TODO: extract instance_encryption_key (Nested(CustomerEncryptionKey)) from config["/config/instance_encryption_key"]
+        let instance_encryption_key =
+            config
+                .pointer("/config/instance_encryption_key")
+                .and_then(|v| {
+                    serde_json::from_value::<google_cloud_compute_v1::model::CustomerEncryptionKey>(
+                        v.clone(),
+                    )
+                    .ok()
+                });
         let machine_type = config
             .optional_str("/sizing/machine_type")
             .map(String::from);
-        // TODO: extract metadata (Nested(Metadata)) from config["/runtime/metadata"]
+        let metadata = config.pointer("/runtime/metadata").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::Metadata>(v.clone()).ok()
+        });
         let min_cpu_platform = config
             .optional_str("/config/min_cpu_platform")
             .map(String::from);
-        // TODO: extract network_interfaces (Array(Nested(NetworkInterface))) from config["/network/network_interfaces"]
-        // TODO: extract network_performance_config (Nested(NetworkPerformanceConfig)) from config["/config/network_performance_config"]
-        // TODO: extract params (Nested(InstanceParams)) from config["/config/params"]
-        // TODO: extract reservation_affinity (Nested(ReservationAffinity)) from config["/config/reservation_affinity"]
-        // TODO: extract resource_policies (Array(String)) from config["/config/resource_policies"]
-        // TODO: extract scheduling (Nested(Scheduling)) from config["/config/scheduling"]
-        // TODO: extract service_accounts (Array(Nested(ServiceAccount))) from config["/config/service_accounts"]
-        // TODO: extract shielded_instance_config (Nested(ShieldedInstanceConfig)) from config["/config/shielded_instance_config"]
+        let network_interfaces = config.pointer("/network/network_interfaces").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::NetworkInterface>>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let network_performance_config = config
+            .pointer("/config/network_performance_config")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::NetworkPerformanceConfig>(
+                    v.clone(),
+                )
+                .ok()
+            });
+        let params = config.pointer("/config/params").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::InstanceParams>(v.clone()).ok()
+        });
+        let reservation_affinity = config
+            .pointer("/config/reservation_affinity")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::ReservationAffinity>(
+                    v.clone(),
+                )
+                .ok()
+            });
+        let resource_policies = config
+            .pointer("/config/resource_policies")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let scheduling = config.pointer("/config/scheduling").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::Scheduling>(v.clone()).ok()
+        });
+        let service_accounts = config.pointer("/config/service_accounts").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::ServiceAccount>>(v.clone())
+                .ok()
+        });
+        let shielded_instance_config = config.pointer("/config/shielded_instance_config").and_then(
+            |v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::ShieldedInstanceConfig>(
+                    v.clone(),
+                )
+                .ok()
+            },
+        );
         let source_machine_image = config
             .optional_str("/config/source_machine_image")
             .map(String::from);
-        // TODO: extract tags (Nested(Tags)) from config["/identity/tags"]
-        // TODO: extract workload_identity_config (Nested(WorkloadIdentityConfig)) from config["/config/workload_identity_config"]
+        let tags = config.pointer("/identity/tags").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::Tags>(v.clone()).ok()
+        });
+        let workload_identity_config = config.pointer("/config/workload_identity_config").and_then(
+            |v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::WorkloadIdentityConfig>(
+                    v.clone(),
+                )
+                .ok()
+            },
+        );
         let labels = super::extract_labels(config);
 
         let mut model = google_cloud_compute_v1::model::Instance::default();
-        // TODO: set advanced_machine_features on model via .set_advanced_machine_features()
+        if let Some(v) = advanced_machine_features {
+            model = model.set_advanced_machine_features(v);
+        }
         if let Some(v) = can_ip_forward {
             model = model.set_can_ip_forward(v);
         }
-        // TODO: set confidential_instance_config on model via .set_confidential_instance_config()
+        if let Some(v) = confidential_instance_config {
+            model = model.set_confidential_instance_config(v);
+        }
         if let Some(v) = deletion_protection {
             model = model.set_deletion_protection(v);
         }
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set disks on model via .set_disks()
-        // TODO: set display_device on model via .set_display_device()
-        // TODO: set guest_accelerators on model via .set_guest_accelerators()
+        if let Some(v) = disks {
+            model = model.set_disks(v);
+        }
+        if let Some(v) = display_device {
+            model = model.set_display_device(v);
+        }
+        if let Some(v) = guest_accelerators {
+            model = model.set_guest_accelerators(v);
+        }
         if let Some(v) = hostname {
             model = model.set_hostname(v);
         }
-        // TODO: set instance_encryption_key on model via .set_instance_encryption_key()
+        if let Some(v) = instance_encryption_key {
+            model = model.set_instance_encryption_key(v);
+        }
         if let Some(v) = machine_type {
             model = model.set_machine_type(v);
         }
-        // TODO: set metadata on model via .set_metadata()
+        if let Some(v) = metadata {
+            model = model.set_metadata(v);
+        }
         if let Some(v) = min_cpu_platform {
             model = model.set_min_cpu_platform(v);
         }
-        // TODO: set network_interfaces on model via .set_network_interfaces()
-        // TODO: set network_performance_config on model via .set_network_performance_config()
-        // TODO: set params on model via .set_params()
-        // TODO: set reservation_affinity on model via .set_reservation_affinity()
-        // TODO: set resource_policies on model via .set_resource_policies()
-        // TODO: set scheduling on model via .set_scheduling()
-        // TODO: set service_accounts on model via .set_service_accounts()
-        // TODO: set shielded_instance_config on model via .set_shielded_instance_config()
+        if let Some(v) = network_interfaces {
+            model = model.set_network_interfaces(v);
+        }
+        if let Some(v) = network_performance_config {
+            model = model.set_network_performance_config(v);
+        }
+        if let Some(v) = params {
+            model = model.set_params(v);
+        }
+        if let Some(v) = reservation_affinity {
+            model = model.set_reservation_affinity(v);
+        }
+        if let Some(v) = resource_policies {
+            model = model.set_resource_policies(v);
+        }
+        if let Some(v) = scheduling {
+            model = model.set_scheduling(v);
+        }
+        if let Some(v) = service_accounts {
+            model = model.set_service_accounts(v);
+        }
+        if let Some(v) = shielded_instance_config {
+            model = model.set_shielded_instance_config(v);
+        }
         if let Some(v) = source_machine_image {
             model = model.set_source_machine_image(v);
         }
-        // TODO: set tags on model via .set_tags()
-        // TODO: set workload_identity_config on model via .set_workload_identity_config()
+        if let Some(v) = tags {
+            model = model.set_tags(v);
+        }
+        if let Some(v) = workload_identity_config {
+            model = model.set_workload_identity_config(v);
+        }
         model = model.set_labels(labels);
 
         self.instances()
@@ -2626,7 +3222,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "params".into(),
                                 description: "Input only. [Input Only] Additional params passed with the request, but not persisted".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(RouteParams) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -2693,9 +3289,13 @@ impl GcpProvider {
         let next_hop_vpn_tunnel = config
             .optional_str("/config/next_hop_vpn_tunnel")
             .map(String::from);
-        // TODO: extract params (Nested(RouteParams)) from config["/config/params"]
+        let params = config.pointer("/config/params").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::RouteParams>(v.clone()).ok()
+        });
         let priority = config.optional_i64("/security/priority");
-        // TODO: extract tags (Array(String)) from config["/identity/tags"]
+        let tags = config
+            .pointer("/identity/tags")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
 
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::Route::default();
@@ -2727,11 +3327,15 @@ impl GcpProvider {
         if let Some(v) = next_hop_vpn_tunnel {
             model = model.set_next_hop_vpn_tunnel(v);
         }
-        // TODO: set params on model via .set_params()
+        if let Some(v) = params {
+            model = model.set_params(v);
+        }
         if let Some(v) = priority {
             model = model.set_priority(v as u32);
         }
-        // TODO: set tags on model via .set_tags()
+        if let Some(v) = tags {
+            model = model.set_tags(v);
+        }
 
         // Make API call
         self.routes()
@@ -2766,7 +3370,7 @@ impl GcpProvider {
             "identity": {
                 "description": route.description.as_deref().unwrap_or(""),
                 "name": route.name.as_deref().unwrap_or(""),
-                "tags": serde_json::Value::Null /* TODO: tags is complex type */,
+                "tags": &route.tags,
             },
             "config": {
                 "dest_range": route.dest_range.as_deref().unwrap_or(""),
@@ -2776,7 +3380,7 @@ impl GcpProvider {
                 "next_hop_ip": route.next_hop_ip.as_deref().unwrap_or(""),
                 "next_hop_network": route.next_hop_network.as_deref().unwrap_or(""),
                 "next_hop_vpn_tunnel": route.next_hop_vpn_tunnel.as_deref().unwrap_or(""),
-                "params": serde_json::Value::Null /* TODO: params is complex type */,
+                "params": &route.params,
             },
             "network": {
                 "network": route.network.as_deref().unwrap_or(""),
@@ -2860,7 +3464,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "autoscaling_policy".into(),
                                 description: "The configuration parameters for the autoscaling algorithm. You can define".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(AutoscalingPolicy) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -2885,7 +3489,10 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        // TODO: extract autoscaling_policy (Nested(AutoscalingPolicy)) from config["/config/autoscaling_policy"]
+        let autoscaling_policy = config.pointer("/config/autoscaling_policy").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::AutoscalingPolicy>(v.clone())
+                .ok()
+        });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
@@ -2894,7 +3501,9 @@ impl GcpProvider {
 
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::Autoscaler::default();
-        // TODO: set autoscaling_policy on model via .set_autoscaling_policy()
+        if let Some(v) = autoscaling_policy {
+            model = model.set_autoscaling_policy(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
@@ -2943,7 +3552,7 @@ impl GcpProvider {
                 "name": autoscaler.name.as_deref().unwrap_or(""),
             },
             "config": {
-                "autoscaling_policy": serde_json::Value::Null /* TODO: autoscaling_policy is complex type */,
+                "autoscaling_policy": &autoscaler.autoscaling_policy,
                 "target": autoscaler.target.as_deref().unwrap_or(""),
             },
         });
@@ -2968,14 +3577,19 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let (zone, name) = super::parse_zone_resource(provider_id, &self.region);
         // Extract fields from config
-        // TODO: extract autoscaling_policy (Nested(AutoscalingPolicy)) from config["/config/autoscaling_policy"]
+        let autoscaling_policy = config.pointer("/config/autoscaling_policy").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::AutoscalingPolicy>(v.clone())
+                .ok()
+        });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
         let target = config.optional_str("/config/target").map(String::from);
 
         let mut model = google_cloud_compute_v1::model::Autoscaler::default();
-        // TODO: set autoscaling_policy on model via .set_autoscaling_policy()
+        if let Some(v) = autoscaling_policy {
+            model = model.set_autoscaling_policy(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
@@ -3081,7 +3695,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "guest_os_features".into(),
                                 description: "A list of features to enable on the guest operating system. Applicable".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(GuestOsFeature) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -3089,7 +3703,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "image_encryption_key".into(),
                                 description: "Encrypts the image using acustomer-supplied".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(CustomerEncryptionKey) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -3113,7 +3727,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "params".into(),
                                 description: "Input only. [Input Only] Additional params passed with the request, but not persisted".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(ImageParams) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -3121,7 +3735,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "raw_disk".into(),
                                 description: "The parameters of the raw disk image.".into(),
-                                field_type: crate::provider::FieldType::Enum(vec!["TODO: list variants for RawDisk".into()]),
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -3129,7 +3743,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "shielded_instance_initial_state".into(),
                                 description: "Set the secure boot keys of shielded instance.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(InitialStateConfig) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -3145,7 +3759,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "source_disk_encryption_key".into(),
                                 description: "Thecustomer-supplied".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(CustomerEncryptionKey) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -3153,7 +3767,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "source_image_encryption_key".into(),
                                 description: "The customer-supplied encryption key of the source image. Required if the".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(CustomerEncryptionKey) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -3169,7 +3783,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "source_snapshot_encryption_key".into(),
                                 description: "The customer-supplied encryption key of the source snapshot. Required if".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(CustomerEncryptionKey) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -3230,39 +3844,95 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        // TODO: extract architecture (Enum(Architecture)) from config["/config/architecture"]
+        let architecture = config
+            .optional_str("/config/architecture")
+            .map(String::from);
         let archive_size_bytes = config.optional_i64("/config/archive_size_bytes");
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
         let disk_size_gb = config.optional_i64("/sizing/disk_size_gb");
         let family = config.optional_str("/config/family").map(String::from);
-        // TODO: extract guest_os_features (Array(Nested(GuestOsFeature))) from config["/config/guest_os_features"]
-        // TODO: extract image_encryption_key (Nested(CustomerEncryptionKey)) from config["/config/image_encryption_key"]
-        // TODO: extract labels (Record) from config["/identity/labels"]
-        // TODO: extract license_codes (Array(Integer)) from config["/config/license_codes"]
-        // TODO: extract licenses (Array(String)) from config["/config/licenses"]
+        let guest_os_features = config.pointer("/config/guest_os_features").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::GuestOsFeature>>(v.clone())
+                .ok()
+        });
+        let image_encryption_key = config
+            .pointer("/config/image_encryption_key")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::CustomerEncryptionKey>(
+                    v.clone(),
+                )
+                .ok()
+            });
+        let _labels = config
+            .pointer("/identity/labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        let license_codes = config
+            .pointer("/config/license_codes")
+            .and_then(|v| serde_json::from_value::<Vec<i64>>(v.clone()).ok());
+        let licenses = config
+            .pointer("/config/licenses")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract params (Nested(ImageParams)) from config["/config/params"]
-        // TODO: extract raw_disk (Enum(RawDisk)) from config["/config/raw_disk"]
-        // TODO: extract shielded_instance_initial_state (Nested(InitialStateConfig)) from config["/config/shielded_instance_initial_state"]
+        let params = config.pointer("/config/params").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::ImageParams>(v.clone()).ok()
+        });
+        let raw_disk = config.pointer("/config/raw_disk").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::image::RawDisk>(v.clone()).ok()
+        });
+        let shielded_instance_initial_state = config
+            .pointer("/config/shielded_instance_initial_state")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::InitialStateConfig>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let source_disk = config.optional_str("/config/source_disk").map(String::from);
-        // TODO: extract source_disk_encryption_key (Nested(CustomerEncryptionKey)) from config["/config/source_disk_encryption_key"]
+        let source_disk_encryption_key = config
+            .pointer("/config/source_disk_encryption_key")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::CustomerEncryptionKey>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let source_image = config
             .optional_str("/runtime/source_image")
             .map(String::from);
-        // TODO: extract source_image_encryption_key (Nested(CustomerEncryptionKey)) from config["/config/source_image_encryption_key"]
+        let source_image_encryption_key = config
+            .pointer("/config/source_image_encryption_key")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::CustomerEncryptionKey>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let source_snapshot = config
             .optional_str("/config/source_snapshot")
             .map(String::from);
-        // TODO: extract source_snapshot_encryption_key (Nested(CustomerEncryptionKey)) from config["/config/source_snapshot_encryption_key"]
-        // TODO: extract source_type (Enum(SourceType)) from config["/config/source_type"]
-        // TODO: extract storage_locations (Array(String)) from config["/config/storage_locations"]
+        let source_snapshot_encryption_key = config
+            .pointer("/config/source_snapshot_encryption_key")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::CustomerEncryptionKey>(
+                    v.clone(),
+                )
+                .ok()
+            });
+        let source_type = config.optional_str("/config/source_type").map(String::from);
+        let storage_locations = config
+            .pointer("/config/storage_locations")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
 
         let labels = super::extract_labels(config);
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::Image::default();
-        // TODO: set architecture on model via .set_architecture()
+        if let Some(ref s) = architecture {
+            model = model.set_architecture(
+                google_cloud_compute_v1::model::image::Architecture::from(s.as_str()),
+            );
+        }
         if let Some(v) = archive_size_bytes {
             model = model.set_archive_size_bytes(v as i32);
         }
@@ -3275,28 +3945,54 @@ impl GcpProvider {
         if let Some(v) = family {
             model = model.set_family(v);
         }
-        // TODO: set guest_os_features on model via .set_guest_os_features()
-        // TODO: set image_encryption_key on model via .set_image_encryption_key()
-        // TODO: set license_codes on model via .set_license_codes()
-        // TODO: set licenses on model via .set_licenses()
+        if let Some(v) = guest_os_features {
+            model = model.set_guest_os_features(v);
+        }
+        if let Some(v) = image_encryption_key {
+            model = model.set_image_encryption_key(v);
+        }
+        if let Some(v) = license_codes {
+            model = model.set_license_codes(v);
+        }
+        if let Some(v) = licenses {
+            model = model.set_licenses(v);
+        }
         model = model.set_name(name.clone());
-        // TODO: set params on model via .set_params()
-        // TODO: set raw_disk on model via .set_raw_disk()
-        // TODO: set shielded_instance_initial_state on model via .set_shielded_instance_initial_state()
+        if let Some(v) = params {
+            model = model.set_params(v);
+        }
+        if let Some(v) = raw_disk {
+            model = model.set_raw_disk(v);
+        }
+        if let Some(v) = shielded_instance_initial_state {
+            model = model.set_shielded_instance_initial_state(v);
+        }
         if let Some(v) = source_disk {
             model = model.set_source_disk(v);
         }
-        // TODO: set source_disk_encryption_key on model via .set_source_disk_encryption_key()
+        if let Some(v) = source_disk_encryption_key {
+            model = model.set_source_disk_encryption_key(v);
+        }
         if let Some(v) = source_image {
             model = model.set_source_image(v);
         }
-        // TODO: set source_image_encryption_key on model via .set_source_image_encryption_key()
+        if let Some(v) = source_image_encryption_key {
+            model = model.set_source_image_encryption_key(v);
+        }
         if let Some(v) = source_snapshot {
             model = model.set_source_snapshot(v);
         }
-        // TODO: set source_snapshot_encryption_key on model via .set_source_snapshot_encryption_key()
-        // TODO: set source_type on model via .set_source_type()
-        // TODO: set storage_locations on model via .set_storage_locations()
+        if let Some(v) = source_snapshot_encryption_key {
+            model = model.set_source_snapshot_encryption_key(v);
+        }
+        if let Some(ref s) = source_type {
+            model = model.set_source_type(google_cloud_compute_v1::model::image::SourceType::from(
+                s.as_str(),
+            ));
+        }
+        if let Some(v) = storage_locations {
+            model = model.set_storage_locations(v);
+        }
         model = model.set_labels(labels);
 
         // Make API call
@@ -3342,23 +4038,23 @@ impl GcpProvider {
                 "name": image.name.as_deref().unwrap_or(""),
             },
             "config": {
-                "architecture": serde_json::Value::Null /* TODO: architecture is complex type */,
+                "architecture": &image.architecture,
                 "archive_size_bytes": image.archive_size_bytes.unwrap_or(0),
                 "family": image.family.as_deref().unwrap_or(""),
-                "guest_os_features": serde_json::Value::Null /* TODO: guest_os_features is complex type */,
-                "image_encryption_key": serde_json::Value::Null /* TODO: image_encryption_key is complex type */,
-                "license_codes": serde_json::Value::Null /* TODO: license_codes is complex type */,
-                "licenses": serde_json::Value::Null /* TODO: licenses is complex type */,
-                "params": serde_json::Value::Null /* TODO: params is complex type */,
-                "raw_disk": serde_json::Value::Null /* TODO: raw_disk is complex type */,
-                "shielded_instance_initial_state": serde_json::Value::Null /* TODO: shielded_instance_initial_state is complex type */,
+                "guest_os_features": &image.guest_os_features,
+                "image_encryption_key": &image.image_encryption_key,
+                "license_codes": &image.license_codes,
+                "licenses": &image.licenses,
+                "params": &image.params,
+                "raw_disk": &image.raw_disk,
+                "shielded_instance_initial_state": &image.shielded_instance_initial_state,
                 "source_disk": image.source_disk.as_deref().unwrap_or(""),
-                "source_disk_encryption_key": serde_json::Value::Null /* TODO: source_disk_encryption_key is complex type */,
-                "source_image_encryption_key": serde_json::Value::Null /* TODO: source_image_encryption_key is complex type */,
+                "source_disk_encryption_key": &image.source_disk_encryption_key,
+                "source_image_encryption_key": &image.source_image_encryption_key,
                 "source_snapshot": image.source_snapshot.as_deref().unwrap_or(""),
-                "source_snapshot_encryption_key": serde_json::Value::Null /* TODO: source_snapshot_encryption_key is complex type */,
-                "source_type": serde_json::Value::Null /* TODO: source_type is complex type */,
-                "storage_locations": serde_json::Value::Null /* TODO: storage_locations is complex type */,
+                "source_snapshot_encryption_key": &image.source_snapshot_encryption_key,
+                "source_type": &image.source_type,
+                "storage_locations": &image.storage_locations,
             },
             "runtime": {
                 "source_image": image.source_image.as_deref().unwrap_or(""),
@@ -3388,36 +4084,90 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let name = provider_id.to_string();
         // Extract fields from config
-        // TODO: extract architecture (Enum(Architecture)) from config["/config/architecture"]
+        let architecture = config
+            .optional_str("/config/architecture")
+            .map(String::from);
         let archive_size_bytes = config.optional_i64("/config/archive_size_bytes");
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
         let disk_size_gb = config.optional_i64("/sizing/disk_size_gb");
         let family = config.optional_str("/config/family").map(String::from);
-        // TODO: extract guest_os_features (Array(Nested(GuestOsFeature))) from config["/config/guest_os_features"]
-        // TODO: extract image_encryption_key (Nested(CustomerEncryptionKey)) from config["/config/image_encryption_key"]
-        // TODO: extract license_codes (Array(Integer)) from config["/config/license_codes"]
-        // TODO: extract licenses (Array(String)) from config["/config/licenses"]
-        // TODO: extract params (Nested(ImageParams)) from config["/config/params"]
-        // TODO: extract raw_disk (Enum(RawDisk)) from config["/config/raw_disk"]
-        // TODO: extract shielded_instance_initial_state (Nested(InitialStateConfig)) from config["/config/shielded_instance_initial_state"]
+        let guest_os_features = config.pointer("/config/guest_os_features").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::GuestOsFeature>>(v.clone())
+                .ok()
+        });
+        let image_encryption_key = config
+            .pointer("/config/image_encryption_key")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::CustomerEncryptionKey>(
+                    v.clone(),
+                )
+                .ok()
+            });
+        let license_codes = config
+            .pointer("/config/license_codes")
+            .and_then(|v| serde_json::from_value::<Vec<i64>>(v.clone()).ok());
+        let licenses = config
+            .pointer("/config/licenses")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let params = config.pointer("/config/params").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::ImageParams>(v.clone()).ok()
+        });
+        let raw_disk = config.pointer("/config/raw_disk").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::image::RawDisk>(v.clone()).ok()
+        });
+        let shielded_instance_initial_state = config
+            .pointer("/config/shielded_instance_initial_state")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::InitialStateConfig>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let source_disk = config.optional_str("/config/source_disk").map(String::from);
-        // TODO: extract source_disk_encryption_key (Nested(CustomerEncryptionKey)) from config["/config/source_disk_encryption_key"]
+        let source_disk_encryption_key = config
+            .pointer("/config/source_disk_encryption_key")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::CustomerEncryptionKey>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let source_image = config
             .optional_str("/runtime/source_image")
             .map(String::from);
-        // TODO: extract source_image_encryption_key (Nested(CustomerEncryptionKey)) from config["/config/source_image_encryption_key"]
+        let source_image_encryption_key = config
+            .pointer("/config/source_image_encryption_key")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::CustomerEncryptionKey>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let source_snapshot = config
             .optional_str("/config/source_snapshot")
             .map(String::from);
-        // TODO: extract source_snapshot_encryption_key (Nested(CustomerEncryptionKey)) from config["/config/source_snapshot_encryption_key"]
-        // TODO: extract source_type (Enum(SourceType)) from config["/config/source_type"]
-        // TODO: extract storage_locations (Array(String)) from config["/config/storage_locations"]
+        let source_snapshot_encryption_key = config
+            .pointer("/config/source_snapshot_encryption_key")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::CustomerEncryptionKey>(
+                    v.clone(),
+                )
+                .ok()
+            });
+        let source_type = config.optional_str("/config/source_type").map(String::from);
+        let storage_locations = config
+            .pointer("/config/storage_locations")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let labels = super::extract_labels(config);
 
         let mut model = google_cloud_compute_v1::model::Image::default();
-        // TODO: set architecture on model via .set_architecture()
+        if let Some(ref s) = architecture {
+            model = model.set_architecture(
+                google_cloud_compute_v1::model::image::Architecture::from(s.as_str()),
+            );
+        }
         if let Some(v) = archive_size_bytes {
             model = model.set_archive_size_bytes(v as i32);
         }
@@ -3430,27 +4180,53 @@ impl GcpProvider {
         if let Some(v) = family {
             model = model.set_family(v);
         }
-        // TODO: set guest_os_features on model via .set_guest_os_features()
-        // TODO: set image_encryption_key on model via .set_image_encryption_key()
-        // TODO: set license_codes on model via .set_license_codes()
-        // TODO: set licenses on model via .set_licenses()
-        // TODO: set params on model via .set_params()
-        // TODO: set raw_disk on model via .set_raw_disk()
-        // TODO: set shielded_instance_initial_state on model via .set_shielded_instance_initial_state()
+        if let Some(v) = guest_os_features {
+            model = model.set_guest_os_features(v);
+        }
+        if let Some(v) = image_encryption_key {
+            model = model.set_image_encryption_key(v);
+        }
+        if let Some(v) = license_codes {
+            model = model.set_license_codes(v);
+        }
+        if let Some(v) = licenses {
+            model = model.set_licenses(v);
+        }
+        if let Some(v) = params {
+            model = model.set_params(v);
+        }
+        if let Some(v) = raw_disk {
+            model = model.set_raw_disk(v);
+        }
+        if let Some(v) = shielded_instance_initial_state {
+            model = model.set_shielded_instance_initial_state(v);
+        }
         if let Some(v) = source_disk {
             model = model.set_source_disk(v);
         }
-        // TODO: set source_disk_encryption_key on model via .set_source_disk_encryption_key()
+        if let Some(v) = source_disk_encryption_key {
+            model = model.set_source_disk_encryption_key(v);
+        }
         if let Some(v) = source_image {
             model = model.set_source_image(v);
         }
-        // TODO: set source_image_encryption_key on model via .set_source_image_encryption_key()
+        if let Some(v) = source_image_encryption_key {
+            model = model.set_source_image_encryption_key(v);
+        }
         if let Some(v) = source_snapshot {
             model = model.set_source_snapshot(v);
         }
-        // TODO: set source_snapshot_encryption_key on model via .set_source_snapshot_encryption_key()
-        // TODO: set source_type on model via .set_source_type()
-        // TODO: set storage_locations on model via .set_storage_locations()
+        if let Some(v) = source_snapshot_encryption_key {
+            model = model.set_source_snapshot_encryption_key(v);
+        }
+        if let Some(ref s) = source_type {
+            model = model.set_source_type(google_cloud_compute_v1::model::image::SourceType::from(
+                s.as_str(),
+            ));
+        }
+        if let Some(v) = storage_locations {
+            model = model.set_storage_locations(v);
+        }
         model = model.set_labels(labels);
 
         self.images()
@@ -3517,7 +4293,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "properties".into(),
                                 description: "The instance properties for this instance template.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(InstanceProperties) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -3533,7 +4309,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "source_instance_params".into(),
                                 description: "The source instance params to use to create this instance template.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(SourceInstanceParams) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -3554,11 +4330,22 @@ impl GcpProvider {
             .optional_str("/identity/description")
             .map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract properties (Nested(InstanceProperties)) from config["/config/properties"]
+        let properties = config.pointer("/config/properties").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::InstanceProperties>(v.clone())
+                .ok()
+        });
         let source_instance = config
             .optional_str("/config/source_instance")
             .map(String::from);
-        // TODO: extract source_instance_params (Nested(SourceInstanceParams)) from config["/config/source_instance_params"]
+        let source_instance_params =
+            config
+                .pointer("/config/source_instance_params")
+                .and_then(|v| {
+                    serde_json::from_value::<google_cloud_compute_v1::model::SourceInstanceParams>(
+                        v.clone(),
+                    )
+                    .ok()
+                });
 
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::InstanceTemplate::default();
@@ -3566,11 +4353,15 @@ impl GcpProvider {
             model = model.set_description(v);
         }
         model = model.set_name(name.clone());
-        // TODO: set properties on model via .set_properties()
+        if let Some(v) = properties {
+            model = model.set_properties(v);
+        }
         if let Some(v) = source_instance {
             model = model.set_source_instance(v);
         }
-        // TODO: set source_instance_params on model via .set_source_instance_params()
+        if let Some(v) = source_instance_params {
+            model = model.set_source_instance_params(v);
+        }
 
         // Make API call
         self.instance_templates()
@@ -3607,9 +4398,9 @@ impl GcpProvider {
                 "name": instance_template.name.as_deref().unwrap_or(""),
             },
             "config": {
-                "properties": serde_json::Value::Null /* TODO: properties is complex type */,
+                "properties": &instance_template.properties,
                 "source_instance": instance_template.source_instance.as_deref().unwrap_or(""),
-                "source_instance_params": serde_json::Value::Null /* TODO: source_instance_params is complex type */,
+                "source_instance_params": &instance_template.source_instance_params,
             },
         });
 
@@ -3687,7 +4478,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "named_ports".into(),
                                 description: "Optional. Assigns a name to a port number. For example:{name: \"http\", port: 80}".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(NamedPort) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -3708,7 +4499,9 @@ impl GcpProvider {
             .optional_str("/identity/description")
             .map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract named_ports (Array(Nested(NamedPort))) from config["/config/named_ports"]
+        let named_ports = config.pointer("/config/named_ports").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::NamedPort>>(v.clone()).ok()
+        });
 
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::InstanceGroup::default();
@@ -3716,7 +4509,9 @@ impl GcpProvider {
             model = model.set_description(v);
         }
         model = model.set_name(name.clone());
-        // TODO: set named_ports on model via .set_named_ports()
+        if let Some(v) = named_ports {
+            model = model.set_named_ports(v);
+        }
 
         // Make API call
         let zone = config
@@ -3758,7 +4553,7 @@ impl GcpProvider {
                 "name": instance_group.name.as_deref().unwrap_or(""),
             },
             "config": {
-                "named_ports": serde_json::Value::Null /* TODO: named_ports is complex type */,
+                "named_ports": &instance_group.named_ports,
             },
         });
 
@@ -3837,7 +4632,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "bgp".into(),
                                 description: "BGP information specific to this router.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(RouterBgp) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -3845,7 +4640,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "bgp_peers".into(),
                                 description: "BGP information that must be configured into the routing stack to".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(RouterBgpPeer) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -3861,7 +4656,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "interfaces".into(),
                                 description: "Router interfaces.".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(RouterInterface) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -3869,7 +4664,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "md_5_authentication_keys".into(),
                                 description: "Keys used for MD5 authentication.".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(RouterMd5AuthenticationKey) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -3877,7 +4672,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "nats".into(),
                                 description: "A list of NAT services created in this router.".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(RouterNat) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -3885,7 +4680,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "params".into(),
                                 description: "Input only. [Input Only] Additional params passed with the request, but not persisted".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(RouterParams) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -3916,38 +4711,72 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        // TODO: extract bgp (Nested(RouterBgp)) from config["/config/bgp"]
-        // TODO: extract bgp_peers (Array(Nested(RouterBgpPeer))) from config["/config/bgp_peers"]
+        let bgp = config.pointer("/config/bgp").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::RouterBgp>(v.clone()).ok()
+        });
+        let bgp_peers = config.pointer("/config/bgp_peers").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::RouterBgpPeer>>(v.clone())
+                .ok()
+        });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
         let encrypted_interconnect_router =
             config.optional_bool("/config/encrypted_interconnect_router");
-        // TODO: extract interfaces (Array(Nested(RouterInterface))) from config["/config/interfaces"]
-        // TODO: extract md_5_authentication_keys (Array(Nested(RouterMd5AuthenticationKey))) from config["/config/md_5_authentication_keys"]
+        let interfaces = config.pointer("/config/interfaces").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::RouterInterface>>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let md_5_authentication_keys =
+            config
+                .pointer("/config/md_5_authentication_keys")
+                .and_then(|v| {
+                    serde_json::from_value::<
+                        Vec<google_cloud_compute_v1::model::RouterMd5AuthenticationKey>,
+                    >(v.clone())
+                    .ok()
+                });
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract nats (Array(Nested(RouterNat))) from config["/config/nats"]
+        let nats = config.pointer("/config/nats").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::RouterNat>>(v.clone()).ok()
+        });
         let network = config.optional_str("/network/network").map(String::from);
-        // TODO: extract params (Nested(RouterParams)) from config["/config/params"]
+        let params = config.pointer("/config/params").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::RouterParams>(v.clone()).ok()
+        });
 
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::Router::default();
-        // TODO: set bgp on model via .set_bgp()
-        // TODO: set bgp_peers on model via .set_bgp_peers()
+        if let Some(v) = bgp {
+            model = model.set_bgp(v);
+        }
+        if let Some(v) = bgp_peers {
+            model = model.set_bgp_peers(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
         if let Some(v) = encrypted_interconnect_router {
             model = model.set_encrypted_interconnect_router(v);
         }
-        // TODO: set interfaces on model via .set_interfaces()
-        // TODO: set md_5_authentication_keys on model via .set_md_5_authentication_keys()
+        if let Some(v) = interfaces {
+            model = model.set_interfaces(v);
+        }
+        if let Some(v) = md_5_authentication_keys {
+            model = model.set_md_5_authentication_keys(v);
+        }
         model = model.set_name(name.clone());
-        // TODO: set nats on model via .set_nats()
+        if let Some(v) = nats {
+            model = model.set_nats(v);
+        }
         if let Some(v) = network {
             model = model.set_network(v);
         }
-        // TODO: set params on model via .set_params()
+        if let Some(v) = params {
+            model = model.set_params(v);
+        }
 
         // Make API call
         let region = config.str_or("/network/region", &self.region).to_string();
@@ -3987,13 +4816,13 @@ impl GcpProvider {
                 "name": router.name.as_deref().unwrap_or(""),
             },
             "config": {
-                "bgp": serde_json::Value::Null /* TODO: bgp is complex type */,
-                "bgp_peers": serde_json::Value::Null /* TODO: bgp_peers is complex type */,
+                "bgp": &router.bgp,
+                "bgp_peers": &router.bgp_peers,
                 "encrypted_interconnect_router": router.encrypted_interconnect_router.unwrap_or(false),
-                "interfaces": serde_json::Value::Null /* TODO: interfaces is complex type */,
-                "md_5_authentication_keys": serde_json::Value::Null /* TODO: md_5_authentication_keys is complex type */,
-                "nats": serde_json::Value::Null /* TODO: nats is complex type */,
-                "params": serde_json::Value::Null /* TODO: params is complex type */,
+                "interfaces": &router.interfaces,
+                "md_5_authentication_keys": &router.md_5_authentication_keys,
+                "nats": &router.nats,
+                "params": &router.params,
             },
             "network": {
                 "network": router.network.as_deref().unwrap_or(""),
@@ -4020,35 +4849,69 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let (region, name) = super::parse_region_resource(provider_id, &self.region);
         // Extract fields from config
-        // TODO: extract bgp (Nested(RouterBgp)) from config["/config/bgp"]
-        // TODO: extract bgp_peers (Array(Nested(RouterBgpPeer))) from config["/config/bgp_peers"]
+        let bgp = config.pointer("/config/bgp").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::RouterBgp>(v.clone()).ok()
+        });
+        let bgp_peers = config.pointer("/config/bgp_peers").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::RouterBgpPeer>>(v.clone())
+                .ok()
+        });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
         let encrypted_interconnect_router =
             config.optional_bool("/config/encrypted_interconnect_router");
-        // TODO: extract interfaces (Array(Nested(RouterInterface))) from config["/config/interfaces"]
-        // TODO: extract md_5_authentication_keys (Array(Nested(RouterMd5AuthenticationKey))) from config["/config/md_5_authentication_keys"]
-        // TODO: extract nats (Array(Nested(RouterNat))) from config["/config/nats"]
+        let interfaces = config.pointer("/config/interfaces").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::RouterInterface>>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let md_5_authentication_keys =
+            config
+                .pointer("/config/md_5_authentication_keys")
+                .and_then(|v| {
+                    serde_json::from_value::<
+                        Vec<google_cloud_compute_v1::model::RouterMd5AuthenticationKey>,
+                    >(v.clone())
+                    .ok()
+                });
+        let nats = config.pointer("/config/nats").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::RouterNat>>(v.clone()).ok()
+        });
         let network = config.optional_str("/network/network").map(String::from);
-        // TODO: extract params (Nested(RouterParams)) from config["/config/params"]
+        let params = config.pointer("/config/params").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::RouterParams>(v.clone()).ok()
+        });
 
         let mut model = google_cloud_compute_v1::model::Router::default();
-        // TODO: set bgp on model via .set_bgp()
-        // TODO: set bgp_peers on model via .set_bgp_peers()
+        if let Some(v) = bgp {
+            model = model.set_bgp(v);
+        }
+        if let Some(v) = bgp_peers {
+            model = model.set_bgp_peers(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
         if let Some(v) = encrypted_interconnect_router {
             model = model.set_encrypted_interconnect_router(v);
         }
-        // TODO: set interfaces on model via .set_interfaces()
-        // TODO: set md_5_authentication_keys on model via .set_md_5_authentication_keys()
-        // TODO: set nats on model via .set_nats()
+        if let Some(v) = interfaces {
+            model = model.set_interfaces(v);
+        }
+        if let Some(v) = md_5_authentication_keys {
+            model = model.set_md_5_authentication_keys(v);
+        }
+        if let Some(v) = nats {
+            model = model.set_nats(v);
+        }
         if let Some(v) = network {
             model = model.set_network(v);
         }
-        // TODO: set params on model via .set_params()
+        if let Some(v) = params {
+            model = model.set_params(v);
+        }
 
         self.routers()
             .await?
@@ -4124,7 +4987,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "associations".into(),
                                 description: "A list of associations that belong to this policy.".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(SecurityPolicyAssociation) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -4132,7 +4995,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "rules".into(),
                                 description: "A list of rules that belong to this policy.".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(SecurityPolicyRule) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -4148,7 +5011,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "user_defined_fields".into(),
                                 description: "Definitions of user-defined fields for CLOUD_ARMOR_NETWORK policies. A".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(SecurityPolicyUserDefinedField) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -4165,29 +5028,52 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        // TODO: extract associations (Array(Nested(SecurityPolicyAssociation))) from config["/config/associations"]
+        let associations = config.pointer("/config/associations").and_then(|v| {
+            serde_json::from_value::<
+                    Vec<google_cloud_compute_v1::model::SecurityPolicyAssociation>,
+                >(v.clone())
+                .ok()
+        });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract labels (Record) from config["/identity/labels"]
+        let _labels = config
+            .pointer("/identity/labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract rules (Array(Nested(SecurityPolicyRule))) from config["/config/rules"]
+        let rules = config.pointer("/config/rules").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::SecurityPolicyRule>>(
+                v.clone(),
+            )
+            .ok()
+        });
         let short_name = config.optional_str("/config/short_name").map(String::from);
-        // TODO: extract user_defined_fields (Array(Nested(SecurityPolicyUserDefinedField))) from config["/config/user_defined_fields"]
+        let user_defined_fields = config.pointer("/config/user_defined_fields").and_then(|v| {
+            serde_json::from_value::<
+                Vec<google_cloud_compute_v1::model::SecurityPolicyUserDefinedField>,
+            >(v.clone())
+            .ok()
+        });
 
         let labels = super::extract_labels(config);
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::SecurityPolicy::default();
-        // TODO: set associations on model via .set_associations()
+        if let Some(v) = associations {
+            model = model.set_associations(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
         model = model.set_name(name.clone());
-        // TODO: set rules on model via .set_rules()
+        if let Some(v) = rules {
+            model = model.set_rules(v);
+        }
         if let Some(v) = short_name {
             model = model.set_short_name(v);
         }
-        // TODO: set user_defined_fields on model via .set_user_defined_fields()
+        if let Some(v) = user_defined_fields {
+            model = model.set_user_defined_fields(v);
+        }
         model = model.set_labels(labels);
 
         // Make API call
@@ -4233,10 +5119,10 @@ impl GcpProvider {
                 "name": security_policy.name.as_deref().unwrap_or(""),
             },
             "config": {
-                "associations": serde_json::Value::Null /* TODO: associations is complex type */,
-                "rules": serde_json::Value::Null /* TODO: rules is complex type */,
+                "associations": &security_policy.associations,
+                "rules": &security_policy.rules,
                 "short_name": security_policy.short_name.as_deref().unwrap_or(""),
-                "user_defined_fields": serde_json::Value::Null /* TODO: user_defined_fields is complex type */,
+                "user_defined_fields": &security_policy.user_defined_fields,
             },
         });
 
@@ -4260,25 +5146,46 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let name = provider_id.to_string();
         // Extract fields from config
-        // TODO: extract associations (Array(Nested(SecurityPolicyAssociation))) from config["/config/associations"]
+        let associations = config.pointer("/config/associations").and_then(|v| {
+            serde_json::from_value::<
+                    Vec<google_cloud_compute_v1::model::SecurityPolicyAssociation>,
+                >(v.clone())
+                .ok()
+        });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract rules (Array(Nested(SecurityPolicyRule))) from config["/config/rules"]
+        let rules = config.pointer("/config/rules").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::SecurityPolicyRule>>(
+                v.clone(),
+            )
+            .ok()
+        });
         let short_name = config.optional_str("/config/short_name").map(String::from);
-        // TODO: extract user_defined_fields (Array(Nested(SecurityPolicyUserDefinedField))) from config["/config/user_defined_fields"]
+        let user_defined_fields = config.pointer("/config/user_defined_fields").and_then(|v| {
+            serde_json::from_value::<
+                Vec<google_cloud_compute_v1::model::SecurityPolicyUserDefinedField>,
+            >(v.clone())
+            .ok()
+        });
         let labels = super::extract_labels(config);
 
         let mut model = google_cloud_compute_v1::model::SecurityPolicy::default();
-        // TODO: set associations on model via .set_associations()
+        if let Some(v) = associations {
+            model = model.set_associations(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set rules on model via .set_rules()
+        if let Some(v) = rules {
+            model = model.set_rules(v);
+        }
         if let Some(v) = short_name {
             model = model.set_short_name(v);
         }
-        // TODO: set user_defined_fields on model via .set_user_defined_fields()
+        if let Some(v) = user_defined_fields {
+            model = model.set_user_defined_fields(v);
+        }
         model = model.set_labels(labels);
 
         self.security_policies()
@@ -4377,7 +5284,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "params".into(),
                                 description: "Input only. [Input Only] Additional params passed with the request, but not persisted".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(SnapshotParams) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -4385,7 +5292,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "snapshot_encryption_key".into(),
                                 description: "Encrypts the snapshot using acustomer-supplied".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(CustomerEncryptionKey) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -4409,7 +5316,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "source_disk_encryption_key".into(),
                                 description: "The customer-supplied".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(CustomerEncryptionKey) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -4455,23 +5362,46 @@ impl GcpProvider {
             .optional_str("/identity/description")
             .map(String::from);
         let guest_flush = config.optional_bool("/config/guest_flush");
-        // TODO: extract labels (Record) from config["/identity/labels"]
+        let _labels = config
+            .pointer("/identity/labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let location_hint = config
             .optional_str("/config/location_hint")
             .map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract params (Nested(SnapshotParams)) from config["/config/params"]
-        // TODO: extract snapshot_encryption_key (Nested(CustomerEncryptionKey)) from config["/config/snapshot_encryption_key"]
-        // TODO: extract snapshot_type (Enum(SnapshotType)) from config["/config/snapshot_type"]
+        let params = config.pointer("/config/params").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::SnapshotParams>(v.clone()).ok()
+        });
+        let snapshot_encryption_key =
+            config
+                .pointer("/config/snapshot_encryption_key")
+                .and_then(|v| {
+                    serde_json::from_value::<google_cloud_compute_v1::model::CustomerEncryptionKey>(
+                        v.clone(),
+                    )
+                    .ok()
+                });
+        let snapshot_type = config
+            .optional_str("/config/snapshot_type")
+            .map(String::from);
         let source_disk = config.optional_str("/config/source_disk").map(String::from);
-        // TODO: extract source_disk_encryption_key (Nested(CustomerEncryptionKey)) from config["/config/source_disk_encryption_key"]
+        let source_disk_encryption_key = config
+            .pointer("/config/source_disk_encryption_key")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::CustomerEncryptionKey>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let source_disk_for_recovery_checkpoint = config
             .optional_str("/config/source_disk_for_recovery_checkpoint")
             .map(String::from);
         let source_instant_snapshot = config
             .optional_str("/config/source_instant_snapshot")
             .map(String::from);
-        // TODO: extract storage_locations (Array(String)) from config["/config/storage_locations"]
+        let storage_locations = config
+            .pointer("/config/storage_locations")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
 
         let labels = super::extract_labels(config);
         // Build SDK model
@@ -4489,20 +5419,32 @@ impl GcpProvider {
             model = model.set_location_hint(v);
         }
         model = model.set_name(name.clone());
-        // TODO: set params on model via .set_params()
-        // TODO: set snapshot_encryption_key on model via .set_snapshot_encryption_key()
-        // TODO: set snapshot_type on model via .set_snapshot_type()
+        if let Some(v) = params {
+            model = model.set_params(v);
+        }
+        if let Some(v) = snapshot_encryption_key {
+            model = model.set_snapshot_encryption_key(v);
+        }
+        if let Some(ref s) = snapshot_type {
+            model = model.set_snapshot_type(
+                google_cloud_compute_v1::model::snapshot::SnapshotType::from(s.as_str()),
+            );
+        }
         if let Some(v) = source_disk {
             model = model.set_source_disk(v);
         }
-        // TODO: set source_disk_encryption_key on model via .set_source_disk_encryption_key()
+        if let Some(v) = source_disk_encryption_key {
+            model = model.set_source_disk_encryption_key(v);
+        }
         if let Some(v) = source_disk_for_recovery_checkpoint {
             model = model.set_source_disk_for_recovery_checkpoint(v);
         }
         if let Some(v) = source_instant_snapshot {
             model = model.set_source_instant_snapshot(v);
         }
-        // TODO: set storage_locations on model via .set_storage_locations()
+        if let Some(v) = storage_locations {
+            model = model.set_storage_locations(v);
+        }
         model = model.set_labels(labels);
 
         // Make API call
@@ -4551,14 +5493,14 @@ impl GcpProvider {
                 "chain_name": snapshot.chain_name.as_deref().unwrap_or(""),
                 "guest_flush": snapshot.guest_flush.unwrap_or(false),
                 "location_hint": snapshot.location_hint.as_deref().unwrap_or(""),
-                "params": serde_json::Value::Null /* TODO: params is complex type */,
-                "snapshot_encryption_key": serde_json::Value::Null /* TODO: snapshot_encryption_key is complex type */,
-                "snapshot_type": serde_json::Value::Null /* TODO: snapshot_type is complex type */,
+                "params": &snapshot.params,
+                "snapshot_encryption_key": &snapshot.snapshot_encryption_key,
+                "snapshot_type": &snapshot.snapshot_type,
                 "source_disk": snapshot.source_disk.as_deref().unwrap_or(""),
-                "source_disk_encryption_key": serde_json::Value::Null /* TODO: source_disk_encryption_key is complex type */,
+                "source_disk_encryption_key": &snapshot.source_disk_encryption_key,
                 "source_disk_for_recovery_checkpoint": snapshot.source_disk_for_recovery_checkpoint.as_deref().unwrap_or(""),
                 "source_instant_snapshot": snapshot.source_instant_snapshot.as_deref().unwrap_or(""),
-                "storage_locations": serde_json::Value::Null /* TODO: storage_locations is complex type */,
+                "storage_locations": &snapshot.storage_locations,
             },
         });
 
@@ -4644,7 +5586,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "managed".into(),
                                 description: "Configuration and status of a managed SSL certificate.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(SslCertificateManagedSslCertificate) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -4660,7 +5602,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "self_managed".into(),
                                 description: "Configuration and status of a self-managed SSL certificate.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(SslCertificateSelfManagedSslCertificate) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -4681,10 +5623,20 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract managed (Nested(SslCertificateManagedSslCertificate)) from config["/config/managed"]
+        let managed = config.pointer("/config/managed").and_then(|v| {
+            serde_json::from_value::<
+                google_cloud_compute_v1::model::SslCertificateManagedSslCertificate,
+            >(v.clone())
+            .ok()
+        });
         let name = config.require_str("/identity/name")?.to_string();
         let private_key = config.optional_str("/config/private_key").map(String::from);
-        // TODO: extract self_managed (Nested(SslCertificateSelfManagedSslCertificate)) from config["/config/self_managed"]
+        let self_managed = config.pointer("/config/self_managed").and_then(|v| {
+            serde_json::from_value::<
+                google_cloud_compute_v1::model::SslCertificateSelfManagedSslCertificate,
+            >(v.clone())
+            .ok()
+        });
 
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::SslCertificate::default();
@@ -4694,12 +5646,16 @@ impl GcpProvider {
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set managed on model via .set_managed()
+        if let Some(v) = managed {
+            model = model.set_managed(v);
+        }
         model = model.set_name(name.clone());
         if let Some(v) = private_key {
             model = model.set_private_key(v);
         }
-        // TODO: set self_managed on model via .set_self_managed()
+        if let Some(v) = self_managed {
+            model = model.set_self_managed(v);
+        }
 
         // Make API call
         self.ssl_certificates()
@@ -4737,9 +5693,9 @@ impl GcpProvider {
             },
             "config": {
                 "certificate": ssl_certificate.certificate.as_deref().unwrap_or(""),
-                "managed": serde_json::Value::Null /* TODO: managed is complex type */,
+                "managed": &ssl_certificate.managed,
                 "private_key": ssl_certificate.private_key.as_deref().unwrap_or(""),
-                "self_managed": serde_json::Value::Null /* TODO: self_managed is complex type */,
+                "self_managed": &ssl_certificate.self_managed,
             },
         });
 
@@ -4817,7 +5773,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "default_route_action".into(),
                                 description: "defaultRouteAction takes effect when none of the".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(HttpRouteAction) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -4833,7 +5789,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "default_url_redirect".into(),
                                 description: "When none of the specified hostRules match, the request".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(HttpRedirectAction) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -4841,7 +5797,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "header_action".into(),
                                 description: "Specifies changes to request and response headers that need to take effect".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(HttpHeaderAction) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -4849,7 +5805,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "host_rules".into(),
                                 description: "The list of host rules to use against the URL.".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(HostRule) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -4857,7 +5813,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "path_matchers".into(),
                                 description: "The list of named PathMatchers to use against the URL.".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(PathMatcher) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -4865,7 +5821,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "tests".into(),
                                 description: "The list of expected URL mapping tests. Request to update theUrlMap succeeds only if all test cases pass. You can specify a".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(UrlMapTest) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -4882,35 +5838,70 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        // TODO: extract default_route_action (Nested(HttpRouteAction)) from config["/config/default_route_action"]
+        let default_route_action = config
+            .pointer("/config/default_route_action")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::HttpRouteAction>(v.clone())
+                    .ok()
+            });
         let default_service = config
             .optional_str("/config/default_service")
             .map(String::from);
-        // TODO: extract default_url_redirect (Nested(HttpRedirectAction)) from config["/config/default_url_redirect"]
+        let default_url_redirect = config
+            .pointer("/config/default_url_redirect")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::HttpRedirectAction>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract header_action (Nested(HttpHeaderAction)) from config["/config/header_action"]
-        // TODO: extract host_rules (Array(Nested(HostRule))) from config["/config/host_rules"]
+        let header_action = config.pointer("/config/header_action").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::HttpHeaderAction>(v.clone())
+                .ok()
+        });
+        let host_rules = config.pointer("/config/host_rules").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::HostRule>>(v.clone()).ok()
+        });
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract path_matchers (Array(Nested(PathMatcher))) from config["/config/path_matchers"]
-        // TODO: extract tests (Array(Nested(UrlMapTest))) from config["/config/tests"]
+        let path_matchers = config.pointer("/config/path_matchers").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::PathMatcher>>(v.clone())
+                .ok()
+        });
+        let tests = config.pointer("/config/tests").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::UrlMapTest>>(v.clone())
+                .ok()
+        });
 
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::UrlMap::default();
-        // TODO: set default_route_action on model via .set_default_route_action()
+        if let Some(v) = default_route_action {
+            model = model.set_default_route_action(v);
+        }
         if let Some(v) = default_service {
             model = model.set_default_service(v);
         }
-        // TODO: set default_url_redirect on model via .set_default_url_redirect()
+        if let Some(v) = default_url_redirect {
+            model = model.set_default_url_redirect(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set header_action on model via .set_header_action()
-        // TODO: set host_rules on model via .set_host_rules()
+        if let Some(v) = header_action {
+            model = model.set_header_action(v);
+        }
+        if let Some(v) = host_rules {
+            model = model.set_host_rules(v);
+        }
         model = model.set_name(name.clone());
-        // TODO: set path_matchers on model via .set_path_matchers()
-        // TODO: set tests on model via .set_tests()
+        if let Some(v) = path_matchers {
+            model = model.set_path_matchers(v);
+        }
+        if let Some(v) = tests {
+            model = model.set_tests(v);
+        }
 
         // Make API call
         self.url_maps()
@@ -4947,13 +5938,13 @@ impl GcpProvider {
                 "name": url_map.name.as_deref().unwrap_or(""),
             },
             "config": {
-                "default_route_action": serde_json::Value::Null /* TODO: default_route_action is complex type */,
+                "default_route_action": &url_map.default_route_action,
                 "default_service": url_map.default_service.as_deref().unwrap_or(""),
-                "default_url_redirect": serde_json::Value::Null /* TODO: default_url_redirect is complex type */,
-                "header_action": serde_json::Value::Null /* TODO: header_action is complex type */,
-                "host_rules": serde_json::Value::Null /* TODO: host_rules is complex type */,
-                "path_matchers": serde_json::Value::Null /* TODO: path_matchers is complex type */,
-                "tests": serde_json::Value::Null /* TODO: tests is complex type */,
+                "default_url_redirect": &url_map.default_url_redirect,
+                "header_action": &url_map.header_action,
+                "host_rules": &url_map.host_rules,
+                "path_matchers": &url_map.path_matchers,
+                "tests": &url_map.tests,
             },
         });
 
@@ -4977,32 +5968,67 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let name = provider_id.to_string();
         // Extract fields from config
-        // TODO: extract default_route_action (Nested(HttpRouteAction)) from config["/config/default_route_action"]
+        let default_route_action = config
+            .pointer("/config/default_route_action")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::HttpRouteAction>(v.clone())
+                    .ok()
+            });
         let default_service = config
             .optional_str("/config/default_service")
             .map(String::from);
-        // TODO: extract default_url_redirect (Nested(HttpRedirectAction)) from config["/config/default_url_redirect"]
+        let default_url_redirect = config
+            .pointer("/config/default_url_redirect")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::HttpRedirectAction>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract header_action (Nested(HttpHeaderAction)) from config["/config/header_action"]
-        // TODO: extract host_rules (Array(Nested(HostRule))) from config["/config/host_rules"]
-        // TODO: extract path_matchers (Array(Nested(PathMatcher))) from config["/config/path_matchers"]
-        // TODO: extract tests (Array(Nested(UrlMapTest))) from config["/config/tests"]
+        let header_action = config.pointer("/config/header_action").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::HttpHeaderAction>(v.clone())
+                .ok()
+        });
+        let host_rules = config.pointer("/config/host_rules").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::HostRule>>(v.clone()).ok()
+        });
+        let path_matchers = config.pointer("/config/path_matchers").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::PathMatcher>>(v.clone())
+                .ok()
+        });
+        let tests = config.pointer("/config/tests").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::UrlMapTest>>(v.clone())
+                .ok()
+        });
 
         let mut model = google_cloud_compute_v1::model::UrlMap::default();
-        // TODO: set default_route_action on model via .set_default_route_action()
+        if let Some(v) = default_route_action {
+            model = model.set_default_route_action(v);
+        }
         if let Some(v) = default_service {
             model = model.set_default_service(v);
         }
-        // TODO: set default_url_redirect on model via .set_default_url_redirect()
+        if let Some(v) = default_url_redirect {
+            model = model.set_default_url_redirect(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set header_action on model via .set_header_action()
-        // TODO: set host_rules on model via .set_host_rules()
-        // TODO: set path_matchers on model via .set_path_matchers()
-        // TODO: set tests on model via .set_tests()
+        if let Some(v) = header_action {
+            model = model.set_header_action(v);
+        }
+        if let Some(v) = host_rules {
+            model = model.set_host_rules(v);
+        }
+        if let Some(v) = path_matchers {
+            model = model.set_path_matchers(v);
+        }
+        if let Some(v) = tests {
+            model = model.set_tests(v);
+        }
 
         self.url_maps()
             .await?
@@ -5375,13 +6401,19 @@ impl GcpProvider {
             config.optional_i64("/config/http_keep_alive_timeout_sec");
         let name = config.require_str("/identity/name")?.to_string();
         let proxy_bind = config.optional_bool("/config/proxy_bind");
-        // TODO: extract quic_override (Enum(QuicOverride)) from config["/config/quic_override"]
+        let quic_override = config
+            .optional_str("/config/quic_override")
+            .map(String::from);
         let server_tls_policy = config
             .optional_str("/config/server_tls_policy")
             .map(String::from);
-        // TODO: extract ssl_certificates (Array(String)) from config["/config/ssl_certificates"]
+        let ssl_certificates = config
+            .pointer("/config/ssl_certificates")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let ssl_policy = config.optional_str("/config/ssl_policy").map(String::from);
-        // TODO: extract tls_early_data (Enum(TlsEarlyData)) from config["/config/tls_early_data"]
+        let tls_early_data = config
+            .optional_str("/config/tls_early_data")
+            .map(String::from);
         let url_map = config.optional_str("/config/url_map").map(String::from);
 
         // Build SDK model
@@ -5402,15 +6434,25 @@ impl GcpProvider {
         if let Some(v) = proxy_bind {
             model = model.set_proxy_bind(v);
         }
-        // TODO: set quic_override on model via .set_quic_override()
+        if let Some(ref s) = quic_override {
+            model = model.set_quic_override(
+                google_cloud_compute_v1::model::target_https_proxy::QuicOverride::from(s.as_str()),
+            );
+        }
         if let Some(v) = server_tls_policy {
             model = model.set_server_tls_policy(v);
         }
-        // TODO: set ssl_certificates on model via .set_ssl_certificates()
+        if let Some(v) = ssl_certificates {
+            model = model.set_ssl_certificates(v);
+        }
         if let Some(v) = ssl_policy {
             model = model.set_ssl_policy(v);
         }
-        // TODO: set tls_early_data on model via .set_tls_early_data()
+        if let Some(ref s) = tls_early_data {
+            model = model.set_tls_early_data(
+                google_cloud_compute_v1::model::target_https_proxy::TlsEarlyData::from(s.as_str()),
+            );
+        }
         if let Some(v) = url_map {
             model = model.set_url_map(v);
         }
@@ -5454,11 +6496,11 @@ impl GcpProvider {
                 "certificate_map": target_https_proxy.certificate_map.as_deref().unwrap_or(""),
                 "http_keep_alive_timeout_sec": target_https_proxy.http_keep_alive_timeout_sec.unwrap_or(0),
                 "proxy_bind": target_https_proxy.proxy_bind.unwrap_or(false),
-                "quic_override": serde_json::Value::Null /* TODO: quic_override is complex type */,
+                "quic_override": &target_https_proxy.quic_override,
                 "server_tls_policy": target_https_proxy.server_tls_policy.as_deref().unwrap_or(""),
-                "ssl_certificates": serde_json::Value::Null /* TODO: ssl_certificates is complex type */,
+                "ssl_certificates": &target_https_proxy.ssl_certificates,
                 "ssl_policy": target_https_proxy.ssl_policy.as_deref().unwrap_or(""),
-                "tls_early_data": serde_json::Value::Null /* TODO: tls_early_data is complex type */,
+                "tls_early_data": &target_https_proxy.tls_early_data,
                 "url_map": target_https_proxy.url_map.as_deref().unwrap_or(""),
             },
         });
@@ -5495,13 +6537,19 @@ impl GcpProvider {
         let http_keep_alive_timeout_sec =
             config.optional_i64("/config/http_keep_alive_timeout_sec");
         let proxy_bind = config.optional_bool("/config/proxy_bind");
-        // TODO: extract quic_override (Enum(QuicOverride)) from config["/config/quic_override"]
+        let quic_override = config
+            .optional_str("/config/quic_override")
+            .map(String::from);
         let server_tls_policy = config
             .optional_str("/config/server_tls_policy")
             .map(String::from);
-        // TODO: extract ssl_certificates (Array(String)) from config["/config/ssl_certificates"]
+        let ssl_certificates = config
+            .pointer("/config/ssl_certificates")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let ssl_policy = config.optional_str("/config/ssl_policy").map(String::from);
-        // TODO: extract tls_early_data (Enum(TlsEarlyData)) from config["/config/tls_early_data"]
+        let tls_early_data = config
+            .optional_str("/config/tls_early_data")
+            .map(String::from);
         let url_map = config.optional_str("/config/url_map").map(String::from);
 
         let mut model = google_cloud_compute_v1::model::TargetHttpsProxy::default();
@@ -5520,15 +6568,25 @@ impl GcpProvider {
         if let Some(v) = proxy_bind {
             model = model.set_proxy_bind(v);
         }
-        // TODO: set quic_override on model via .set_quic_override()
+        if let Some(ref s) = quic_override {
+            model = model.set_quic_override(
+                google_cloud_compute_v1::model::target_https_proxy::QuicOverride::from(s.as_str()),
+            );
+        }
         if let Some(v) = server_tls_policy {
             model = model.set_server_tls_policy(v);
         }
-        // TODO: set ssl_certificates on model via .set_ssl_certificates()
+        if let Some(v) = ssl_certificates {
+            model = model.set_ssl_certificates(v);
+        }
         if let Some(v) = ssl_policy {
             model = model.set_ssl_policy(v);
         }
-        // TODO: set tls_early_data on model via .set_tls_early_data()
+        if let Some(ref s) = tls_early_data {
+            model = model.set_tls_early_data(
+                google_cloud_compute_v1::model::target_https_proxy::TlsEarlyData::from(s.as_str()),
+            );
+        }
         if let Some(v) = url_map {
             model = model.set_url_map(v);
         }
@@ -5613,7 +6671,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "vpn_interfaces".into(),
                                 description: "The list of VPN interfaces associated with this VPN gateway.".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(VpnGatewayVpnGatewayInterface) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -5661,12 +6719,21 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract gateway_ip_version (Enum(GatewayIpVersion)) from config["/output/gateway_ip_version"]
-        // TODO: extract labels (Record) from config["/identity/labels"]
+        let gateway_ip_version = config
+            .optional_str("/output/gateway_ip_version")
+            .map(String::from);
+        let _labels = config
+            .pointer("/identity/labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
         let network = config.optional_str("/network/network").map(String::from);
-        // TODO: extract stack_type (Enum(StackType)) from config["/config/stack_type"]
-        // TODO: extract vpn_interfaces (Array(Nested(VpnGatewayVpnGatewayInterface))) from config["/config/vpn_interfaces"]
+        let stack_type = config.optional_str("/config/stack_type").map(String::from);
+        let vpn_interfaces = config.pointer("/config/vpn_interfaces").and_then(|v| {
+            serde_json::from_value::<
+                Vec<google_cloud_compute_v1::model::VpnGatewayVpnGatewayInterface>,
+            >(v.clone())
+            .ok()
+        });
 
         let labels = super::extract_labels(config);
         // Build SDK model
@@ -5674,13 +6741,23 @@ impl GcpProvider {
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set gateway_ip_version on model via .set_gateway_ip_version()
+        if let Some(ref s) = gateway_ip_version {
+            model = model.set_gateway_ip_version(
+                google_cloud_compute_v1::model::vpn_gateway::GatewayIpVersion::from(s.as_str()),
+            );
+        }
         model = model.set_name(name.clone());
         if let Some(v) = network {
             model = model.set_network(v);
         }
-        // TODO: set stack_type on model via .set_stack_type()
-        // TODO: set vpn_interfaces on model via .set_vpn_interfaces()
+        if let Some(ref s) = stack_type {
+            model = model.set_stack_type(
+                google_cloud_compute_v1::model::vpn_gateway::StackType::from(s.as_str()),
+            );
+        }
+        if let Some(v) = vpn_interfaces {
+            model = model.set_vpn_interfaces(v);
+        }
         model = model.set_labels(labels);
 
         // Make API call
@@ -5729,14 +6806,14 @@ impl GcpProvider {
                 "name": vpn_gateway.name.as_deref().unwrap_or(""),
             },
             "config": {
-                "stack_type": serde_json::Value::Null /* TODO: stack_type is complex type */,
-                "vpn_interfaces": serde_json::Value::Null /* TODO: vpn_interfaces is complex type */,
+                "stack_type": &vpn_gateway.stack_type,
+                "vpn_interfaces": &vpn_gateway.vpn_interfaces,
             },
             "network": {
                 "network": vpn_gateway.network.as_deref().unwrap_or(""),
             },
             "output": {
-                "gateway_ip_version": serde_json::Value::Null /* TODO: gateway_ip_version is complex type */,
+                "gateway_ip_version": &vpn_gateway.gateway_ip_version,
             },
         });
 
@@ -5823,7 +6900,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "cipher_suite".into(),
                                 description: "User specified list of ciphers to use for the phase 1 and phase 2 of the".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(VpnTunnelCipherSuite) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -5944,13 +7021,22 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        // TODO: extract cipher_suite (Nested(VpnTunnelCipherSuite)) from config["/config/cipher_suite"]
+        let cipher_suite = config.pointer("/config/cipher_suite").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::VpnTunnelCipherSuite>(
+                v.clone(),
+            )
+            .ok()
+        });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
         let ike_version = config.optional_i64("/config/ike_version");
-        // TODO: extract labels (Record) from config["/identity/labels"]
-        // TODO: extract local_traffic_selector (Array(String)) from config["/config/local_traffic_selector"]
+        let _labels = config
+            .pointer("/identity/labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        let local_traffic_selector = config
+            .pointer("/config/local_traffic_selector")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
         let peer_external_gateway = config
             .optional_str("/config/peer_external_gateway")
@@ -5961,7 +7047,9 @@ impl GcpProvider {
             .optional_str("/config/peer_gcp_gateway")
             .map(String::from);
         let peer_ip = config.optional_str("/config/peer_ip").map(String::from);
-        // TODO: extract remote_traffic_selector (Array(String)) from config["/config/remote_traffic_selector"]
+        let remote_traffic_selector = config
+            .pointer("/config/remote_traffic_selector")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let router = config.optional_str("/config/router").map(String::from);
         let shared_secret = config
             .optional_str("/config/shared_secret")
@@ -5978,14 +7066,18 @@ impl GcpProvider {
         let labels = super::extract_labels(config);
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::VpnTunnel::default();
-        // TODO: set cipher_suite on model via .set_cipher_suite()
+        if let Some(v) = cipher_suite {
+            model = model.set_cipher_suite(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
         if let Some(v) = ike_version {
             model = model.set_ike_version(v as i32);
         }
-        // TODO: set local_traffic_selector on model via .set_local_traffic_selector()
+        if let Some(v) = local_traffic_selector {
+            model = model.set_local_traffic_selector(v);
+        }
         model = model.set_name(name.clone());
         if let Some(v) = peer_external_gateway {
             model = model.set_peer_external_gateway(v);
@@ -5999,7 +7091,9 @@ impl GcpProvider {
         if let Some(v) = peer_ip {
             model = model.set_peer_ip(v);
         }
-        // TODO: set remote_traffic_selector on model via .set_remote_traffic_selector()
+        if let Some(v) = remote_traffic_selector {
+            model = model.set_remote_traffic_selector(v);
+        }
         if let Some(v) = router {
             model = model.set_router(v);
         }
@@ -6066,14 +7160,14 @@ impl GcpProvider {
                 "name": vpn_tunnel.name.as_deref().unwrap_or(""),
             },
             "config": {
-                "cipher_suite": serde_json::Value::Null /* TODO: cipher_suite is complex type */,
+                "cipher_suite": &vpn_tunnel.cipher_suite,
                 "ike_version": vpn_tunnel.ike_version.unwrap_or(0),
-                "local_traffic_selector": serde_json::Value::Null /* TODO: local_traffic_selector is complex type */,
+                "local_traffic_selector": &vpn_tunnel.local_traffic_selector,
                 "peer_external_gateway": vpn_tunnel.peer_external_gateway.as_deref().unwrap_or(""),
                 "peer_external_gateway_interface": vpn_tunnel.peer_external_gateway_interface.unwrap_or(0),
                 "peer_gcp_gateway": vpn_tunnel.peer_gcp_gateway.as_deref().unwrap_or(""),
                 "peer_ip": vpn_tunnel.peer_ip.as_deref().unwrap_or(""),
-                "remote_traffic_selector": serde_json::Value::Null /* TODO: remote_traffic_selector is complex type */,
+                "remote_traffic_selector": &vpn_tunnel.remote_traffic_selector,
                 "router": vpn_tunnel.router.as_deref().unwrap_or(""),
                 "shared_secret": vpn_tunnel.shared_secret.as_deref().unwrap_or(""),
                 "shared_secret_hash": vpn_tunnel.shared_secret_hash.as_deref().unwrap_or(""),
@@ -6158,7 +7252,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "aggregate_reservation".into(),
                                 description: "Reservation for aggregated resources, providing shape flexibility.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(AllocationAggregateReservation) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -6166,7 +7260,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "delete_after_duration".into(),
                                 description: "Duration time relative to reservation creation when Compute Engine will".into(),
-                                field_type: crate::provider::FieldType::String /* Duration */,
+                                field_type: crate::provider::FieldType::String,
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -6222,7 +7316,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "share_settings".into(),
                                 description: "Specify share-settings to create a shared reservation. This property is".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(ShareSettings) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -6230,7 +7324,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "specific_reservation".into(),
                                 description: "Reservation for instances with specific machine shapes.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(AllocationSpecificSKUReservation) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -6269,35 +7363,71 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        // TODO: extract aggregate_reservation (Nested(AllocationAggregateReservation)) from config["/config/aggregate_reservation"]
-        // TODO: extract delete_after_duration (Duration) from config["/config/delete_after_duration"]
+        let aggregate_reservation = config
+            .pointer("/config/aggregate_reservation")
+            .and_then(|v| {
+                serde_json::from_value::<
+                    google_cloud_compute_v1::model::AllocationAggregateReservation,
+                >(v.clone())
+                .ok()
+            });
+        let delete_after_duration = config
+            .pointer("/config/delete_after_duration")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::Duration>(v.clone()).ok()
+            });
         let delete_at_time = config
             .optional_str("/config/delete_at_time")
             .map(String::from);
-        // TODO: extract deployment_type (Enum(DeploymentType)) from config["/config/deployment_type"]
+        let deployment_type = config
+            .optional_str("/config/deployment_type")
+            .map(String::from);
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
         let enable_emergent_maintenance =
             config.optional_bool("/config/enable_emergent_maintenance");
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract protection_tier (Enum(ProtectionTier)) from config["/config/protection_tier"]
-        // TODO: extract resource_policies (Record) from config["/config/resource_policies"]
-        // TODO: extract scheduling_type (Enum(SchedulingType)) from config["/config/scheduling_type"]
-        // TODO: extract share_settings (Nested(ShareSettings)) from config["/config/share_settings"]
-        // TODO: extract specific_reservation (Nested(AllocationSpecificSKUReservation)) from config["/config/specific_reservation"]
+        let protection_tier = config
+            .optional_str("/config/protection_tier")
+            .map(String::from);
+        let resource_policies = config
+            .pointer("/config/resource_policies")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        let scheduling_type = config
+            .optional_str("/config/scheduling_type")
+            .map(String::from);
+        let share_settings = config.pointer("/config/share_settings").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::ShareSettings>(v.clone()).ok()
+        });
+        let specific_reservation = config
+            .pointer("/config/specific_reservation")
+            .and_then(|v| {
+                serde_json::from_value::<
+                    google_cloud_compute_v1::model::AllocationSpecificSKUReservation,
+                >(v.clone())
+                .ok()
+            });
         let specific_reservation_required =
             config.optional_bool("/config/specific_reservation_required");
         let zone = config.optional_str("/sizing/zone").map(String::from);
 
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::Reservation::default();
-        // TODO: set aggregate_reservation on model via .set_aggregate_reservation()
-        // TODO: set delete_after_duration on model via .set_delete_after_duration()
+        if let Some(v) = aggregate_reservation {
+            model = model.set_aggregate_reservation(v);
+        }
+        if let Some(v) = delete_after_duration {
+            model = model.set_delete_after_duration(v);
+        }
         if let Some(v) = delete_at_time {
             model = model.set_delete_at_time(v);
         }
-        // TODO: set deployment_type on model via .set_deployment_type()
+        if let Some(ref s) = deployment_type {
+            model = model.set_deployment_type(
+                google_cloud_compute_v1::model::reservation::DeploymentType::from(s.as_str()),
+            );
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
@@ -6305,11 +7435,25 @@ impl GcpProvider {
             model = model.set_enable_emergent_maintenance(v);
         }
         model = model.set_name(name.clone());
-        // TODO: set protection_tier on model via .set_protection_tier()
-        // TODO: set resource_policies on model via .set_resource_policies()
-        // TODO: set scheduling_type on model via .set_scheduling_type()
-        // TODO: set share_settings on model via .set_share_settings()
-        // TODO: set specific_reservation on model via .set_specific_reservation()
+        if let Some(ref s) = protection_tier {
+            model = model.set_protection_tier(
+                google_cloud_compute_v1::model::reservation::ProtectionTier::from(s.as_str()),
+            );
+        }
+        if let Some(v) = resource_policies {
+            model = model.set_resource_policies(v);
+        }
+        if let Some(ref s) = scheduling_type {
+            model = model.set_scheduling_type(
+                google_cloud_compute_v1::model::reservation::SchedulingType::from(s.as_str()),
+            );
+        }
+        if let Some(v) = share_settings {
+            model = model.set_share_settings(v);
+        }
+        if let Some(v) = specific_reservation {
+            model = model.set_specific_reservation(v);
+        }
         if let Some(v) = specific_reservation_required {
             model = model.set_specific_reservation_required(v);
         }
@@ -6357,16 +7501,16 @@ impl GcpProvider {
                 "name": reservation.name.as_deref().unwrap_or(""),
             },
             "config": {
-                "aggregate_reservation": serde_json::Value::Null /* TODO: aggregate_reservation is complex type */,
-                "delete_after_duration": serde_json::Value::Null /* TODO: delete_after_duration is complex type */,
+                "aggregate_reservation": &reservation.aggregate_reservation,
+                "delete_after_duration": &reservation.delete_after_duration,
                 "delete_at_time": reservation.delete_at_time.as_deref().unwrap_or(""),
-                "deployment_type": serde_json::Value::Null /* TODO: deployment_type is complex type */,
+                "deployment_type": &reservation.deployment_type,
                 "enable_emergent_maintenance": reservation.enable_emergent_maintenance.unwrap_or(false),
-                "protection_tier": serde_json::Value::Null /* TODO: protection_tier is complex type */,
-                "resource_policies": serde_json::Value::Null /* TODO: resource_policies is complex type */,
-                "scheduling_type": serde_json::Value::Null /* TODO: scheduling_type is complex type */,
-                "share_settings": serde_json::Value::Null /* TODO: share_settings is complex type */,
-                "specific_reservation": serde_json::Value::Null /* TODO: specific_reservation is complex type */,
+                "protection_tier": &reservation.protection_tier,
+                "resource_policies": &reservation.resource_policies,
+                "scheduling_type": &reservation.scheduling_type,
+                "share_settings": &reservation.share_settings,
+                "specific_reservation": &reservation.specific_reservation,
                 "specific_reservation_required": reservation.specific_reservation_required.unwrap_or(false),
             },
             "sizing": {
@@ -6394,43 +7538,93 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let (zone, name) = super::parse_zone_resource(provider_id, &self.region);
         // Extract fields from config
-        // TODO: extract aggregate_reservation (Nested(AllocationAggregateReservation)) from config["/config/aggregate_reservation"]
-        // TODO: extract delete_after_duration (Duration) from config["/config/delete_after_duration"]
+        let aggregate_reservation = config
+            .pointer("/config/aggregate_reservation")
+            .and_then(|v| {
+                serde_json::from_value::<
+                    google_cloud_compute_v1::model::AllocationAggregateReservation,
+                >(v.clone())
+                .ok()
+            });
+        let delete_after_duration = config
+            .pointer("/config/delete_after_duration")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::Duration>(v.clone()).ok()
+            });
         let delete_at_time = config
             .optional_str("/config/delete_at_time")
             .map(String::from);
-        // TODO: extract deployment_type (Enum(DeploymentType)) from config["/config/deployment_type"]
+        let deployment_type = config
+            .optional_str("/config/deployment_type")
+            .map(String::from);
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
         let enable_emergent_maintenance =
             config.optional_bool("/config/enable_emergent_maintenance");
-        // TODO: extract protection_tier (Enum(ProtectionTier)) from config["/config/protection_tier"]
-        // TODO: extract resource_policies (Record) from config["/config/resource_policies"]
-        // TODO: extract scheduling_type (Enum(SchedulingType)) from config["/config/scheduling_type"]
-        // TODO: extract share_settings (Nested(ShareSettings)) from config["/config/share_settings"]
-        // TODO: extract specific_reservation (Nested(AllocationSpecificSKUReservation)) from config["/config/specific_reservation"]
+        let protection_tier = config
+            .optional_str("/config/protection_tier")
+            .map(String::from);
+        let resource_policies = config
+            .pointer("/config/resource_policies")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        let scheduling_type = config
+            .optional_str("/config/scheduling_type")
+            .map(String::from);
+        let share_settings = config.pointer("/config/share_settings").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::ShareSettings>(v.clone()).ok()
+        });
+        let specific_reservation = config
+            .pointer("/config/specific_reservation")
+            .and_then(|v| {
+                serde_json::from_value::<
+                    google_cloud_compute_v1::model::AllocationSpecificSKUReservation,
+                >(v.clone())
+                .ok()
+            });
         let specific_reservation_required =
             config.optional_bool("/config/specific_reservation_required");
 
         let mut model = google_cloud_compute_v1::model::Reservation::default();
-        // TODO: set aggregate_reservation on model via .set_aggregate_reservation()
-        // TODO: set delete_after_duration on model via .set_delete_after_duration()
+        if let Some(v) = aggregate_reservation {
+            model = model.set_aggregate_reservation(v);
+        }
+        if let Some(v) = delete_after_duration {
+            model = model.set_delete_after_duration(v);
+        }
         if let Some(v) = delete_at_time {
             model = model.set_delete_at_time(v);
         }
-        // TODO: set deployment_type on model via .set_deployment_type()
+        if let Some(ref s) = deployment_type {
+            model = model.set_deployment_type(
+                google_cloud_compute_v1::model::reservation::DeploymentType::from(s.as_str()),
+            );
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
         if let Some(v) = enable_emergent_maintenance {
             model = model.set_enable_emergent_maintenance(v);
         }
-        // TODO: set protection_tier on model via .set_protection_tier()
-        // TODO: set resource_policies on model via .set_resource_policies()
-        // TODO: set scheduling_type on model via .set_scheduling_type()
-        // TODO: set share_settings on model via .set_share_settings()
-        // TODO: set specific_reservation on model via .set_specific_reservation()
+        if let Some(ref s) = protection_tier {
+            model = model.set_protection_tier(
+                google_cloud_compute_v1::model::reservation::ProtectionTier::from(s.as_str()),
+            );
+        }
+        if let Some(v) = resource_policies {
+            model = model.set_resource_policies(v);
+        }
+        if let Some(ref s) = scheduling_type {
+            model = model.set_scheduling_type(
+                google_cloud_compute_v1::model::reservation::SchedulingType::from(s.as_str()),
+            );
+        }
+        if let Some(v) = share_settings {
+            model = model.set_share_settings(v);
+        }
+        if let Some(v) = specific_reservation {
+            model = model.set_specific_reservation(v);
+        }
         if let Some(v) = specific_reservation_required {
             model = model.set_specific_reservation_required(v);
         }
@@ -6605,7 +7799,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "l_2_forwarding".into(),
                                 description: "L2 Interconnect Attachment related config. This field is required if the".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(InterconnectAttachmentL2Forwarding) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -6613,7 +7807,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "params".into(),
                                 description: "Input only. [Input Only] Additional params passed with the request, but not persisted".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(InterconnectAttachmentParams) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -6629,7 +7823,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "partner_metadata".into(),
                                 description: "Informational metadata about Partner attachments from Partners to display".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(InterconnectAttachmentPartnerMetadata) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -6707,7 +7901,7 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
         let admin_enabled = config.optional_bool("/config/admin_enabled");
-        // TODO: extract bandwidth (Enum(Bandwidth)) from config["/config/bandwidth"]
+        let bandwidth = config.optional_str("/config/bandwidth").map(String::from);
         let candidate_cloud_router_ip_address = config
             .optional_str("/config/candidate_cloud_router_ip_address")
             .map(String::from);
@@ -6720,8 +7914,12 @@ impl GcpProvider {
         let candidate_customer_router_ipv_6_address = config
             .optional_str("/config/candidate_customer_router_ipv_6_address")
             .map(String::from);
-        // TODO: extract candidate_ipv_6_subnets (Array(String)) from config["/config/candidate_ipv_6_subnets"]
-        // TODO: extract candidate_subnets (Array(String)) from config["/config/candidate_subnets"]
+        let candidate_ipv_6_subnets = config
+            .pointer("/config/candidate_ipv_6_subnets")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let candidate_subnets = config
+            .pointer("/config/candidate_subnets")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let cloud_router_ipv_6_interface_id = config
             .optional_str("/config/cloud_router_ipv_6_interface_id")
             .map(String::from);
@@ -6731,20 +7929,41 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract encryption (Enum(Encryption)) from config["/security/encryption"]
+        let encryption = config
+            .optional_str("/security/encryption")
+            .map(String::from);
         let interconnect = config
             .optional_str("/config/interconnect")
             .map(String::from);
-        // TODO: extract ipsec_internal_addresses (Array(String)) from config["/config/ipsec_internal_addresses"]
-        // TODO: extract l_2_forwarding (Nested(InterconnectAttachmentL2Forwarding)) from config["/config/l_2_forwarding"]
-        // TODO: extract labels (Record) from config["/identity/labels"]
+        let ipsec_internal_addresses = config
+            .pointer("/config/ipsec_internal_addresses")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let l_2_forwarding = config.pointer("/config/l_2_forwarding").and_then(|v| {
+            serde_json::from_value::<
+                google_cloud_compute_v1::model::InterconnectAttachmentL2Forwarding,
+            >(v.clone())
+            .ok()
+        });
+        let _labels = config
+            .pointer("/identity/labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let mtu = config.optional_i64("/network/mtu");
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract params (Nested(InterconnectAttachmentParams)) from config["/config/params"]
+        let params = config.pointer("/config/params").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::InterconnectAttachmentParams>(
+                v.clone(),
+            )
+            .ok()
+        });
         let partner_asn = config.optional_i64("/config/partner_asn");
-        // TODO: extract partner_metadata (Nested(InterconnectAttachmentPartnerMetadata)) from config["/config/partner_metadata"]
+        let partner_metadata = config.pointer("/config/partner_metadata").and_then(|v| {
+            serde_json::from_value::<
+                google_cloud_compute_v1::model::InterconnectAttachmentPartnerMetadata,
+            >(v.clone())
+            .ok()
+        });
         let router = config.optional_str("/config/router").map(String::from);
-        // TODO: extract stack_type (Enum(StackType)) from config["/config/stack_type"]
+        let stack_type = config.optional_str("/config/stack_type").map(String::from);
         let subnet_length = config.optional_i64("/config/subnet_length");
         let vlan_tag_8021_q = config.optional_i64("/config/vlan_tag_8021_q");
 
@@ -6754,7 +7973,13 @@ impl GcpProvider {
         if let Some(v) = admin_enabled {
             model = model.set_admin_enabled(v);
         }
-        // TODO: set bandwidth on model via .set_bandwidth()
+        if let Some(ref s) = bandwidth {
+            model = model.set_bandwidth(
+                google_cloud_compute_v1::model::interconnect_attachment::Bandwidth::from(
+                    s.as_str(),
+                ),
+            );
+        }
         if let Some(v) = candidate_cloud_router_ip_address {
             model = model.set_candidate_cloud_router_ip_address(v);
         }
@@ -6767,8 +7992,12 @@ impl GcpProvider {
         if let Some(v) = candidate_customer_router_ipv_6_address {
             model = model.set_candidate_customer_router_ipv_6_address(v);
         }
-        // TODO: set candidate_ipv_6_subnets on model via .set_candidate_ipv_6_subnets()
-        // TODO: set candidate_subnets on model via .set_candidate_subnets()
+        if let Some(v) = candidate_ipv_6_subnets {
+            model = model.set_candidate_ipv_6_subnets(v);
+        }
+        if let Some(v) = candidate_subnets {
+            model = model.set_candidate_subnets(v);
+        }
         if let Some(v) = cloud_router_ipv_6_interface_id {
             model = model.set_cloud_router_ipv_6_interface_id(v);
         }
@@ -6778,25 +8007,45 @@ impl GcpProvider {
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set encryption on model via .set_encryption()
+        if let Some(ref s) = encryption {
+            model = model.set_encryption(
+                google_cloud_compute_v1::model::interconnect_attachment::Encryption::from(
+                    s.as_str(),
+                ),
+            );
+        }
         if let Some(v) = interconnect {
             model = model.set_interconnect(v);
         }
-        // TODO: set ipsec_internal_addresses on model via .set_ipsec_internal_addresses()
-        // TODO: set l_2_forwarding on model via .set_l_2_forwarding()
+        if let Some(v) = ipsec_internal_addresses {
+            model = model.set_ipsec_internal_addresses(v);
+        }
+        if let Some(v) = l_2_forwarding {
+            model = model.set_l_2_forwarding(v);
+        }
         if let Some(v) = mtu {
             model = model.set_mtu(v as i32);
         }
         model = model.set_name(name.clone());
-        // TODO: set params on model via .set_params()
+        if let Some(v) = params {
+            model = model.set_params(v);
+        }
         if let Some(v) = partner_asn {
             model = model.set_partner_asn(v as i32);
         }
-        // TODO: set partner_metadata on model via .set_partner_metadata()
+        if let Some(v) = partner_metadata {
+            model = model.set_partner_metadata(v);
+        }
         if let Some(v) = router {
             model = model.set_router(v);
         }
-        // TODO: set stack_type on model via .set_stack_type()
+        if let Some(ref s) = stack_type {
+            model = model.set_stack_type(
+                google_cloud_compute_v1::model::interconnect_attachment::StackType::from(
+                    s.as_str(),
+                ),
+            );
+        }
         if let Some(v) = subnet_length {
             model = model.set_subnet_length(v as i32);
         }
@@ -6852,23 +8101,23 @@ impl GcpProvider {
             },
             "config": {
                 "admin_enabled": interconnect_attachment.admin_enabled.unwrap_or(false),
-                "bandwidth": serde_json::Value::Null /* TODO: bandwidth is complex type */,
+                "bandwidth": &interconnect_attachment.bandwidth,
                 "candidate_cloud_router_ip_address": interconnect_attachment.candidate_cloud_router_ip_address.as_deref().unwrap_or(""),
                 "candidate_cloud_router_ipv_6_address": interconnect_attachment.candidate_cloud_router_ipv_6_address.as_deref().unwrap_or(""),
                 "candidate_customer_router_ip_address": interconnect_attachment.candidate_customer_router_ip_address.as_deref().unwrap_or(""),
                 "candidate_customer_router_ipv_6_address": interconnect_attachment.candidate_customer_router_ipv_6_address.as_deref().unwrap_or(""),
-                "candidate_ipv_6_subnets": serde_json::Value::Null /* TODO: candidate_ipv_6_subnets is complex type */,
-                "candidate_subnets": serde_json::Value::Null /* TODO: candidate_subnets is complex type */,
+                "candidate_ipv_6_subnets": &interconnect_attachment.candidate_ipv_6_subnets,
+                "candidate_subnets": &interconnect_attachment.candidate_subnets,
                 "cloud_router_ipv_6_interface_id": interconnect_attachment.cloud_router_ipv_6_interface_id.as_deref().unwrap_or(""),
                 "customer_router_ipv_6_interface_id": interconnect_attachment.customer_router_ipv_6_interface_id.as_deref().unwrap_or(""),
                 "interconnect": interconnect_attachment.interconnect.as_deref().unwrap_or(""),
-                "ipsec_internal_addresses": serde_json::Value::Null /* TODO: ipsec_internal_addresses is complex type */,
-                "l_2_forwarding": serde_json::Value::Null /* TODO: l_2_forwarding is complex type */,
-                "params": serde_json::Value::Null /* TODO: params is complex type */,
+                "ipsec_internal_addresses": &interconnect_attachment.ipsec_internal_addresses,
+                "l_2_forwarding": &interconnect_attachment.l_2_forwarding,
+                "params": &interconnect_attachment.params,
                 "partner_asn": interconnect_attachment.partner_asn.unwrap_or(0),
-                "partner_metadata": serde_json::Value::Null /* TODO: partner_metadata is complex type */,
+                "partner_metadata": &interconnect_attachment.partner_metadata,
                 "router": interconnect_attachment.router.as_deref().unwrap_or(""),
-                "stack_type": serde_json::Value::Null /* TODO: stack_type is complex type */,
+                "stack_type": &interconnect_attachment.stack_type,
                 "subnet_length": interconnect_attachment.subnet_length.unwrap_or(0),
                 "vlan_tag_8021_q": interconnect_attachment.vlan_tag_8021_q.unwrap_or(0),
             },
@@ -6876,7 +8125,7 @@ impl GcpProvider {
                 "mtu": interconnect_attachment.mtu.unwrap_or(0),
             },
             "security": {
-                "encryption": serde_json::Value::Null /* TODO: encryption is complex type */,
+                "encryption": &interconnect_attachment.encryption,
             },
         });
 
@@ -6901,7 +8150,7 @@ impl GcpProvider {
         let (region, name) = super::parse_region_resource(provider_id, &self.region);
         // Extract fields from config
         let admin_enabled = config.optional_bool("/config/admin_enabled");
-        // TODO: extract bandwidth (Enum(Bandwidth)) from config["/config/bandwidth"]
+        let bandwidth = config.optional_str("/config/bandwidth").map(String::from);
         let candidate_cloud_router_ip_address = config
             .optional_str("/config/candidate_cloud_router_ip_address")
             .map(String::from);
@@ -6914,8 +8163,12 @@ impl GcpProvider {
         let candidate_customer_router_ipv_6_address = config
             .optional_str("/config/candidate_customer_router_ipv_6_address")
             .map(String::from);
-        // TODO: extract candidate_ipv_6_subnets (Array(String)) from config["/config/candidate_ipv_6_subnets"]
-        // TODO: extract candidate_subnets (Array(String)) from config["/config/candidate_subnets"]
+        let candidate_ipv_6_subnets = config
+            .pointer("/config/candidate_ipv_6_subnets")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let candidate_subnets = config
+            .pointer("/config/candidate_subnets")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let cloud_router_ipv_6_interface_id = config
             .optional_str("/config/cloud_router_ipv_6_interface_id")
             .map(String::from);
@@ -6925,18 +8178,37 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract encryption (Enum(Encryption)) from config["/security/encryption"]
+        let encryption = config
+            .optional_str("/security/encryption")
+            .map(String::from);
         let interconnect = config
             .optional_str("/config/interconnect")
             .map(String::from);
-        // TODO: extract ipsec_internal_addresses (Array(String)) from config["/config/ipsec_internal_addresses"]
-        // TODO: extract l_2_forwarding (Nested(InterconnectAttachmentL2Forwarding)) from config["/config/l_2_forwarding"]
+        let ipsec_internal_addresses = config
+            .pointer("/config/ipsec_internal_addresses")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let l_2_forwarding = config.pointer("/config/l_2_forwarding").and_then(|v| {
+            serde_json::from_value::<
+                google_cloud_compute_v1::model::InterconnectAttachmentL2Forwarding,
+            >(v.clone())
+            .ok()
+        });
         let mtu = config.optional_i64("/network/mtu");
-        // TODO: extract params (Nested(InterconnectAttachmentParams)) from config["/config/params"]
+        let params = config.pointer("/config/params").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::InterconnectAttachmentParams>(
+                v.clone(),
+            )
+            .ok()
+        });
         let partner_asn = config.optional_i64("/config/partner_asn");
-        // TODO: extract partner_metadata (Nested(InterconnectAttachmentPartnerMetadata)) from config["/config/partner_metadata"]
+        let partner_metadata = config.pointer("/config/partner_metadata").and_then(|v| {
+            serde_json::from_value::<
+                google_cloud_compute_v1::model::InterconnectAttachmentPartnerMetadata,
+            >(v.clone())
+            .ok()
+        });
         let router = config.optional_str("/config/router").map(String::from);
-        // TODO: extract stack_type (Enum(StackType)) from config["/config/stack_type"]
+        let stack_type = config.optional_str("/config/stack_type").map(String::from);
         let subnet_length = config.optional_i64("/config/subnet_length");
         let vlan_tag_8021_q = config.optional_i64("/config/vlan_tag_8021_q");
         let labels = super::extract_labels(config);
@@ -6945,7 +8217,13 @@ impl GcpProvider {
         if let Some(v) = admin_enabled {
             model = model.set_admin_enabled(v);
         }
-        // TODO: set bandwidth on model via .set_bandwidth()
+        if let Some(ref s) = bandwidth {
+            model = model.set_bandwidth(
+                google_cloud_compute_v1::model::interconnect_attachment::Bandwidth::from(
+                    s.as_str(),
+                ),
+            );
+        }
         if let Some(v) = candidate_cloud_router_ip_address {
             model = model.set_candidate_cloud_router_ip_address(v);
         }
@@ -6958,8 +8236,12 @@ impl GcpProvider {
         if let Some(v) = candidate_customer_router_ipv_6_address {
             model = model.set_candidate_customer_router_ipv_6_address(v);
         }
-        // TODO: set candidate_ipv_6_subnets on model via .set_candidate_ipv_6_subnets()
-        // TODO: set candidate_subnets on model via .set_candidate_subnets()
+        if let Some(v) = candidate_ipv_6_subnets {
+            model = model.set_candidate_ipv_6_subnets(v);
+        }
+        if let Some(v) = candidate_subnets {
+            model = model.set_candidate_subnets(v);
+        }
         if let Some(v) = cloud_router_ipv_6_interface_id {
             model = model.set_cloud_router_ipv_6_interface_id(v);
         }
@@ -6969,24 +8251,44 @@ impl GcpProvider {
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set encryption on model via .set_encryption()
+        if let Some(ref s) = encryption {
+            model = model.set_encryption(
+                google_cloud_compute_v1::model::interconnect_attachment::Encryption::from(
+                    s.as_str(),
+                ),
+            );
+        }
         if let Some(v) = interconnect {
             model = model.set_interconnect(v);
         }
-        // TODO: set ipsec_internal_addresses on model via .set_ipsec_internal_addresses()
-        // TODO: set l_2_forwarding on model via .set_l_2_forwarding()
+        if let Some(v) = ipsec_internal_addresses {
+            model = model.set_ipsec_internal_addresses(v);
+        }
+        if let Some(v) = l_2_forwarding {
+            model = model.set_l_2_forwarding(v);
+        }
         if let Some(v) = mtu {
             model = model.set_mtu(v as i32);
         }
-        // TODO: set params on model via .set_params()
+        if let Some(v) = params {
+            model = model.set_params(v);
+        }
         if let Some(v) = partner_asn {
             model = model.set_partner_asn(v as i32);
         }
-        // TODO: set partner_metadata on model via .set_partner_metadata()
+        if let Some(v) = partner_metadata {
+            model = model.set_partner_metadata(v);
+        }
         if let Some(v) = router {
             model = model.set_router(v);
         }
-        // TODO: set stack_type on model via .set_stack_type()
+        if let Some(ref s) = stack_type {
+            model = model.set_stack_type(
+                google_cloud_compute_v1::model::interconnect_attachment::StackType::from(
+                    s.as_str(),
+                ),
+            );
+        }
         if let Some(v) = subnet_length {
             model = model.set_subnet_length(v as i32);
         }
@@ -7061,7 +8363,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "workload_policy".into(),
                                 description: "Resource policy for defining instance placement for MIGs.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(ResourcePolicyWorkloadPolicy) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -7097,7 +8399,12 @@ impl GcpProvider {
             .map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
         let region = config.optional_str("/sizing/region").map(String::from);
-        // TODO: extract workload_policy (Nested(ResourcePolicyWorkloadPolicy)) from config["/config/workload_policy"]
+        let workload_policy = config.pointer("/config/workload_policy").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::ResourcePolicyWorkloadPolicy>(
+                v.clone(),
+            )
+            .ok()
+        });
 
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::ResourcePolicy::default();
@@ -7108,7 +8415,9 @@ impl GcpProvider {
         if let Some(v) = region {
             model = model.set_region(v);
         }
-        // TODO: set workload_policy on model via .set_workload_policy()
+        if let Some(v) = workload_policy {
+            model = model.set_workload_policy(v);
+        }
 
         // Make API call
         let region = config.str_or("/network/region", &self.region).to_string();
@@ -7148,7 +8457,7 @@ impl GcpProvider {
                 "name": resource_policy.name.as_deref().unwrap_or(""),
             },
             "config": {
-                "workload_policy": serde_json::Value::Null /* TODO: workload_policy is complex type */,
+                "workload_policy": &resource_policy.workload_policy,
             },
             "sizing": {
                 "region": resource_policy.region.as_deref().unwrap_or(""),
@@ -7178,13 +8487,20 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract workload_policy (Nested(ResourcePolicyWorkloadPolicy)) from config["/config/workload_policy"]
+        let workload_policy = config.pointer("/config/workload_policy").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::ResourcePolicyWorkloadPolicy>(
+                v.clone(),
+            )
+            .ok()
+        });
 
         let mut model = google_cloud_compute_v1::model::ResourcePolicy::default();
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set workload_policy on model via .set_workload_policy()
+        if let Some(v) = workload_policy {
+            model = model.set_workload_policy(v);
+        }
 
         self.resource_policies()
             .await?

@@ -51,7 +51,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "backends".into(),
                                 description: "The list of backends that serve this BackendService.".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(Backend) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -59,7 +59,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "cdn_policy".into(),
                                 description: "Cloud CDN configuration for this BackendService. Only available for".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(BackendServiceCdnPolicy) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -67,7 +67,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "circuit_breakers".into(),
                                 description: "".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(CircuitBreakers) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -83,7 +83,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "connection_draining".into(),
                                 description: "connectionDraining cannot be specified with haPolicy.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(ConnectionDraining) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -91,7 +91,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "consistent_hash".into(),
                                 description: "Consistent Hash-based load balancing can be used to provide soft session".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(ConsistentHashLoadBalancerSettings) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -99,7 +99,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "custom_metrics".into(),
                                 description: "List of custom metrics that are used for theWEIGHTED_ROUND_ROBIN locality_lb_policy.".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(BackendServiceCustomMetric) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -131,7 +131,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "external_managed_migration_testing_percentage".into(),
                                 description: "Determines the fraction of requests that should be processed by the Global".into(),
-                                field_type: crate::provider::FieldType::String /* Unknown(f32) */,
+                                field_type: crate::provider::FieldType::Float,
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -139,7 +139,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "failover_policy".into(),
                                 description: "Requires at least one backend instance group to be defined".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(BackendServiceFailoverPolicy) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -147,7 +147,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "ha_policy".into(),
                                 description: "Configures self-managed High Availability (HA) for External and Internal".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(BackendServiceHAPolicy) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -163,7 +163,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "iap".into(),
                                 description: "The configurations for Identity-Aware Proxy on this resource.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(BackendServiceIAP) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -179,7 +179,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "log_config".into(),
                                 description: "This field denotes the logging options for the load balancer traffic served".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(BackendServiceLogConfig) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -187,7 +187,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "max_stream_duration".into(),
                                 description: "Specifies the default maximum duration (timeout) for streams to this".into(),
-                                field_type: crate::provider::FieldType::String /* Duration */,
+                                field_type: crate::provider::FieldType::String,
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -203,7 +203,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "outlier_detection".into(),
                                 description: "Settings controlling the ejection of unhealthy backend endpoints from the".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(OutlierDetection) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -211,7 +211,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "params".into(),
                                 description: "Input only. [Input Only] Additional params passed with the request, but not persisted".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(BackendServiceParams) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -235,7 +235,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "security_settings".into(),
                                 description: "This field specifies the security settings that apply to this backend".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(SecuritySettings) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -267,7 +267,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "strong_session_affinity_cookie".into(),
                                 description: "Describes the HTTP cookie used for stateful session affinity. This field is".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(BackendServiceHttpCookie) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -275,7 +275,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "subsetting".into(),
                                 description: "subsetting cannot be specified with haPolicy.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(Subsetting) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -291,7 +291,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "tls_settings".into(),
                                 description: "Configuration for Backend Authenticated TLS and mTLS. May only be specified".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(BackendServiceTlsSettings) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -323,96 +323,244 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
         let affinity_cookie_ttl_sec = config.optional_i64("/config/affinity_cookie_ttl_sec");
-        // TODO: extract backends (Array(Nested(Backend))) from config["/config/backends"]
-        // TODO: extract cdn_policy (Nested(BackendServiceCdnPolicy)) from config["/config/cdn_policy"]
-        // TODO: extract circuit_breakers (Nested(CircuitBreakers)) from config["/config/circuit_breakers"]
-        // TODO: extract compression_mode (Enum(CompressionMode)) from config["/config/compression_mode"]
-        // TODO: extract connection_draining (Nested(ConnectionDraining)) from config["/config/connection_draining"]
-        // TODO: extract consistent_hash (Nested(ConsistentHashLoadBalancerSettings)) from config["/config/consistent_hash"]
-        // TODO: extract custom_metrics (Array(Nested(BackendServiceCustomMetric))) from config["/config/custom_metrics"]
-        // TODO: extract custom_request_headers (Array(String)) from config["/config/custom_request_headers"]
-        // TODO: extract custom_response_headers (Array(String)) from config["/config/custom_response_headers"]
+        let backends = config.pointer("/config/backends").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::Backend>>(v.clone()).ok()
+        });
+        let cdn_policy = config.pointer("/config/cdn_policy").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::BackendServiceCdnPolicy>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let circuit_breakers = config.pointer("/config/circuit_breakers").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::CircuitBreakers>(v.clone())
+                .ok()
+        });
+        let compression_mode = config
+            .optional_str("/config/compression_mode")
+            .map(String::from);
+        let connection_draining = config.pointer("/config/connection_draining").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::ConnectionDraining>(v.clone())
+                .ok()
+        });
+        let consistent_hash = config.pointer("/config/consistent_hash").and_then(|v| {
+            serde_json::from_value::<
+                google_cloud_compute_v1::model::ConsistentHashLoadBalancerSettings,
+            >(v.clone())
+            .ok()
+        });
+        let custom_metrics = config.pointer("/config/custom_metrics").and_then(|v| {
+            serde_json::from_value::<
+                    Vec<google_cloud_compute_v1::model::BackendServiceCustomMetric>,
+                >(v.clone())
+                .ok()
+        });
+        let custom_request_headers = config
+            .pointer("/config/custom_request_headers")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let custom_response_headers = config
+            .pointer("/config/custom_response_headers")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
         let enable_cdn = config.optional_bool("/config/enable_cdn");
-        // TODO: extract external_managed_migration_testing_percentage (Unknown(f32)) from config["/config/external_managed_migration_testing_percentage"]
-        // TODO: extract failover_policy (Nested(BackendServiceFailoverPolicy)) from config["/config/failover_policy"]
-        // TODO: extract ha_policy (Nested(BackendServiceHAPolicy)) from config["/config/ha_policy"]
-        // TODO: extract health_checks (Array(String)) from config["/config/health_checks"]
-        // TODO: extract iap (Nested(BackendServiceIAP)) from config["/config/iap"]
-        // TODO: extract locality_lb_policy (Enum(LocalityLbPolicy)) from config["/config/locality_lb_policy"]
-        // TODO: extract log_config (Nested(BackendServiceLogConfig)) from config["/config/log_config"]
-        // TODO: extract max_stream_duration (Duration) from config["/config/max_stream_duration"]
-        // TODO: extract metadatas (Record) from config["/config/metadatas"]
+        let external_managed_migration_testing_percentage = config
+            .pointer("/config/external_managed_migration_testing_percentage")
+            .and_then(|v| v.as_f64());
+        let failover_policy = config.pointer("/config/failover_policy").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::BackendServiceFailoverPolicy>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let ha_policy = config.pointer("/config/ha_policy").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::BackendServiceHAPolicy>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let health_checks = config
+            .pointer("/config/health_checks")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let iap = config.pointer("/config/iap").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::BackendServiceIAP>(v.clone())
+                .ok()
+        });
+        let locality_lb_policy = config
+            .optional_str("/config/locality_lb_policy")
+            .map(String::from);
+        let log_config = config.pointer("/config/log_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::BackendServiceLogConfig>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let max_stream_duration = config.pointer("/config/max_stream_duration").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::Duration>(v.clone()).ok()
+        });
+        let metadatas = config
+            .pointer("/config/metadatas")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
         let network = config.optional_str("/network/network").map(String::from);
-        // TODO: extract outlier_detection (Nested(OutlierDetection)) from config["/config/outlier_detection"]
-        // TODO: extract params (Nested(BackendServiceParams)) from config["/config/params"]
+        let outlier_detection = config.pointer("/config/outlier_detection").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::OutlierDetection>(v.clone())
+                .ok()
+        });
+        let params = config.pointer("/config/params").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::BackendServiceParams>(
+                v.clone(),
+            )
+            .ok()
+        });
         let port_name = config.optional_str("/config/port_name").map(String::from);
-        // TODO: extract protocol (Enum(Protocol)) from config["/config/protocol"]
-        // TODO: extract security_settings (Nested(SecuritySettings)) from config["/config/security_settings"]
-        // TODO: extract service_bindings (Array(String)) from config["/config/service_bindings"]
+        let protocol = config.optional_str("/config/protocol").map(String::from);
+        let security_settings = config.pointer("/config/security_settings").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::SecuritySettings>(v.clone())
+                .ok()
+        });
+        let service_bindings = config
+            .pointer("/config/service_bindings")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let service_lb_policy = config
             .optional_str("/config/service_lb_policy")
             .map(String::from);
-        // TODO: extract session_affinity (Enum(SessionAffinity)) from config["/config/session_affinity"]
-        // TODO: extract strong_session_affinity_cookie (Nested(BackendServiceHttpCookie)) from config["/config/strong_session_affinity_cookie"]
-        // TODO: extract subsetting (Nested(Subsetting)) from config["/config/subsetting"]
+        let session_affinity = config
+            .optional_str("/config/session_affinity")
+            .map(String::from);
+        let strong_session_affinity_cookie = config
+            .pointer("/config/strong_session_affinity_cookie")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::BackendServiceHttpCookie>(
+                    v.clone(),
+                )
+                .ok()
+            });
+        let subsetting = config.pointer("/config/subsetting").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::Subsetting>(v.clone()).ok()
+        });
         let timeout_sec = config.optional_i64("/config/timeout_sec");
-        // TODO: extract tls_settings (Nested(BackendServiceTlsSettings)) from config["/config/tls_settings"]
+        let tls_settings = config.pointer("/config/tls_settings").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::BackendServiceTlsSettings>(
+                v.clone(),
+            )
+            .ok()
+        });
 
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::BackendService::default();
         if let Some(v) = affinity_cookie_ttl_sec {
             model = model.set_affinity_cookie_ttl_sec(v as i32);
         }
-        // TODO: set backends on model via .set_backends()
-        // TODO: set cdn_policy on model via .set_cdn_policy()
-        // TODO: set circuit_breakers on model via .set_circuit_breakers()
-        // TODO: set compression_mode on model via .set_compression_mode()
-        // TODO: set connection_draining on model via .set_connection_draining()
-        // TODO: set consistent_hash on model via .set_consistent_hash()
-        // TODO: set custom_metrics on model via .set_custom_metrics()
-        // TODO: set custom_request_headers on model via .set_custom_request_headers()
-        // TODO: set custom_response_headers on model via .set_custom_response_headers()
+        if let Some(v) = backends {
+            model = model.set_backends(v);
+        }
+        if let Some(v) = cdn_policy {
+            model = model.set_cdn_policy(v);
+        }
+        if let Some(v) = circuit_breakers {
+            model = model.set_circuit_breakers(v);
+        }
+        if let Some(ref s) = compression_mode {
+            model = model.set_compression_mode(
+                google_cloud_compute_v1::model::backend_service::CompressionMode::from(s.as_str()),
+            );
+        }
+        if let Some(v) = connection_draining {
+            model = model.set_connection_draining(v);
+        }
+        if let Some(v) = consistent_hash {
+            model = model.set_consistent_hash(v);
+        }
+        if let Some(v) = custom_metrics {
+            model = model.set_custom_metrics(v);
+        }
+        if let Some(v) = custom_request_headers {
+            model = model.set_custom_request_headers(v);
+        }
+        if let Some(v) = custom_response_headers {
+            model = model.set_custom_response_headers(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
         if let Some(v) = enable_cdn {
             model = model.set_enable_cdn(v);
         }
-        // TODO: set external_managed_migration_testing_percentage on model via .set_external_managed_migration_testing_percentage()
-        // TODO: set failover_policy on model via .set_failover_policy()
-        // TODO: set ha_policy on model via .set_ha_policy()
-        // TODO: set health_checks on model via .set_health_checks()
-        // TODO: set iap on model via .set_iap()
-        // TODO: set locality_lb_policy on model via .set_locality_lb_policy()
-        // TODO: set log_config on model via .set_log_config()
-        // TODO: set max_stream_duration on model via .set_max_stream_duration()
-        // TODO: set metadatas on model via .set_metadatas()
+        if let Some(v) = external_managed_migration_testing_percentage {
+            model = model.set_external_managed_migration_testing_percentage(v as f32);
+        }
+        if let Some(v) = failover_policy {
+            model = model.set_failover_policy(v);
+        }
+        if let Some(v) = ha_policy {
+            model = model.set_ha_policy(v);
+        }
+        if let Some(v) = health_checks {
+            model = model.set_health_checks(v);
+        }
+        if let Some(v) = iap {
+            model = model.set_iap(v);
+        }
+        if let Some(ref s) = locality_lb_policy {
+            model = model.set_locality_lb_policy(
+                google_cloud_compute_v1::model::backend_service::LocalityLbPolicy::from(s.as_str()),
+            );
+        }
+        if let Some(v) = log_config {
+            model = model.set_log_config(v);
+        }
+        if let Some(v) = max_stream_duration {
+            model = model.set_max_stream_duration(v);
+        }
+        if let Some(v) = metadatas {
+            model = model.set_metadatas(v);
+        }
         model = model.set_name(name.clone());
         if let Some(v) = network {
             model = model.set_network(v);
         }
-        // TODO: set outlier_detection on model via .set_outlier_detection()
-        // TODO: set params on model via .set_params()
+        if let Some(v) = outlier_detection {
+            model = model.set_outlier_detection(v);
+        }
+        if let Some(v) = params {
+            model = model.set_params(v);
+        }
         if let Some(v) = port_name {
             model = model.set_port_name(v);
         }
-        // TODO: set protocol on model via .set_protocol()
-        // TODO: set security_settings on model via .set_security_settings()
-        // TODO: set service_bindings on model via .set_service_bindings()
+        if let Some(ref s) = protocol {
+            model = model.set_protocol(
+                google_cloud_compute_v1::model::backend_service::Protocol::from(s.as_str()),
+            );
+        }
+        if let Some(v) = security_settings {
+            model = model.set_security_settings(v);
+        }
+        if let Some(v) = service_bindings {
+            model = model.set_service_bindings(v);
+        }
         if let Some(v) = service_lb_policy {
             model = model.set_service_lb_policy(v);
         }
-        // TODO: set session_affinity on model via .set_session_affinity()
-        // TODO: set strong_session_affinity_cookie on model via .set_strong_session_affinity_cookie()
-        // TODO: set subsetting on model via .set_subsetting()
+        if let Some(ref s) = session_affinity {
+            model = model.set_session_affinity(
+                google_cloud_compute_v1::model::backend_service::SessionAffinity::from(s.as_str()),
+            );
+        }
+        if let Some(v) = strong_session_affinity_cookie {
+            model = model.set_strong_session_affinity_cookie(v);
+        }
+        if let Some(v) = subsetting {
+            model = model.set_subsetting(v);
+        }
         if let Some(v) = timeout_sec {
             model = model.set_timeout_sec(v as i32);
         }
-        // TODO: set tls_settings on model via .set_tls_settings()
+        if let Some(v) = tls_settings {
+            model = model.set_tls_settings(v);
+        }
 
         // Make API call
         self.backend_services()
@@ -450,37 +598,37 @@ impl GcpProvider {
             },
             "config": {
                 "affinity_cookie_ttl_sec": backend_service.affinity_cookie_ttl_sec.unwrap_or(0),
-                "backends": serde_json::Value::Null /* TODO: backends is complex type */,
-                "cdn_policy": serde_json::Value::Null /* TODO: cdn_policy is complex type */,
-                "circuit_breakers": serde_json::Value::Null /* TODO: circuit_breakers is complex type */,
-                "compression_mode": serde_json::Value::Null /* TODO: compression_mode is complex type */,
-                "connection_draining": serde_json::Value::Null /* TODO: connection_draining is complex type */,
-                "consistent_hash": serde_json::Value::Null /* TODO: consistent_hash is complex type */,
-                "custom_metrics": serde_json::Value::Null /* TODO: custom_metrics is complex type */,
-                "custom_request_headers": serde_json::Value::Null /* TODO: custom_request_headers is complex type */,
-                "custom_response_headers": serde_json::Value::Null /* TODO: custom_response_headers is complex type */,
+                "backends": &backend_service.backends,
+                "cdn_policy": &backend_service.cdn_policy,
+                "circuit_breakers": &backend_service.circuit_breakers,
+                "compression_mode": &backend_service.compression_mode,
+                "connection_draining": &backend_service.connection_draining,
+                "consistent_hash": &backend_service.consistent_hash,
+                "custom_metrics": &backend_service.custom_metrics,
+                "custom_request_headers": &backend_service.custom_request_headers,
+                "custom_response_headers": &backend_service.custom_response_headers,
                 "enable_cdn": backend_service.enable_cdn.unwrap_or(false),
-                "external_managed_migration_testing_percentage": serde_json::Value::Null /* TODO: external_managed_migration_testing_percentage is complex type */,
-                "failover_policy": serde_json::Value::Null /* TODO: failover_policy is complex type */,
-                "ha_policy": serde_json::Value::Null /* TODO: ha_policy is complex type */,
-                "health_checks": serde_json::Value::Null /* TODO: health_checks is complex type */,
-                "iap": serde_json::Value::Null /* TODO: iap is complex type */,
-                "locality_lb_policy": serde_json::Value::Null /* TODO: locality_lb_policy is complex type */,
-                "log_config": serde_json::Value::Null /* TODO: log_config is complex type */,
-                "max_stream_duration": serde_json::Value::Null /* TODO: max_stream_duration is complex type */,
-                "metadatas": serde_json::Value::Null /* TODO: metadatas is complex type */,
-                "outlier_detection": serde_json::Value::Null /* TODO: outlier_detection is complex type */,
-                "params": serde_json::Value::Null /* TODO: params is complex type */,
+                "external_managed_migration_testing_percentage": backend_service.external_managed_migration_testing_percentage.unwrap_or(0.0),
+                "failover_policy": &backend_service.failover_policy,
+                "ha_policy": &backend_service.ha_policy,
+                "health_checks": &backend_service.health_checks,
+                "iap": &backend_service.iap,
+                "locality_lb_policy": &backend_service.locality_lb_policy,
+                "log_config": &backend_service.log_config,
+                "max_stream_duration": &backend_service.max_stream_duration,
+                "metadatas": &backend_service.metadatas,
+                "outlier_detection": &backend_service.outlier_detection,
+                "params": &backend_service.params,
                 "port_name": backend_service.port_name.as_deref().unwrap_or(""),
-                "protocol": serde_json::Value::Null /* TODO: protocol is complex type */,
-                "security_settings": serde_json::Value::Null /* TODO: security_settings is complex type */,
-                "service_bindings": serde_json::Value::Null /* TODO: service_bindings is complex type */,
+                "protocol": &backend_service.protocol,
+                "security_settings": &backend_service.security_settings,
+                "service_bindings": &backend_service.service_bindings,
                 "service_lb_policy": backend_service.service_lb_policy.as_deref().unwrap_or(""),
-                "session_affinity": serde_json::Value::Null /* TODO: session_affinity is complex type */,
-                "strong_session_affinity_cookie": serde_json::Value::Null /* TODO: strong_session_affinity_cookie is complex type */,
-                "subsetting": serde_json::Value::Null /* TODO: subsetting is complex type */,
+                "session_affinity": &backend_service.session_affinity,
+                "strong_session_affinity_cookie": &backend_service.strong_session_affinity_cookie,
+                "subsetting": &backend_service.subsetting,
                 "timeout_sec": backend_service.timeout_sec.unwrap_or(0),
-                "tls_settings": serde_json::Value::Null /* TODO: tls_settings is complex type */,
+                "tls_settings": &backend_service.tls_settings,
             },
             "network": {
                 "network": backend_service.network.as_deref().unwrap_or(""),
@@ -508,93 +656,241 @@ impl GcpProvider {
         let name = provider_id.to_string();
         // Extract fields from config
         let affinity_cookie_ttl_sec = config.optional_i64("/config/affinity_cookie_ttl_sec");
-        // TODO: extract backends (Array(Nested(Backend))) from config["/config/backends"]
-        // TODO: extract cdn_policy (Nested(BackendServiceCdnPolicy)) from config["/config/cdn_policy"]
-        // TODO: extract circuit_breakers (Nested(CircuitBreakers)) from config["/config/circuit_breakers"]
-        // TODO: extract compression_mode (Enum(CompressionMode)) from config["/config/compression_mode"]
-        // TODO: extract connection_draining (Nested(ConnectionDraining)) from config["/config/connection_draining"]
-        // TODO: extract consistent_hash (Nested(ConsistentHashLoadBalancerSettings)) from config["/config/consistent_hash"]
-        // TODO: extract custom_metrics (Array(Nested(BackendServiceCustomMetric))) from config["/config/custom_metrics"]
-        // TODO: extract custom_request_headers (Array(String)) from config["/config/custom_request_headers"]
-        // TODO: extract custom_response_headers (Array(String)) from config["/config/custom_response_headers"]
+        let backends = config.pointer("/config/backends").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::Backend>>(v.clone()).ok()
+        });
+        let cdn_policy = config.pointer("/config/cdn_policy").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::BackendServiceCdnPolicy>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let circuit_breakers = config.pointer("/config/circuit_breakers").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::CircuitBreakers>(v.clone())
+                .ok()
+        });
+        let compression_mode = config
+            .optional_str("/config/compression_mode")
+            .map(String::from);
+        let connection_draining = config.pointer("/config/connection_draining").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::ConnectionDraining>(v.clone())
+                .ok()
+        });
+        let consistent_hash = config.pointer("/config/consistent_hash").and_then(|v| {
+            serde_json::from_value::<
+                google_cloud_compute_v1::model::ConsistentHashLoadBalancerSettings,
+            >(v.clone())
+            .ok()
+        });
+        let custom_metrics = config.pointer("/config/custom_metrics").and_then(|v| {
+            serde_json::from_value::<
+                    Vec<google_cloud_compute_v1::model::BackendServiceCustomMetric>,
+                >(v.clone())
+                .ok()
+        });
+        let custom_request_headers = config
+            .pointer("/config/custom_request_headers")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let custom_response_headers = config
+            .pointer("/config/custom_response_headers")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
         let enable_cdn = config.optional_bool("/config/enable_cdn");
-        // TODO: extract external_managed_migration_testing_percentage (Unknown(f32)) from config["/config/external_managed_migration_testing_percentage"]
-        // TODO: extract failover_policy (Nested(BackendServiceFailoverPolicy)) from config["/config/failover_policy"]
-        // TODO: extract ha_policy (Nested(BackendServiceHAPolicy)) from config["/config/ha_policy"]
-        // TODO: extract health_checks (Array(String)) from config["/config/health_checks"]
-        // TODO: extract iap (Nested(BackendServiceIAP)) from config["/config/iap"]
-        // TODO: extract locality_lb_policy (Enum(LocalityLbPolicy)) from config["/config/locality_lb_policy"]
-        // TODO: extract log_config (Nested(BackendServiceLogConfig)) from config["/config/log_config"]
-        // TODO: extract max_stream_duration (Duration) from config["/config/max_stream_duration"]
-        // TODO: extract metadatas (Record) from config["/config/metadatas"]
+        let external_managed_migration_testing_percentage = config
+            .pointer("/config/external_managed_migration_testing_percentage")
+            .and_then(|v| v.as_f64());
+        let failover_policy = config.pointer("/config/failover_policy").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::BackendServiceFailoverPolicy>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let ha_policy = config.pointer("/config/ha_policy").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::BackendServiceHAPolicy>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let health_checks = config
+            .pointer("/config/health_checks")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let iap = config.pointer("/config/iap").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::BackendServiceIAP>(v.clone())
+                .ok()
+        });
+        let locality_lb_policy = config
+            .optional_str("/config/locality_lb_policy")
+            .map(String::from);
+        let log_config = config.pointer("/config/log_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::BackendServiceLogConfig>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let max_stream_duration = config.pointer("/config/max_stream_duration").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::Duration>(v.clone()).ok()
+        });
+        let metadatas = config
+            .pointer("/config/metadatas")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let network = config.optional_str("/network/network").map(String::from);
-        // TODO: extract outlier_detection (Nested(OutlierDetection)) from config["/config/outlier_detection"]
-        // TODO: extract params (Nested(BackendServiceParams)) from config["/config/params"]
+        let outlier_detection = config.pointer("/config/outlier_detection").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::OutlierDetection>(v.clone())
+                .ok()
+        });
+        let params = config.pointer("/config/params").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::BackendServiceParams>(
+                v.clone(),
+            )
+            .ok()
+        });
         let port_name = config.optional_str("/config/port_name").map(String::from);
-        // TODO: extract protocol (Enum(Protocol)) from config["/config/protocol"]
-        // TODO: extract security_settings (Nested(SecuritySettings)) from config["/config/security_settings"]
-        // TODO: extract service_bindings (Array(String)) from config["/config/service_bindings"]
+        let protocol = config.optional_str("/config/protocol").map(String::from);
+        let security_settings = config.pointer("/config/security_settings").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::SecuritySettings>(v.clone())
+                .ok()
+        });
+        let service_bindings = config
+            .pointer("/config/service_bindings")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let service_lb_policy = config
             .optional_str("/config/service_lb_policy")
             .map(String::from);
-        // TODO: extract session_affinity (Enum(SessionAffinity)) from config["/config/session_affinity"]
-        // TODO: extract strong_session_affinity_cookie (Nested(BackendServiceHttpCookie)) from config["/config/strong_session_affinity_cookie"]
-        // TODO: extract subsetting (Nested(Subsetting)) from config["/config/subsetting"]
+        let session_affinity = config
+            .optional_str("/config/session_affinity")
+            .map(String::from);
+        let strong_session_affinity_cookie = config
+            .pointer("/config/strong_session_affinity_cookie")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::BackendServiceHttpCookie>(
+                    v.clone(),
+                )
+                .ok()
+            });
+        let subsetting = config.pointer("/config/subsetting").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::Subsetting>(v.clone()).ok()
+        });
         let timeout_sec = config.optional_i64("/config/timeout_sec");
-        // TODO: extract tls_settings (Nested(BackendServiceTlsSettings)) from config["/config/tls_settings"]
+        let tls_settings = config.pointer("/config/tls_settings").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::BackendServiceTlsSettings>(
+                v.clone(),
+            )
+            .ok()
+        });
 
         let mut model = google_cloud_compute_v1::model::BackendService::default();
         if let Some(v) = affinity_cookie_ttl_sec {
             model = model.set_affinity_cookie_ttl_sec(v as i32);
         }
-        // TODO: set backends on model via .set_backends()
-        // TODO: set cdn_policy on model via .set_cdn_policy()
-        // TODO: set circuit_breakers on model via .set_circuit_breakers()
-        // TODO: set compression_mode on model via .set_compression_mode()
-        // TODO: set connection_draining on model via .set_connection_draining()
-        // TODO: set consistent_hash on model via .set_consistent_hash()
-        // TODO: set custom_metrics on model via .set_custom_metrics()
-        // TODO: set custom_request_headers on model via .set_custom_request_headers()
-        // TODO: set custom_response_headers on model via .set_custom_response_headers()
+        if let Some(v) = backends {
+            model = model.set_backends(v);
+        }
+        if let Some(v) = cdn_policy {
+            model = model.set_cdn_policy(v);
+        }
+        if let Some(v) = circuit_breakers {
+            model = model.set_circuit_breakers(v);
+        }
+        if let Some(ref s) = compression_mode {
+            model = model.set_compression_mode(
+                google_cloud_compute_v1::model::backend_service::CompressionMode::from(s.as_str()),
+            );
+        }
+        if let Some(v) = connection_draining {
+            model = model.set_connection_draining(v);
+        }
+        if let Some(v) = consistent_hash {
+            model = model.set_consistent_hash(v);
+        }
+        if let Some(v) = custom_metrics {
+            model = model.set_custom_metrics(v);
+        }
+        if let Some(v) = custom_request_headers {
+            model = model.set_custom_request_headers(v);
+        }
+        if let Some(v) = custom_response_headers {
+            model = model.set_custom_response_headers(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
         if let Some(v) = enable_cdn {
             model = model.set_enable_cdn(v);
         }
-        // TODO: set external_managed_migration_testing_percentage on model via .set_external_managed_migration_testing_percentage()
-        // TODO: set failover_policy on model via .set_failover_policy()
-        // TODO: set ha_policy on model via .set_ha_policy()
-        // TODO: set health_checks on model via .set_health_checks()
-        // TODO: set iap on model via .set_iap()
-        // TODO: set locality_lb_policy on model via .set_locality_lb_policy()
-        // TODO: set log_config on model via .set_log_config()
-        // TODO: set max_stream_duration on model via .set_max_stream_duration()
-        // TODO: set metadatas on model via .set_metadatas()
+        if let Some(v) = external_managed_migration_testing_percentage {
+            model = model.set_external_managed_migration_testing_percentage(v as f32);
+        }
+        if let Some(v) = failover_policy {
+            model = model.set_failover_policy(v);
+        }
+        if let Some(v) = ha_policy {
+            model = model.set_ha_policy(v);
+        }
+        if let Some(v) = health_checks {
+            model = model.set_health_checks(v);
+        }
+        if let Some(v) = iap {
+            model = model.set_iap(v);
+        }
+        if let Some(ref s) = locality_lb_policy {
+            model = model.set_locality_lb_policy(
+                google_cloud_compute_v1::model::backend_service::LocalityLbPolicy::from(s.as_str()),
+            );
+        }
+        if let Some(v) = log_config {
+            model = model.set_log_config(v);
+        }
+        if let Some(v) = max_stream_duration {
+            model = model.set_max_stream_duration(v);
+        }
+        if let Some(v) = metadatas {
+            model = model.set_metadatas(v);
+        }
         if let Some(v) = network {
             model = model.set_network(v);
         }
-        // TODO: set outlier_detection on model via .set_outlier_detection()
-        // TODO: set params on model via .set_params()
+        if let Some(v) = outlier_detection {
+            model = model.set_outlier_detection(v);
+        }
+        if let Some(v) = params {
+            model = model.set_params(v);
+        }
         if let Some(v) = port_name {
             model = model.set_port_name(v);
         }
-        // TODO: set protocol on model via .set_protocol()
-        // TODO: set security_settings on model via .set_security_settings()
-        // TODO: set service_bindings on model via .set_service_bindings()
+        if let Some(ref s) = protocol {
+            model = model.set_protocol(
+                google_cloud_compute_v1::model::backend_service::Protocol::from(s.as_str()),
+            );
+        }
+        if let Some(v) = security_settings {
+            model = model.set_security_settings(v);
+        }
+        if let Some(v) = service_bindings {
+            model = model.set_service_bindings(v);
+        }
         if let Some(v) = service_lb_policy {
             model = model.set_service_lb_policy(v);
         }
-        // TODO: set session_affinity on model via .set_session_affinity()
-        // TODO: set strong_session_affinity_cookie on model via .set_strong_session_affinity_cookie()
-        // TODO: set subsetting on model via .set_subsetting()
+        if let Some(ref s) = session_affinity {
+            model = model.set_session_affinity(
+                google_cloud_compute_v1::model::backend_service::SessionAffinity::from(s.as_str()),
+            );
+        }
+        if let Some(v) = strong_session_affinity_cookie {
+            model = model.set_strong_session_affinity_cookie(v);
+        }
+        if let Some(v) = subsetting {
+            model = model.set_subsetting(v);
+        }
         if let Some(v) = timeout_sec {
             model = model.set_timeout_sec(v as i32);
         }
-        // TODO: set tls_settings on model via .set_tls_settings()
+        if let Some(v) = tls_settings {
+            model = model.set_tls_settings(v);
+        }
 
         self.backend_services()
             .await?
@@ -668,7 +964,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "grpc_health_check".into(),
                                 description: "".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(GRPCHealthCheck) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -676,7 +972,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "grpc_tls_health_check".into(),
                                 description: "".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(GRPCTLSHealthCheck) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -692,7 +988,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "http_2_health_check".into(),
                                 description: "".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(HTTP2HealthCheck) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -700,7 +996,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "http_health_check".into(),
                                 description: "".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(HTTPHealthCheck) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -708,7 +1004,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "https_health_check".into(),
                                 description: "".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(HTTPSHealthCheck) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -716,7 +1012,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "log_config".into(),
                                 description: "Configure logging on this health check.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(HealthCheckLogConfig) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -732,7 +1028,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "ssl_health_check".into(),
                                 description: "".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(SSLHealthCheck) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -740,7 +1036,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "tcp_health_check".into(),
                                 description: "".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(TCPHealthCheck) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -777,17 +1073,47 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract grpc_health_check (Nested(GRPCHealthCheck)) from config["/config/grpc_health_check"]
-        // TODO: extract grpc_tls_health_check (Nested(GRPCTLSHealthCheck)) from config["/config/grpc_tls_health_check"]
+        let grpc_health_check = config.pointer("/config/grpc_health_check").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::GRPCHealthCheck>(v.clone())
+                .ok()
+        });
+        let grpc_tls_health_check = config
+            .pointer("/config/grpc_tls_health_check")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::GRPCTLSHealthCheck>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let healthy_threshold = config.optional_i64("/config/healthy_threshold");
-        // TODO: extract http_2_health_check (Nested(HTTP2HealthCheck)) from config["/config/http_2_health_check"]
-        // TODO: extract http_health_check (Nested(HTTPHealthCheck)) from config["/config/http_health_check"]
-        // TODO: extract https_health_check (Nested(HTTPSHealthCheck)) from config["/config/https_health_check"]
-        // TODO: extract log_config (Nested(HealthCheckLogConfig)) from config["/config/log_config"]
+        let http_2_health_check = config.pointer("/config/http_2_health_check").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::HTTP2HealthCheck>(v.clone())
+                .ok()
+        });
+        let http_health_check = config.pointer("/config/http_health_check").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::HTTPHealthCheck>(v.clone())
+                .ok()
+        });
+        let https_health_check = config.pointer("/config/https_health_check").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::HTTPSHealthCheck>(v.clone())
+                .ok()
+        });
+        let log_config = config.pointer("/config/log_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::HealthCheckLogConfig>(
+                v.clone(),
+            )
+            .ok()
+        });
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract source_regions (Array(String)) from config["/config/source_regions"]
-        // TODO: extract ssl_health_check (Nested(SSLHealthCheck)) from config["/config/ssl_health_check"]
-        // TODO: extract tcp_health_check (Nested(TCPHealthCheck)) from config["/config/tcp_health_check"]
+        let source_regions = config
+            .pointer("/config/source_regions")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let ssl_health_check = config.pointer("/config/ssl_health_check").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::SSLHealthCheck>(v.clone()).ok()
+        });
+        let tcp_health_check = config.pointer("/config/tcp_health_check").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::TCPHealthCheck>(v.clone()).ok()
+        });
         let timeout_sec = config.optional_i64("/config/timeout_sec");
         let unhealthy_threshold = config.optional_i64("/config/unhealthy_threshold");
 
@@ -799,19 +1125,37 @@ impl GcpProvider {
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set grpc_health_check on model via .set_grpc_health_check()
-        // TODO: set grpc_tls_health_check on model via .set_grpc_tls_health_check()
+        if let Some(v) = grpc_health_check {
+            model = model.set_grpc_health_check(v);
+        }
+        if let Some(v) = grpc_tls_health_check {
+            model = model.set_grpc_tls_health_check(v);
+        }
         if let Some(v) = healthy_threshold {
             model = model.set_healthy_threshold(v as i32);
         }
-        // TODO: set http_2_health_check on model via .set_http_2_health_check()
-        // TODO: set http_health_check on model via .set_http_health_check()
-        // TODO: set https_health_check on model via .set_https_health_check()
-        // TODO: set log_config on model via .set_log_config()
+        if let Some(v) = http_2_health_check {
+            model = model.set_http_2_health_check(v);
+        }
+        if let Some(v) = http_health_check {
+            model = model.set_http_health_check(v);
+        }
+        if let Some(v) = https_health_check {
+            model = model.set_https_health_check(v);
+        }
+        if let Some(v) = log_config {
+            model = model.set_log_config(v);
+        }
         model = model.set_name(name.clone());
-        // TODO: set source_regions on model via .set_source_regions()
-        // TODO: set ssl_health_check on model via .set_ssl_health_check()
-        // TODO: set tcp_health_check on model via .set_tcp_health_check()
+        if let Some(v) = source_regions {
+            model = model.set_source_regions(v);
+        }
+        if let Some(v) = ssl_health_check {
+            model = model.set_ssl_health_check(v);
+        }
+        if let Some(v) = tcp_health_check {
+            model = model.set_tcp_health_check(v);
+        }
         if let Some(v) = timeout_sec {
             model = model.set_timeout_sec(v as i32);
         }
@@ -855,16 +1199,16 @@ impl GcpProvider {
             },
             "config": {
                 "check_interval_sec": health_check.check_interval_sec.unwrap_or(0),
-                "grpc_health_check": serde_json::Value::Null /* TODO: grpc_health_check is complex type */,
-                "grpc_tls_health_check": serde_json::Value::Null /* TODO: grpc_tls_health_check is complex type */,
+                "grpc_health_check": &health_check.grpc_health_check,
+                "grpc_tls_health_check": &health_check.grpc_tls_health_check,
                 "healthy_threshold": health_check.healthy_threshold.unwrap_or(0),
-                "http_2_health_check": serde_json::Value::Null /* TODO: http_2_health_check is complex type */,
-                "http_health_check": serde_json::Value::Null /* TODO: http_health_check is complex type */,
-                "https_health_check": serde_json::Value::Null /* TODO: https_health_check is complex type */,
-                "log_config": serde_json::Value::Null /* TODO: log_config is complex type */,
-                "source_regions": serde_json::Value::Null /* TODO: source_regions is complex type */,
-                "ssl_health_check": serde_json::Value::Null /* TODO: ssl_health_check is complex type */,
-                "tcp_health_check": serde_json::Value::Null /* TODO: tcp_health_check is complex type */,
+                "http_2_health_check": &health_check.http_2_health_check,
+                "http_health_check": &health_check.http_health_check,
+                "https_health_check": &health_check.https_health_check,
+                "log_config": &health_check.log_config,
+                "source_regions": &health_check.source_regions,
+                "ssl_health_check": &health_check.ssl_health_check,
+                "tcp_health_check": &health_check.tcp_health_check,
                 "timeout_sec": health_check.timeout_sec.unwrap_or(0),
                 "unhealthy_threshold": health_check.unhealthy_threshold.unwrap_or(0),
             },
@@ -894,16 +1238,46 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract grpc_health_check (Nested(GRPCHealthCheck)) from config["/config/grpc_health_check"]
-        // TODO: extract grpc_tls_health_check (Nested(GRPCTLSHealthCheck)) from config["/config/grpc_tls_health_check"]
+        let grpc_health_check = config.pointer("/config/grpc_health_check").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::GRPCHealthCheck>(v.clone())
+                .ok()
+        });
+        let grpc_tls_health_check = config
+            .pointer("/config/grpc_tls_health_check")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_compute_v1::model::GRPCTLSHealthCheck>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let healthy_threshold = config.optional_i64("/config/healthy_threshold");
-        // TODO: extract http_2_health_check (Nested(HTTP2HealthCheck)) from config["/config/http_2_health_check"]
-        // TODO: extract http_health_check (Nested(HTTPHealthCheck)) from config["/config/http_health_check"]
-        // TODO: extract https_health_check (Nested(HTTPSHealthCheck)) from config["/config/https_health_check"]
-        // TODO: extract log_config (Nested(HealthCheckLogConfig)) from config["/config/log_config"]
-        // TODO: extract source_regions (Array(String)) from config["/config/source_regions"]
-        // TODO: extract ssl_health_check (Nested(SSLHealthCheck)) from config["/config/ssl_health_check"]
-        // TODO: extract tcp_health_check (Nested(TCPHealthCheck)) from config["/config/tcp_health_check"]
+        let http_2_health_check = config.pointer("/config/http_2_health_check").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::HTTP2HealthCheck>(v.clone())
+                .ok()
+        });
+        let http_health_check = config.pointer("/config/http_health_check").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::HTTPHealthCheck>(v.clone())
+                .ok()
+        });
+        let https_health_check = config.pointer("/config/https_health_check").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::HTTPSHealthCheck>(v.clone())
+                .ok()
+        });
+        let log_config = config.pointer("/config/log_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::HealthCheckLogConfig>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let source_regions = config
+            .pointer("/config/source_regions")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let ssl_health_check = config.pointer("/config/ssl_health_check").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::SSLHealthCheck>(v.clone()).ok()
+        });
+        let tcp_health_check = config.pointer("/config/tcp_health_check").and_then(|v| {
+            serde_json::from_value::<google_cloud_compute_v1::model::TCPHealthCheck>(v.clone()).ok()
+        });
         let timeout_sec = config.optional_i64("/config/timeout_sec");
         let unhealthy_threshold = config.optional_i64("/config/unhealthy_threshold");
 
@@ -914,18 +1288,36 @@ impl GcpProvider {
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set grpc_health_check on model via .set_grpc_health_check()
-        // TODO: set grpc_tls_health_check on model via .set_grpc_tls_health_check()
+        if let Some(v) = grpc_health_check {
+            model = model.set_grpc_health_check(v);
+        }
+        if let Some(v) = grpc_tls_health_check {
+            model = model.set_grpc_tls_health_check(v);
+        }
         if let Some(v) = healthy_threshold {
             model = model.set_healthy_threshold(v as i32);
         }
-        // TODO: set http_2_health_check on model via .set_http_2_health_check()
-        // TODO: set http_health_check on model via .set_http_health_check()
-        // TODO: set https_health_check on model via .set_https_health_check()
-        // TODO: set log_config on model via .set_log_config()
-        // TODO: set source_regions on model via .set_source_regions()
-        // TODO: set ssl_health_check on model via .set_ssl_health_check()
-        // TODO: set tcp_health_check on model via .set_tcp_health_check()
+        if let Some(v) = http_2_health_check {
+            model = model.set_http_2_health_check(v);
+        }
+        if let Some(v) = http_health_check {
+            model = model.set_http_health_check(v);
+        }
+        if let Some(v) = https_health_check {
+            model = model.set_https_health_check(v);
+        }
+        if let Some(v) = log_config {
+            model = model.set_log_config(v);
+        }
+        if let Some(v) = source_regions {
+            model = model.set_source_regions(v);
+        }
+        if let Some(v) = ssl_health_check {
+            model = model.set_ssl_health_check(v);
+        }
+        if let Some(v) = tcp_health_check {
+            model = model.set_tcp_health_check(v);
+        }
         if let Some(v) = timeout_sec {
             model = model.set_timeout_sec(v as i32);
         }
@@ -1037,7 +1429,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "external_managed_backend_bucket_migration_state".into(),
                                 description: "Specifies the canary migration state for the backend buckets attached to".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(Option<) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -1045,7 +1437,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "external_managed_backend_bucket_migration_testing_percentage".into(),
                                 description: "Determines the fraction of requests to backend buckets that should be".into(),
-                                field_type: crate::provider::FieldType::String /* Unknown(f32) */,
+                                field_type: crate::provider::FieldType::Float,
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -1085,7 +1477,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "metadata_filters".into(),
                                 description: "Opaque filter criteria used by load balancer to restrict routing".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(MetadataFilter) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -1197,27 +1589,40 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract external_managed_backend_bucket_migration_state (Nested(Option<)) from config["/config/external_managed_backend_bucket_migration_state"]
-        // TODO: extract external_managed_backend_bucket_migration_testing_percentage (Unknown(f32)) from config["/config/external_managed_backend_bucket_migration_testing_percentage"]
+        // TODO: extract external_managed_backend_bucket_migration_state (Nested(Option<)) from config["/config/external_managed_backend_bucket_migration_state"] — type path unknown
+        let external_managed_backend_bucket_migration_testing_percentage = config
+            .pointer("/config/external_managed_backend_bucket_migration_testing_percentage")
+            .and_then(|v| v.as_f64());
         let ip_address = config.optional_str("/network/ip_address").map(String::from);
         let ip_collection = config
             .optional_str("/config/ip_collection")
             .map(String::from);
-        // TODO: extract ip_protocol (Enum(IPProtocol)) from config["/config/ip_protocol"]
-        // TODO: extract ip_version (Enum(IpVersion)) from config["/config/ip_version"]
+        let ip_protocol = config.optional_str("/config/ip_protocol").map(String::from);
+        let ip_version = config.optional_str("/config/ip_version").map(String::from);
         let is_mirroring_collector = config.optional_bool("/config/is_mirroring_collector");
-        // TODO: extract labels (Record) from config["/identity/labels"]
-        // TODO: extract metadata_filters (Array(Nested(MetadataFilter))) from config["/config/metadata_filters"]
+        let _labels = config
+            .pointer("/identity/labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        let metadata_filters = config.pointer("/config/metadata_filters").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::MetadataFilter>>(v.clone())
+                .ok()
+        });
         let name = config.require_str("/identity/name")?.to_string();
         let network = config.optional_str("/network/network").map(String::from);
-        // TODO: extract network_tier (Enum(NetworkTier)) from config["/config/network_tier"]
+        let network_tier = config
+            .optional_str("/config/network_tier")
+            .map(String::from);
         let no_automate_dns_zone = config.optional_bool("/config/no_automate_dns_zone");
         let port_range = config.optional_str("/config/port_range").map(String::from);
-        // TODO: extract ports (Array(String)) from config["/config/ports"]
+        let ports = config
+            .pointer("/config/ports")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let service_label = config
             .optional_str("/config/service_label")
             .map(String::from);
-        // TODO: extract source_ip_ranges (Array(String)) from config["/config/source_ip_ranges"]
+        let source_ip_ranges = config
+            .pointer("/config/source_ip_ranges")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let subnetwork = config.optional_str("/network/subnetwork").map(String::from);
         let target = config.optional_str("/config/target").map(String::from);
 
@@ -1239,36 +1644,57 @@ impl GcpProvider {
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set external_managed_backend_bucket_migration_state on model via .set_external_managed_backend_bucket_migration_state()
-        // TODO: set external_managed_backend_bucket_migration_testing_percentage on model via .set_external_managed_backend_bucket_migration_testing_percentage()
+        // TODO: set external_managed_backend_bucket_migration_state on model via .set_external_managed_backend_bucket_migration_state() — type path unknown
+        if let Some(v) = external_managed_backend_bucket_migration_testing_percentage {
+            model =
+                model.set_external_managed_backend_bucket_migration_testing_percentage(v as f32);
+        }
         if let Some(v) = ip_address {
             model = model.set_ip_address(v);
         }
         if let Some(v) = ip_collection {
             model = model.set_ip_collection(v);
         }
-        // TODO: set ip_protocol on model via .set_ip_protocol()
-        // TODO: set ip_version on model via .set_ip_version()
+        if let Some(ref s) = ip_protocol {
+            model = model.set_ip_protocol(
+                google_cloud_compute_v1::model::forwarding_rule::IPProtocol::from(s.as_str()),
+            );
+        }
+        if let Some(ref s) = ip_version {
+            model = model.set_ip_version(
+                google_cloud_compute_v1::model::forwarding_rule::IpVersion::from(s.as_str()),
+            );
+        }
         if let Some(v) = is_mirroring_collector {
             model = model.set_is_mirroring_collector(v);
         }
-        // TODO: set metadata_filters on model via .set_metadata_filters()
+        if let Some(v) = metadata_filters {
+            model = model.set_metadata_filters(v);
+        }
         model = model.set_name(name.clone());
         if let Some(v) = network {
             model = model.set_network(v);
         }
-        // TODO: set network_tier on model via .set_network_tier()
+        if let Some(ref s) = network_tier {
+            model = model.set_network_tier(
+                google_cloud_compute_v1::model::forwarding_rule::NetworkTier::from(s.as_str()),
+            );
+        }
         if let Some(v) = no_automate_dns_zone {
             model = model.set_no_automate_dns_zone(v);
         }
         if let Some(v) = port_range {
             model = model.set_port_range(v);
         }
-        // TODO: set ports on model via .set_ports()
+        if let Some(v) = ports {
+            model = model.set_ports(v);
+        }
         if let Some(v) = service_label {
             model = model.set_service_label(v);
         }
-        // TODO: set source_ip_ranges on model via .set_source_ip_ranges()
+        if let Some(v) = source_ip_ranges {
+            model = model.set_source_ip_ranges(v);
+        }
         if let Some(v) = subnetwork {
             model = model.set_subnetwork(v);
         }
@@ -1327,19 +1753,19 @@ impl GcpProvider {
                 "allow_global_access": forwarding_rule.allow_global_access.unwrap_or(false),
                 "allow_psc_global_access": forwarding_rule.allow_psc_global_access.unwrap_or(false),
                 "backend_service": forwarding_rule.backend_service.as_deref().unwrap_or(""),
-                "external_managed_backend_bucket_migration_state": serde_json::Value::Null /* TODO: external_managed_backend_bucket_migration_state is complex type */,
-                "external_managed_backend_bucket_migration_testing_percentage": serde_json::Value::Null /* TODO: external_managed_backend_bucket_migration_testing_percentage is complex type */,
+                "external_managed_backend_bucket_migration_state": serde_json::Value::Null,
+                "external_managed_backend_bucket_migration_testing_percentage": forwarding_rule.external_managed_backend_bucket_migration_testing_percentage.unwrap_or(0.0),
                 "ip_collection": forwarding_rule.ip_collection.as_deref().unwrap_or(""),
-                "ip_protocol": serde_json::Value::Null /* TODO: ip_protocol is complex type */,
-                "ip_version": serde_json::Value::Null /* TODO: ip_version is complex type */,
+                "ip_protocol": &forwarding_rule.ip_protocol,
+                "ip_version": &forwarding_rule.ip_version,
                 "is_mirroring_collector": forwarding_rule.is_mirroring_collector.unwrap_or(false),
-                "metadata_filters": serde_json::Value::Null /* TODO: metadata_filters is complex type */,
-                "network_tier": serde_json::Value::Null /* TODO: network_tier is complex type */,
+                "metadata_filters": &forwarding_rule.metadata_filters,
+                "network_tier": &forwarding_rule.network_tier,
                 "no_automate_dns_zone": forwarding_rule.no_automate_dns_zone.unwrap_or(false),
                 "port_range": forwarding_rule.port_range.as_deref().unwrap_or(""),
-                "ports": serde_json::Value::Null /* TODO: ports is complex type */,
+                "ports": &forwarding_rule.ports,
                 "service_label": forwarding_rule.service_label.as_deref().unwrap_or(""),
-                "source_ip_ranges": serde_json::Value::Null /* TODO: source_ip_ranges is complex type */,
+                "source_ip_ranges": &forwarding_rule.source_ip_ranges,
                 "target": forwarding_rule.target.as_deref().unwrap_or(""),
             },
             "network": {
@@ -1378,25 +1804,36 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract external_managed_backend_bucket_migration_state (Nested(Option<)) from config["/config/external_managed_backend_bucket_migration_state"]
-        // TODO: extract external_managed_backend_bucket_migration_testing_percentage (Unknown(f32)) from config["/config/external_managed_backend_bucket_migration_testing_percentage"]
+        // TODO: extract external_managed_backend_bucket_migration_state (Nested(Option<)) from config["/config/external_managed_backend_bucket_migration_state"] — type path unknown
+        let external_managed_backend_bucket_migration_testing_percentage = config
+            .pointer("/config/external_managed_backend_bucket_migration_testing_percentage")
+            .and_then(|v| v.as_f64());
         let ip_address = config.optional_str("/network/ip_address").map(String::from);
         let ip_collection = config
             .optional_str("/config/ip_collection")
             .map(String::from);
-        // TODO: extract ip_protocol (Enum(IPProtocol)) from config["/config/ip_protocol"]
-        // TODO: extract ip_version (Enum(IpVersion)) from config["/config/ip_version"]
+        let ip_protocol = config.optional_str("/config/ip_protocol").map(String::from);
+        let ip_version = config.optional_str("/config/ip_version").map(String::from);
         let is_mirroring_collector = config.optional_bool("/config/is_mirroring_collector");
-        // TODO: extract metadata_filters (Array(Nested(MetadataFilter))) from config["/config/metadata_filters"]
+        let metadata_filters = config.pointer("/config/metadata_filters").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_compute_v1::model::MetadataFilter>>(v.clone())
+                .ok()
+        });
         let network = config.optional_str("/network/network").map(String::from);
-        // TODO: extract network_tier (Enum(NetworkTier)) from config["/config/network_tier"]
+        let network_tier = config
+            .optional_str("/config/network_tier")
+            .map(String::from);
         let no_automate_dns_zone = config.optional_bool("/config/no_automate_dns_zone");
         let port_range = config.optional_str("/config/port_range").map(String::from);
-        // TODO: extract ports (Array(String)) from config["/config/ports"]
+        let ports = config
+            .pointer("/config/ports")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let service_label = config
             .optional_str("/config/service_label")
             .map(String::from);
-        // TODO: extract source_ip_ranges (Array(String)) from config["/config/source_ip_ranges"]
+        let source_ip_ranges = config
+            .pointer("/config/source_ip_ranges")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let subnetwork = config.optional_str("/network/subnetwork").map(String::from);
         let target = config.optional_str("/config/target").map(String::from);
         let labels = super::extract_labels(config);
@@ -1417,35 +1854,56 @@ impl GcpProvider {
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set external_managed_backend_bucket_migration_state on model via .set_external_managed_backend_bucket_migration_state()
-        // TODO: set external_managed_backend_bucket_migration_testing_percentage on model via .set_external_managed_backend_bucket_migration_testing_percentage()
+        // TODO: set external_managed_backend_bucket_migration_state on model via .set_external_managed_backend_bucket_migration_state() — type path unknown
+        if let Some(v) = external_managed_backend_bucket_migration_testing_percentage {
+            model =
+                model.set_external_managed_backend_bucket_migration_testing_percentage(v as f32);
+        }
         if let Some(v) = ip_address {
             model = model.set_ip_address(v);
         }
         if let Some(v) = ip_collection {
             model = model.set_ip_collection(v);
         }
-        // TODO: set ip_protocol on model via .set_ip_protocol()
-        // TODO: set ip_version on model via .set_ip_version()
+        if let Some(ref s) = ip_protocol {
+            model = model.set_ip_protocol(
+                google_cloud_compute_v1::model::forwarding_rule::IPProtocol::from(s.as_str()),
+            );
+        }
+        if let Some(ref s) = ip_version {
+            model = model.set_ip_version(
+                google_cloud_compute_v1::model::forwarding_rule::IpVersion::from(s.as_str()),
+            );
+        }
         if let Some(v) = is_mirroring_collector {
             model = model.set_is_mirroring_collector(v);
         }
-        // TODO: set metadata_filters on model via .set_metadata_filters()
+        if let Some(v) = metadata_filters {
+            model = model.set_metadata_filters(v);
+        }
         if let Some(v) = network {
             model = model.set_network(v);
         }
-        // TODO: set network_tier on model via .set_network_tier()
+        if let Some(ref s) = network_tier {
+            model = model.set_network_tier(
+                google_cloud_compute_v1::model::forwarding_rule::NetworkTier::from(s.as_str()),
+            );
+        }
         if let Some(v) = no_automate_dns_zone {
             model = model.set_no_automate_dns_zone(v);
         }
         if let Some(v) = port_range {
             model = model.set_port_range(v);
         }
-        // TODO: set ports on model via .set_ports()
+        if let Some(v) = ports {
+            model = model.set_ports(v);
+        }
         if let Some(v) = service_label {
             model = model.set_service_label(v);
         }
-        // TODO: set source_ip_ranges on model via .set_source_ip_ranges()
+        if let Some(v) = source_ip_ranges {
+            model = model.set_source_ip_ranges(v);
+        }
         if let Some(v) = subnetwork {
             model = model.set_subnetwork(v);
         }

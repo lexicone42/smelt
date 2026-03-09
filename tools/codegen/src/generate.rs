@@ -148,12 +148,13 @@ fn write_create_fn(out: &mut String, m: &ResourceManifest) {
     let _ = writeln!(out, ") -> Result<ResourceOutput, ProviderError> {{");
 
     // Extract fields from config
+    let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
     let _ = writeln!(out, "    // Extract fields from config");
     for (name, field) in &m.fields {
         if field.output_only || field.skip {
             continue;
         }
-        write_field_extraction(out, name, field);
+        write_field_extraction(out, name, field, &sdk_crate_mod);
     }
     let _ = writeln!(out);
 
@@ -192,7 +193,7 @@ fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
         }
         let sdk_field = field.sdk_field.as_deref().unwrap_or(name);
         let setter = format!("set_{sdk_field}");
-        write_model_setter(out, name, &setter, field);
+        write_model_setter(out, name, &setter, field, &sdk_crate_mod);
     }
 
     // Labels
@@ -458,7 +459,7 @@ fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
         if field.output_only || field.skip || name == "labels" || name == "name" || name == "zone" || name == "region" {
             continue;
         }
-        write_field_extraction(out, name, field);
+        write_field_extraction(out, name, field, &sdk_crate_mod);
     }
 
     if m.fields.contains_key("labels") {
@@ -483,7 +484,7 @@ fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
         }
         let sdk_field = field.sdk_field.as_deref().unwrap_or(name);
         let setter = format!("set_{sdk_field}");
-        write_model_setter(out, name, &setter, field);
+        write_model_setter(out, name, &setter, field, &sdk_crate_mod);
     }
 
     if m.fields.contains_key("labels") {
@@ -695,7 +696,7 @@ fn field_type_expr(type_str: &str, variants: &[String]) -> String {
     match type_str {
         "String" => "crate::provider::FieldType::String".into(),
         "Bool" => "crate::provider::FieldType::Bool".into(),
-        "Integer" => "crate::provider::FieldType::Integer".into(),
+        "Integer" | "Integer_u32" | "Integer_u64" => "crate::provider::FieldType::Integer".into(),
         "Float" => "crate::provider::FieldType::Float".into(),
         s if s.starts_with("Enum(") => {
             if variants.is_empty() {
@@ -719,6 +720,8 @@ fn field_type_expr(type_str: &str, variants: &[String]) -> String {
             )
         }
         "Record" => "crate::provider::FieldType::Record(vec![])".into(),
+        s if s.starts_with("Nested(") => "crate::provider::FieldType::Record(vec![])".into(),
+        "Duration" | "Timestamp" | "Bytes" => "crate::provider::FieldType::String".into(),
         _ => format!("crate::provider::FieldType::String /* {type_str} */"),
     }
 }
@@ -758,7 +761,7 @@ fn group_fields_by_section(
     result
 }
 
-fn write_field_extraction(out: &mut String, name: &str, field: &FieldDef) {
+fn write_field_extraction(out: &mut String, name: &str, field: &FieldDef, sdk_crate_mod: &str) {
     let section = &field.section;
     let path = format!("/{section}/{name}");
 
@@ -801,7 +804,7 @@ fn write_field_extraction(out: &mut String, name: &str, field: &FieldDef) {
                 );
             }
         }
-        "Integer" => {
+        "Integer" | "Integer_u32" | "Integer_u64" => {
             if field.required {
                 let _ = writeln!(
                     out,
@@ -820,18 +823,47 @@ fn write_field_extraction(out: &mut String, name: &str, field: &FieldDef) {
                 );
             }
         }
-        _ => {
-            // Enum, Array, Record, Nested — generate a TODO
+        "Float" => {
+            // Float extraction — use pointer + as_f64
             let _ = writeln!(
                 out,
-                "    // TODO: extract {name} ({}) from config[\"{path}\"]",
-                field.field_type
+                "    let {name} = config.pointer(\"{path}\").and_then(|v| v.as_f64());"
             );
+        }
+        s if s.starts_with("Enum(") => {
+            // Enums are extracted as strings from config, then converted via from_name() in the setter
+            if field.required {
+                let _ = writeln!(
+                    out,
+                    "    let {name} = config.require_str(\"{path}\")?.to_string();"
+                );
+            } else {
+                let _ = writeln!(
+                    out,
+                    "    let {name} = config.optional_str(\"{path}\").map(String::from);"
+                );
+            }
+        }
+        _ => {
+            // Nested, Array, Record, Duration, Timestamp — deserialize from config JSON
+            if let Some(ref type_path) = field.sdk_type_path {
+                let full_type = type_path.replace("crate::", &format!("{sdk_crate_mod}::"));
+                let _ = writeln!(
+                    out,
+                    "    let {name} = config.pointer(\"{path}\").and_then(|v| serde_json::from_value::<{full_type}>(v.clone()).ok());"
+                );
+            } else {
+                let _ = writeln!(
+                    out,
+                    "    // TODO: extract {name} ({}) from config[\"{path}\"] — type path unknown",
+                    field.field_type
+                );
+            }
         }
     }
 }
 
-fn write_model_setter(out: &mut String, name: &str, setter: &str, field: &FieldDef) {
+fn write_model_setter(out: &mut String, name: &str, setter: &str, field: &FieldDef, sdk_crate_mod: &str) {
     match field.field_type.as_str() {
         "String" => {
             if field.required {
@@ -851,13 +883,18 @@ fn write_model_setter(out: &mut String, name: &str, setter: &str, field: &FieldD
                 let _ = writeln!(out, "    }}");
             }
         }
-        "Integer" => {
-            // SDK often uses i32 but we extract i64; cast safely
+        "Integer" | "Integer_u32" | "Integer_u64" => {
+            // Cast from extracted i64 to the SDK's expected integer type
+            let cast_type = match field.field_type.as_str() {
+                "Integer_u32" => "u32",
+                "Integer_u64" => "u64",
+                _ => "i32", // default: most SDK fields use i32
+            };
             if field.required {
-                let _ = writeln!(out, "    model = model.{setter}({name} as i32);");
+                let _ = writeln!(out, "    model = model.{setter}({name} as {cast_type});");
             } else {
                 let _ = writeln!(out, "    if let Some(v) = {name} {{");
-                let _ = writeln!(out, "        model = model.{setter}(v as i32);");
+                let _ = writeln!(out, "        model = model.{setter}(v as {cast_type});");
                 let _ = writeln!(out, "    }}");
             }
         }
@@ -870,8 +907,32 @@ fn write_model_setter(out: &mut String, name: &str, setter: &str, field: &FieldD
                 let _ = writeln!(out, "    }}");
             }
         }
+        s if s.starts_with("Enum(") => {
+            // Convert string to SDK enum via From<&str>
+            if let Some(ref type_path) = field.sdk_type_path {
+                let full_path = type_path.replace("crate::", &format!("{sdk_crate_mod}::"));
+                if field.required {
+                    // required field: name was extracted as String
+                    let _ = writeln!(out, "    model = model.{setter}({full_path}::from({name}.as_str()));");
+                } else {
+                    // optional field: name was extracted as Option<String>
+                    let _ = writeln!(out, "    if let Some(ref s) = {name} {{");
+                    let _ = writeln!(out, "        model = model.{setter}({full_path}::from(s.as_str()));");
+                    let _ = writeln!(out, "    }}");
+                }
+            } else {
+                let _ = writeln!(out, "    // TODO: set {name} on model via .{setter}() — enum type path unknown");
+            }
+        }
         _ => {
-            let _ = writeln!(out, "    // TODO: set {name} on model via .{setter}()");
+            // Nested, Array, Record, Duration, Timestamp — already extracted as Option<T>
+            if field.sdk_type_path.is_some() {
+                let _ = writeln!(out, "    if let Some(v) = {name} {{");
+                let _ = writeln!(out, "        model = model.{setter}(v);");
+                let _ = writeln!(out, "    }}");
+            } else {
+                let _ = writeln!(out, "    // TODO: set {name} on model via .{setter}() — type path unknown");
+            }
         }
     }
 }
@@ -1026,16 +1087,31 @@ fn field_read_accessor(model_var: &str, field_name: &str, field: &FieldDef) -> S
         match field.field_type.as_str() {
             "String" => format!("{model_var}.{sdk_field}.as_deref().unwrap_or(\"\")"),
             "Bool" => format!("{model_var}.{sdk_field}.unwrap_or(false)"),
-            "Integer" => format!("{model_var}.{sdk_field}.unwrap_or(0)"),
+            "Integer" | "Integer_u32" | "Integer_u64" => format!("{model_var}.{sdk_field}.unwrap_or(0)"),
             "Float" => format!("{model_var}.{sdk_field}.unwrap_or(0.0)"),
-            _ => format!("serde_json::Value::Null /* TODO: {sdk_field} is complex type */"),
+            _ => {
+                // Enum, Nested, Vec, HashMap, Duration, Timestamp — serialize via serde.
+                // Only attempt serialization if we have a valid type path (meaning the type
+                // was successfully resolved). Proto oneofs without Serialize get Null.
+                if field.sdk_type_path.is_some() {
+                    format!("&{model_var}.{sdk_field}")
+                } else {
+                    "serde_json::Value::Null".into()
+                }
+            }
         }
     } else {
         // Field is bare T in the SDK (not wrapped in Option)
         match field.field_type.as_str() {
             "String" => format!("{model_var}.{sdk_field}.as_str()"),
-            "Bool" | "Integer" | "Float" => format!("{model_var}.{sdk_field}"),
-            _ => format!("serde_json::Value::Null /* TODO: {sdk_field} is complex type */"),
+            "Bool" | "Integer" | "Integer_u32" | "Integer_u64" | "Float" => format!("{model_var}.{sdk_field}"),
+            _ => {
+                if field.sdk_type_path.is_some() {
+                    format!("&{model_var}.{sdk_field}")
+                } else {
+                    "serde_json::Value::Null".into()
+                }
+            }
         }
     }
 }

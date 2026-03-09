@@ -51,7 +51,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "cmek_settings".into(),
                                 description: "The CMEK settings of the log bucket. If present, new log entries written to".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(CmekSettings) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -59,7 +59,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "index_configs".into(),
                                 description: "A list of indexed fields and related configuration data.".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(IndexConfig) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -101,14 +101,21 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
         let analytics_enabled = config.optional_bool("/config/analytics_enabled");
-        // TODO: extract cmek_settings (Nested(CmekSettings)) from config["/config/cmek_settings"]
+        let cmek_settings = config.pointer("/config/cmek_settings").and_then(|v| {
+            serde_json::from_value::<google_cloud_logging_v2::model::CmekSettings>(v.clone()).ok()
+        });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract index_configs (Array(Nested(IndexConfig))) from config["/config/index_configs"]
+        let index_configs = config.pointer("/config/index_configs").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_logging_v2::model::IndexConfig>>(v.clone())
+                .ok()
+        });
         let locked = config.optional_bool("/config/locked");
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract restricted_fields (Array(String)) from config["/config/restricted_fields"]
+        let restricted_fields = config
+            .pointer("/config/restricted_fields")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let retention_days = config.optional_i64("/config/retention_days");
 
         // Build SDK model
@@ -116,16 +123,22 @@ impl GcpProvider {
         if let Some(v) = analytics_enabled {
             model = model.set_analytics_enabled(v);
         }
-        // TODO: set cmek_settings on model via .set_cmek_settings()
+        if let Some(v) = cmek_settings {
+            model = model.set_cmek_settings(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set index_configs on model via .set_index_configs()
+        if let Some(v) = index_configs {
+            model = model.set_index_configs(v);
+        }
         if let Some(v) = locked {
             model = model.set_locked(v);
         }
         model = model.set_name(name.clone());
-        // TODO: set restricted_fields on model via .set_restricted_fields()
+        if let Some(v) = restricted_fields {
+            model = model.set_restricted_fields(v);
+        }
         if let Some(v) = retention_days {
             model = model.set_retention_days(v as i32);
         }
@@ -174,10 +187,10 @@ impl GcpProvider {
             },
             "config": {
                 "analytics_enabled": log_bucket.analytics_enabled,
-                "cmek_settings": serde_json::Value::Null /* TODO: cmek_settings is complex type */,
-                "index_configs": serde_json::Value::Null /* TODO: index_configs is complex type */,
+                "cmek_settings": &log_bucket.cmek_settings,
+                "index_configs": &log_bucket.index_configs,
                 "locked": log_bucket.locked,
-                "restricted_fields": serde_json::Value::Null /* TODO: restricted_fields is complex type */,
+                "restricted_fields": &log_bucket.restricted_fields,
                 "retention_days": log_bucket.retention_days,
             },
         });
@@ -204,13 +217,20 @@ impl GcpProvider {
             .to_string();
         // Extract fields from config
         let analytics_enabled = config.optional_bool("/config/analytics_enabled");
-        // TODO: extract cmek_settings (Nested(CmekSettings)) from config["/config/cmek_settings"]
+        let cmek_settings = config.pointer("/config/cmek_settings").and_then(|v| {
+            serde_json::from_value::<google_cloud_logging_v2::model::CmekSettings>(v.clone()).ok()
+        });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract index_configs (Array(Nested(IndexConfig))) from config["/config/index_configs"]
+        let index_configs = config.pointer("/config/index_configs").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_logging_v2::model::IndexConfig>>(v.clone())
+                .ok()
+        });
         let locked = config.optional_bool("/config/locked");
-        // TODO: extract restricted_fields (Array(String)) from config["/config/restricted_fields"]
+        let restricted_fields = config
+            .pointer("/config/restricted_fields")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let retention_days = config.optional_i64("/config/retention_days");
 
         let mut model = google_cloud_logging_v2::model::LogBucket::default();
@@ -218,15 +238,21 @@ impl GcpProvider {
         if let Some(v) = analytics_enabled {
             model = model.set_analytics_enabled(v);
         }
-        // TODO: set cmek_settings on model via .set_cmek_settings()
+        if let Some(v) = cmek_settings {
+            model = model.set_cmek_settings(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set index_configs on model via .set_index_configs()
+        if let Some(v) = index_configs {
+            model = model.set_index_configs(v);
+        }
         if let Some(v) = locked {
             model = model.set_locked(v);
         }
-        // TODO: set restricted_fields on model via .set_restricted_fields()
+        if let Some(v) = restricted_fields {
+            model = model.set_restricted_fields(v);
+        }
         if let Some(v) = retention_days {
             model = model.set_retention_days(v as i32);
         }
