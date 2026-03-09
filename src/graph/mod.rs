@@ -6,7 +6,7 @@ use petgraph::dot::{Config, Dot};
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 
-use crate::ast::{Declaration, ResourceDecl, SmeltFile};
+use crate::ast::{ComponentDecl, Declaration, ResourceDecl, SmeltFile, UseDecl, Value};
 
 /// A unique identifier for a resource: kind.name (e.g., "vpc.main")
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -74,19 +74,45 @@ pub enum GraphError {
     },
     #[error("dependency cycle detected involving: {0}")]
     CycleDetected(String),
+    #[error("unknown component '{name}' referenced by use \"{instance}\"")]
+    UnknownComponent { name: String, instance: String },
+    #[error(
+        "unresolved param reference 'param.{param}' in resource {resource} — param refs are only valid inside components"
+    )]
+    UnresolvedParamRef { resource: ResourceId, param: String },
 }
 
 impl DependencyGraph {
     /// Build a dependency graph from a set of parsed smelt files.
+    ///
+    /// Component `use` declarations are expanded into concrete resources
+    /// with scoped names (e.g., `use "web-app" as "api"` expands resource
+    /// `instance.main` into `api__instance.main`).
     pub fn build(files: &[SmeltFile]) -> Result<Self, GraphError> {
         let mut graph = DiGraph::new();
         let mut index_map = HashMap::new();
 
-        // First pass: add all resource nodes
+        // Collect components for expansion
+        let mut components: HashMap<String, &ComponentDecl> = HashMap::new();
+        for file in files {
+            for decl in &file.declarations {
+                if let Declaration::Component(c) = decl {
+                    components.insert(c.name.clone(), c);
+                }
+            }
+        }
+
+        // Expand use declarations into concrete resources
+        let expanded = expand_components(files, &components)?;
+
+        // First pass: add all resource nodes (both direct and expanded)
         for file in files {
             for decl in &file.declarations {
                 if let Declaration::Resource(resource) = decl {
+                    // Reject param refs in top-level resources (only valid inside components)
                     let id = ResourceId::new(&resource.kind, &resource.name);
+                    check_no_param_refs(resource, &id)?;
+
                     if index_map.contains_key(&id) {
                         return Err(GraphError::DuplicateResource(id));
                     }
@@ -100,6 +126,24 @@ impl DependencyGraph {
                     index_map.insert(id, idx);
                 }
             }
+        }
+
+        // Add expanded component resources (check for unresolved param refs)
+        for resource in &expanded {
+            let id = ResourceId::new(&resource.kind, &resource.name);
+            check_no_param_refs(resource, &id)?;
+
+            if index_map.contains_key(&id) {
+                return Err(GraphError::DuplicateResource(id));
+            }
+            let node = ResourceNode {
+                id: id.clone(),
+                type_path: resource.type_path.to_string(),
+                intent: find_annotation(resource, "intent"),
+                owner: find_annotation(resource, "owner"),
+            };
+            let idx = graph.add_node(node);
+            index_map.insert(id, idx);
         }
 
         // Second pass: add dependency edges
@@ -138,6 +182,41 @@ impl DependencyGraph {
                         );
                     }
                 }
+            }
+        }
+
+        // Add edges for expanded resources
+        for resource in &expanded {
+            let source_id = ResourceId::new(&resource.kind, &resource.name);
+            let source_idx = index_map[&source_id];
+
+            for dep in &resource.dependencies {
+                let target_id = ResourceId::from_segments(&dep.source.segments);
+                let target_id = match target_id {
+                    Some(id) => id,
+                    None => {
+                        return Err(GraphError::UnknownDependency {
+                            resource: source_id,
+                            target: dep.source.to_string(),
+                        });
+                    }
+                };
+
+                let target_idx =
+                    index_map
+                        .get(&target_id)
+                        .ok_or_else(|| GraphError::UnknownDependency {
+                            resource: source_id.clone(),
+                            target: target_id.to_string(),
+                        })?;
+
+                graph.add_edge(
+                    source_idx,
+                    *target_idx,
+                    DepEdge {
+                        binding: dep.binding.clone(),
+                    },
+                );
             }
         }
 
@@ -295,12 +374,147 @@ impl DependencyGraph {
     }
 }
 
+/// Check that a resource has no unresolved `ParamRef` values.
+/// Top-level resources must not contain param refs (they're only valid inside components).
+/// Expanded resources must not have leftover refs (all should be substituted).
+fn check_no_param_refs(resource: &ResourceDecl, id: &ResourceId) -> Result<(), GraphError> {
+    for section in &resource.sections {
+        for field in &section.fields {
+            if let Some(param) = find_param_ref(&field.value) {
+                return Err(GraphError::UnresolvedParamRef {
+                    resource: id.clone(),
+                    param,
+                });
+            }
+        }
+    }
+    for field in &resource.fields {
+        if let Some(param) = find_param_ref(&field.value) {
+            return Err(GraphError::UnresolvedParamRef {
+                resource: id.clone(),
+                param,
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Recursively check for ParamRef values, returning the first one found.
+fn find_param_ref(value: &Value) -> Option<String> {
+    match value {
+        Value::ParamRef(name) => Some(name.clone()),
+        Value::Array(items) => items.iter().find_map(find_param_ref),
+        Value::Record(fields) => fields.iter().find_map(|f| find_param_ref(&f.value)),
+        _ => None,
+    }
+}
+
 fn find_annotation(resource: &ResourceDecl, kind: &str) -> Option<String> {
     resource
         .annotations
         .iter()
         .find(|a| a.kind.as_str() == kind)
         .map(|a| a.value.clone())
+}
+
+/// Expand `use` declarations into concrete resources by instantiating
+/// component templates with parameter substitution and scoped naming.
+///
+/// A `use "web-app" as "api" { name = "api-server" }` with a component
+/// containing `resource instance "main"` produces a resource with:
+/// - kind: `api__instance` (scoped by instance name)
+/// - name: `main` (preserved)
+/// - param.name references replaced with "api-server"
+fn expand_components(
+    files: &[SmeltFile],
+    components: &HashMap<String, &ComponentDecl>,
+) -> Result<Vec<ResourceDecl>, GraphError> {
+    let mut expanded = Vec::new();
+
+    for file in files {
+        for decl in &file.declarations {
+            if let Declaration::Use(use_decl) = decl {
+                let component = components.get(&use_decl.component).ok_or_else(|| {
+                    GraphError::UnknownComponent {
+                        name: use_decl.component.clone(),
+                        instance: use_decl.instance.clone(),
+                    }
+                })?;
+
+                let instance_resources = expand_single_use(use_decl, component);
+                expanded.extend(instance_resources);
+            }
+        }
+    }
+
+    Ok(expanded)
+}
+
+/// Expand a single `use` declaration into concrete resources.
+fn expand_single_use(use_decl: &UseDecl, component: &ComponentDecl) -> Vec<ResourceDecl> {
+    // Build param substitution map from use args
+    let param_map: HashMap<String, Value> = use_decl
+        .args
+        .iter()
+        .map(|f| (f.name.clone(), f.value.clone()))
+        .collect();
+
+    component
+        .resources
+        .iter()
+        .map(|resource| {
+            let mut expanded = resource.clone();
+            // Scope the kind: "api" + "instance" → "api__instance"
+            expanded.kind = format!("{}__{}", use_decl.instance, resource.kind);
+
+            // Substitute param refs in sections
+            for section in &mut expanded.sections {
+                for field in &mut section.fields {
+                    substitute_params(&mut field.value, &param_map);
+                }
+            }
+            // Substitute param refs in top-level fields
+            for field in &mut expanded.fields {
+                substitute_params(&mut field.value, &param_map);
+            }
+
+            // Scope dependency references within the component
+            for dep in &mut expanded.dependencies {
+                if dep.source.segments.len() >= 2 {
+                    // Check if this dependency refers to another resource in the component
+                    let dep_kind = &dep.source.segments[0];
+                    let is_internal = component.resources.iter().any(|r| r.kind == *dep_kind);
+                    if is_internal {
+                        dep.source.segments[0] = format!("{}__{}", use_decl.instance, dep_kind);
+                    }
+                }
+            }
+
+            expanded
+        })
+        .collect()
+}
+
+/// Replace `ParamRef("name")` values with the corresponding parameter value.
+fn substitute_params(value: &mut Value, params: &HashMap<String, Value>) {
+    match value {
+        Value::ParamRef(name) => {
+            if let Some(replacement) = params.get(name) {
+                *value = replacement.clone();
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                substitute_params(item, params);
+            }
+        }
+        Value::Record(fields) => {
+            for field in fields {
+                substitute_params(&mut field.value, params);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]
@@ -519,5 +733,92 @@ mod tests {
 
         let result = DependencyGraph::build(&[file]);
         assert!(matches!(result, Err(GraphError::UnknownDependency { .. })));
+    }
+
+    #[test]
+    fn component_expansion() {
+        let file = parse_file(
+            r#"
+            component "vpc-stack" {
+                param cidr : String
+                param env : String
+
+                resource vpc "main" : aws.ec2.Vpc {
+                    @intent "VPC for environment"
+                    network { cidr_block = param.cidr }
+                    identity { name = param.env }
+                }
+
+                resource subnet "pub" : aws.ec2.Subnet {
+                    needs vpc.main -> vpc_id
+                    network { cidr_block = "10.0.1.0/24" }
+                }
+            }
+
+            use "vpc-stack" as "prod" {
+                cidr = "10.0.0.0/16"
+                env = "production"
+            }
+
+            use "vpc-stack" as "staging" {
+                cidr = "10.1.0.0/16"
+                env = "staging"
+            }
+        "#,
+        );
+
+        let graph = DependencyGraph::build(&[file]).expect("should build");
+
+        // Should have 4 resources: prod__vpc.main, prod__subnet.pub, staging__vpc.main, staging__subnet.pub
+        let order = graph.apply_order();
+        assert_eq!(
+            order.len(),
+            4,
+            "expected 4 expanded resources, got {:?}",
+            order.iter().map(|n| n.id.to_string()).collect::<Vec<_>>()
+        );
+
+        // prod__subnet.pub should depend on prod__vpc.main (scoped)
+        let prod_subnet = ResourceId::new("prod__subnet", "pub");
+        let deps = graph.dependencies(&prod_subnet);
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].0.id.kind, "prod__vpc");
+        assert_eq!(deps[0].0.id.name, "main");
+    }
+
+    #[test]
+    fn component_with_external_deps() {
+        let file = parse_file(
+            r#"
+            resource vpc "shared" : aws.ec2.Vpc {
+                network { cidr_block = "10.0.0.0/16" }
+            }
+
+            component "subnet-stack" {
+                param cidr : String
+
+                resource subnet "main" : aws.ec2.Subnet {
+                    needs vpc.shared -> vpc_id
+                    network { cidr_block = param.cidr }
+                }
+            }
+
+            use "subnet-stack" as "public" {
+                cidr = "10.0.1.0/24"
+            }
+        "#,
+        );
+
+        let graph = DependencyGraph::build(&[file]).expect("should build");
+        let order = graph.apply_order();
+        // vpc.shared + public__subnet.main
+        assert_eq!(order.len(), 2);
+
+        // public__subnet.main depends on vpc.shared (external, not scoped)
+        let subnet = ResourceId::new("public__subnet", "main");
+        let deps = graph.dependencies(&subnet);
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].0.id.kind, "vpc");
+        assert_eq!(deps[0].0.id.name, "shared");
     }
 }

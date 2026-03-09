@@ -1,0 +1,20 @@
+[project]
+name = "my-infrastructure"
+default_environment = "dev"
+
+[environments.dev]
+layers = ["base"]
+region = "us-east-1"
+
+[environments.staging]
+layers = ["base", "staging"]
+region = "us-east-1"
+
+[environments.production]
+layers = ["base", "production"]
+region = "us-west-2"
+protected = true
+
+[environments.production.vars]
+account_id = "123456789012"
+domain = "example.com"

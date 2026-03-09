@@ -46,7 +46,8 @@ fn create_single_resource() {
 
     assert_eq!(plan.summary.create, 1);
 
-    let summary = apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file]);
+    let summary =
+        apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file], None);
 
     assert_eq!(summary.created, 1);
     assert_eq!(summary.failed, 0);
@@ -91,7 +92,8 @@ fn output_passing_between_resources() {
 
     assert_eq!(plan.summary.create, 2);
 
-    let summary = apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file]);
+    let summary =
+        apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file], None);
 
     assert_eq!(summary.created, 2);
     assert_eq!(summary.failed, 0);
@@ -157,7 +159,8 @@ fn named_output_passing() {
     let graph = DependencyGraph::build(&[file.clone()]).unwrap();
     let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
 
-    let summary = apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file]);
+    let summary =
+        apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file], None);
 
     assert_eq!(summary.created, 2);
     assert_eq!(summary.failed, 0);
@@ -210,7 +213,8 @@ fn parallel_tier_execution() {
     let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
 
     let start = std::time::Instant::now();
-    let summary = apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file]);
+    let summary =
+        apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file], None);
     let elapsed = start.elapsed();
 
     assert_eq!(summary.created, 4);
@@ -251,7 +255,8 @@ fn partial_failure_preserves_successful_resources() {
     let graph = DependencyGraph::build(&[file.clone()]).unwrap();
     let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
 
-    let summary = apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file]);
+    let summary =
+        apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file], None);
 
     assert_eq!(summary.created, 1); // VPC succeeded
     assert_eq!(summary.failed, 1); // SG failed
@@ -308,7 +313,8 @@ fn cascading_failure_blocks_dependents() {
     let graph = DependencyGraph::build(&[file.clone()]).unwrap();
     let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
 
-    let summary = apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file]);
+    let summary =
+        apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file], None);
 
     assert_eq!(summary.created, 0);
     assert_eq!(summary.failed, 2);
@@ -357,7 +363,8 @@ fn update_existing_resource() {
     // First apply — create the VPC
     let graph = DependencyGraph::build(&[file_v1.clone()]).unwrap();
     let plan = plan::build_plan("test", &[file_v1.clone()], &BTreeMap::new(), &graph);
-    let summary = apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file_v1]);
+    let summary =
+        apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file_v1], None);
     assert_eq!(summary.created, 1);
 
     // Now change the config and apply again
@@ -387,7 +394,8 @@ fn update_existing_resource() {
 
     assert_eq!(plan.summary.update, 1);
 
-    let summary = apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file_v2]);
+    let summary =
+        apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file_v2], None);
     assert_eq!(summary.updated, 1);
     assert_eq!(summary.failed, 0);
 }
@@ -412,7 +420,7 @@ fn delete_resource() {
 
     let graph = DependencyGraph::build(&[file_v1.clone()]).unwrap();
     let plan = plan::build_plan("test", &[file_v1.clone()], &BTreeMap::new(), &graph);
-    apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file_v1]);
+    apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file_v1], None);
 
     // Now remove the subnet from the config
     let _file_v2 = parser::parse(
@@ -462,7 +470,7 @@ fn idempotent_apply() {
     // First apply
     let graph = DependencyGraph::build(&[file.clone()]).unwrap();
     let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
-    apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file.clone()]);
+    apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file.clone()], None);
 
     // Second apply with same config — should detect no changes
     let tree_hash = store.get_ref("test").unwrap();
@@ -497,7 +505,7 @@ fn outputs_stored_in_state() {
 
     let graph = DependencyGraph::build(&[file.clone()]).unwrap();
     let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
-    apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file]);
+    apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file], None);
 
     // Verify outputs are persisted in the state store
     let tree_hash = store.get_ref("test").unwrap();
@@ -544,7 +552,8 @@ fn three_tier_dependency_chain() {
 
     assert_eq!(plan.summary.create, 3);
 
-    let summary = apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file]);
+    let summary =
+        apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file], None);
 
     assert_eq!(summary.created, 3);
     assert_eq!(summary.failed, 0);
@@ -631,7 +640,8 @@ fn apply_result_json_serialization() {
 
     let graph = DependencyGraph::build(&[file.clone()]).unwrap();
     let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
-    let summary = apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file]);
+    let summary =
+        apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file], None);
 
     // Verify the summary serializes to valid JSON (for --json output)
     let json = serde_json::to_string_pretty(&summary).unwrap();

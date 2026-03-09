@@ -7,9 +7,11 @@ use clap::Parser;
 use miette::{IntoDiagnostic, Result, miette};
 
 use smelt::ast::SmeltFile;
-use smelt::cli::{Cli, Command, StateAction};
+use smelt::cli::{AuditAction, Cli, Command, EnvAction, ImportAction, SecretsAction, StateAction};
+use smelt::config::{EnvironmentConfig, ProjectConfig};
 use smelt::graph::{DependencyGraph, ResourceId};
-use smelt::{apply, explain, formatter, parser, plan, signing, store};
+use smelt::secrets::SecretStore;
+use smelt::{apply, audit, explain, formatter, parser, plan, signing, store};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -49,12 +51,24 @@ fn main() -> Result<()> {
             files,
             json,
         } => cmd_drift(&environment, &files, json),
-        Command::Import {
-            resource,
-            provider_id,
-            files,
-            environment,
-        } => cmd_import(&resource, &provider_id, &files, &environment),
+        Command::Import { action } => match action {
+            ImportAction::Resource {
+                resource,
+                provider_id,
+                files,
+                environment,
+            } => cmd_import(&resource, &provider_id, &files, &environment),
+            ImportAction::Discover {
+                type_path,
+                region: _,
+                json: _,
+            } => cmd_import_discover(&type_path),
+            ImportAction::Generate {
+                type_path,
+                output,
+                region: _,
+            } => cmd_import_generate(&type_path, output.as_deref()),
+        },
         Command::Query {
             environment,
             filter,
@@ -90,6 +104,42 @@ fn main() -> Result<()> {
                 to,
             } => cmd_state_mv(&environment, &from, &to),
             StateAction::Ls { environment, json } => cmd_state_ls(&environment, json),
+        },
+        Command::Secrets { action } => match action {
+            SecretsAction::Init => cmd_secrets_init(),
+            SecretsAction::Encrypt { value } => cmd_secrets_encrypt(&value),
+            SecretsAction::Decrypt { value } => cmd_secrets_decrypt(&value),
+            SecretsAction::Rotate { environment } => cmd_secrets_rotate(&environment),
+        },
+        Command::Env { action } => match action {
+            EnvAction::Create {
+                name,
+                layers,
+                region,
+                project_id,
+                protected,
+            } => cmd_env_create(
+                &name,
+                layers.as_deref(),
+                region.as_deref(),
+                project_id.as_deref(),
+                protected,
+            ),
+            EnvAction::List => cmd_env_list(),
+            EnvAction::Delete { name, yes } => cmd_env_delete(&name, yes),
+            EnvAction::Show { name } => cmd_env_show(&name),
+        },
+        Command::Audit { action } => match action {
+            AuditAction::Trail { environment, json } => cmd_audit_trail(&environment, json),
+            AuditAction::Verify { environment, json } => cmd_audit_verify(&environment, json),
+            AuditAction::Attestation {
+                environment,
+                output,
+            } => cmd_audit_attestation(&environment, output.as_deref()),
+            AuditAction::Sbom {
+                environment,
+                output,
+            } => cmd_audit_sbom(&environment, output.as_deref()),
         },
         Command::Debug { file } => cmd_debug(&file),
     }
@@ -128,7 +178,12 @@ fn collect_smelt_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) -> Result<
 
 fn parse_files(files: &[std::path::PathBuf]) -> Result<Vec<SmeltFile>> {
     let mut parsed = Vec::new();
+    let mut included: std::collections::HashSet<std::path::PathBuf> =
+        std::collections::HashSet::new();
+
     for file in files {
+        let canonical = file.canonicalize().unwrap_or_else(|_| file.clone());
+        included.insert(canonical);
         let source = fs::read_to_string(file).into_diagnostic()?;
         let ast = parser::parse(&source).map_err(|errors| {
             miette!(
@@ -139,6 +194,53 @@ fn parse_files(files: &[std::path::PathBuf]) -> Result<Vec<SmeltFile>> {
         })?;
         parsed.push(ast);
     }
+
+    // Resolve include declarations — iterate until no new includes are found
+    let mut i = 0;
+    while i < parsed.len() {
+        let includes: Vec<String> = parsed[i]
+            .declarations
+            .iter()
+            .filter_map(|d| {
+                if let smelt::ast::Declaration::Include(inc) = d {
+                    Some(inc.path.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for include_path in includes {
+            let resolved = Path::new(".").join(&include_path);
+            let canonical = resolved
+                .canonicalize()
+                .map_err(|e| miette!("include '{include_path}': {e}"))?;
+
+            if included.contains(&canonical) {
+                continue; // Already included — skip (prevents cycles)
+            }
+            included.insert(canonical.clone());
+
+            let source = fs::read_to_string(&canonical)
+                .map_err(|e| miette!("include '{include_path}': {e}"))?;
+            let ast = parser::parse(&source).map_err(|errors| {
+                miette!(
+                    "failed to parse included file {}: {}",
+                    include_path,
+                    format_parse_errors(&errors)
+                )
+            })?;
+            parsed.push(ast);
+        }
+        i += 1;
+    }
+
+    // Remove Include declarations from the ASTs — they've been resolved
+    for file in &mut parsed {
+        file.declarations
+            .retain(|d| !matches!(d, smelt::ast::Declaration::Include(_)));
+    }
+
     Ok(parsed)
 }
 
@@ -301,15 +403,23 @@ fn cmd_plan(
 
     let graph = DependencyGraph::build(&parsed).map_err(|e| miette!("{e}"))?;
 
+    // Load project config to get layer chain and secret store for decryption
+    let project_config =
+        ProjectConfig::load_or_default(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let layers = project_config.layers_for_env(environment);
+    let secret_store = SecretStore::open(Path::new("."))
+        .ok()
+        .filter(|s| s.has_key());
+
     let current_state = if live {
         eprintln!("reading live state from cloud providers...");
         let registry = build_registry();
         load_live_state(environment, &graph, &registry)?
     } else {
-        load_current_state(environment)
+        load_current_state(environment, secret_store.as_ref())
     };
 
-    let mut p = plan::build_plan(environment, &parsed, &current_state, &graph);
+    let mut p = plan::build_plan_with_layers(environment, &parsed, &current_state, &graph, &layers);
 
     if let Some(target) = target {
         p = filter_plan_to_target(&p, target, &graph)?;
@@ -329,8 +439,14 @@ fn cmd_plan(
 }
 
 /// Load current state from the store for an environment.
+///
+/// If a `SecretStore` is provided, any encrypted values in stored state
+/// are decrypted so that plan comparison works with plaintext.
 /// Returns empty map if no state exists yet.
-fn load_current_state(environment: &str) -> BTreeMap<String, serde_json::Value> {
+fn load_current_state(
+    environment: &str,
+    secret_store: Option<&SecretStore>,
+) -> BTreeMap<String, serde_json::Value> {
     let store = match store::Store::open(Path::new(".")) {
         Ok(s) => s,
         Err(_) => return BTreeMap::new(),
@@ -351,7 +467,12 @@ fn load_current_state(environment: &str) -> BTreeMap<String, serde_json::Value> 
         if let store::TreeEntry::Object(hash) = entry
             && let Ok(obj) = store.get_object(hash)
         {
-            state.insert(name.clone(), obj.config);
+            let mut config = obj.config;
+            // Decrypt any encrypted secret values for plan comparison
+            if let Some(ss) = secret_store {
+                let _ = ss.decrypt_json_values(&mut config);
+            }
+            state.insert(name.clone(), config);
         }
     }
     state
@@ -631,13 +752,31 @@ fn cmd_apply(
     let graph = DependencyGraph::build(&parsed).map_err(|e| miette!("{e}"))?;
     let registry = build_registry();
 
+    // Load project config for layers and secret store for encrypt/decrypt
+    let project_config =
+        ProjectConfig::load_or_default(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let layers = project_config.layers_for_env(environment);
+    let secret_store = SecretStore::open(Path::new("."))
+        .ok()
+        .filter(|s| s.has_key());
+
+    // Check protected environments require --yes
+    if let Ok(env_config) = project_config.get_env(environment)
+        && env_config.protected
+        && !yes
+    {
+        return Err(miette!(
+            "environment '{environment}' is protected — use --yes to confirm"
+        ));
+    }
+
     let current_state = if refresh {
         eprintln!("refreshing live state from cloud providers...");
         load_live_state(environment, &graph, &registry)?
     } else {
-        load_current_state(environment)
+        load_current_state(environment, secret_store.as_ref())
     };
-    let mut p = plan::build_plan(environment, &parsed, &current_state, &graph);
+    let mut p = plan::build_plan_with_layers(environment, &parsed, &current_state, &graph, &layers);
 
     if let Some(target) = target {
         p = filter_plan_to_target(&p, target, &graph)?;
@@ -664,7 +803,14 @@ fn cmd_apply(
     let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
     let _lock = s.lock().map_err(|e| miette!("{e}"))?;
 
-    let summary = apply::execute_plan_with_config(&p, &registry, &s, Path::new("."), &parsed);
+    let summary = apply::execute_plan_with_config(
+        &p,
+        &registry,
+        &s,
+        Path::new("."),
+        &parsed,
+        secret_store.as_ref(),
+    );
 
     if json {
         let json_str = serde_json::to_string_pretty(&summary).into_diagnostic()?;
@@ -787,7 +933,10 @@ fn cmd_drift(environment: &str, files: &[std::path::PathBuf], json: bool) -> Res
     let parsed = parse_files(&files)?;
 
     let graph = DependencyGraph::build(&parsed).map_err(|e| miette!("{e}"))?;
-    let current_state = load_current_state(environment);
+    let secret_store = SecretStore::open(Path::new("."))
+        .ok()
+        .filter(|s| s.has_key());
+    let current_state = load_current_state(environment, secret_store.as_ref());
 
     if current_state.is_empty() {
         eprintln!("no stored state for environment '{environment}' — run apply first");
@@ -1806,6 +1955,88 @@ fn cmd_state_ls(environment: &str, json: bool) -> Result<()> {
     Ok(())
 }
 
+fn cmd_audit_trail(environment: &str, json: bool) -> Result<()> {
+    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let report = audit::build_audit_trail(&s, environment);
+
+    if json {
+        let json_str = serde_json::to_string_pretty(&report).into_diagnostic()?;
+        println!("{json_str}");
+    } else {
+        eprint!("{}", audit::format_audit_report(&report));
+    }
+
+    Ok(())
+}
+
+fn cmd_audit_verify(environment: &str, json: bool) -> Result<()> {
+    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let report = audit::verify_integrity(&s, environment);
+
+    if json {
+        let json_str = serde_json::to_string_pretty(&report).into_diagnostic()?;
+        println!("{json_str}");
+    } else {
+        eprint!("{}", audit::format_verification_report(&report));
+    }
+
+    if !report.chain_valid {
+        return Err(miette!("integrity verification failed"));
+    }
+
+    Ok(())
+}
+
+fn cmd_audit_attestation(environment: &str, output: Option<&Path>) -> Result<()> {
+    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let attestations = audit::export_intoto(&s, environment);
+
+    if attestations.is_empty() {
+        eprintln!("no signed transitions found for environment '{environment}'");
+        return Ok(());
+    }
+
+    let json_str = serde_json::to_string_pretty(&attestations).into_diagnostic()?;
+
+    match output {
+        Some(path) => {
+            fs::write(path, &json_str).into_diagnostic()?;
+            eprintln!(
+                "wrote {} in-toto attestation(s) to {}",
+                attestations.len(),
+                path.display()
+            );
+        }
+        None => println!("{json_str}"),
+    }
+
+    Ok(())
+}
+
+fn cmd_audit_sbom(environment: &str, output: Option<&Path>) -> Result<()> {
+    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+
+    let bom = audit::export_cyclonedx(&s, environment).ok_or_else(|| {
+        miette!("no state found for environment '{environment}' — run apply first")
+    })?;
+
+    let json_str = serde_json::to_string_pretty(&bom).into_diagnostic()?;
+
+    match output {
+        Some(path) => {
+            fs::write(path, &json_str).into_diagnostic()?;
+            eprintln!(
+                "wrote CycloneDX SBOM ({} components) to {}",
+                bom.components.len(),
+                path.display()
+            );
+        }
+        None => println!("{json_str}"),
+    }
+
+    Ok(())
+}
+
 fn cmd_debug(file: &Path) -> Result<()> {
     let source = fs::read_to_string(file).into_diagnostic()?;
     let parsed = parser::parse(&source).map_err(|errors| {
@@ -1828,4 +2059,358 @@ fn format_parse_errors(errors: &[chumsky::error::Simple<char>]) -> String {
         .map(|e| format!("{e}"))
         .collect::<Vec<_>>()
         .join("; ")
+}
+
+// === Secrets commands ===
+
+fn cmd_secrets_init() -> Result<()> {
+    let store = SecretStore::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    store.generate_key().map_err(|e| miette!("{e}"))?;
+    println!("Encryption key generated at .smelt/keys/encryption.key");
+    println!("This key encrypts secret() values in your .smelt files.");
+    println!("Back it up securely — without it, encrypted values cannot be recovered.");
+    Ok(())
+}
+
+fn cmd_secrets_encrypt(value: &str) -> Result<()> {
+    let store = SecretStore::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let encrypted = store.encrypt(value).map_err(|e| miette!("{e}"))?;
+    println!("{encrypted}");
+    Ok(())
+}
+
+fn cmd_secrets_decrypt(value: &str) -> Result<()> {
+    let store = SecretStore::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let decrypted = store.decrypt(value).map_err(|e| miette!("{e}"))?;
+    println!("{decrypted}");
+    Ok(())
+}
+
+fn cmd_secrets_rotate(environment: &str) -> Result<()> {
+    let secret_store = SecretStore::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let old_key_bytes = secret_store.rotate_key().map_err(|e| miette!("{e}"))?;
+
+    // Re-encrypt all secrets in the state store
+    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let _lock = s.lock().map_err(|e| miette!("{e}"))?;
+
+    let tree_hash = match s.get_ref(environment) {
+        Ok(hash) => hash,
+        Err(_) => {
+            println!("Key rotated. No state in environment '{environment}' to re-encrypt.");
+            return Ok(());
+        }
+    };
+
+    let tree = s.get_tree(&tree_hash).map_err(|e| miette!("{e}"))?;
+    let mut new_tree = store::TreeNode::new();
+    let mut re_encrypted = 0usize;
+
+    for (name, entry) in &tree.children {
+        if let store::TreeEntry::Object(hash) = entry {
+            let mut state = s.get_object(hash).map_err(|e| miette!("{e}"))?;
+
+            // Walk config JSON for encrypted values and re-encrypt
+            let changed = re_encrypt_json(&mut state.config, &old_key_bytes, &secret_store)?;
+            re_encrypted += changed;
+
+            let new_hash = s.put_object(&state).map_err(|e| miette!("{e}"))?;
+            new_tree
+                .children
+                .insert(name.clone(), store::TreeEntry::Object(new_hash));
+        } else {
+            new_tree.children.insert(name.clone(), entry.clone());
+        }
+    }
+
+    let new_tree_hash = s.put_tree(&new_tree).map_err(|e| miette!("{e}"))?;
+    s.set_ref(environment, &new_tree_hash)
+        .map_err(|e| miette!("{e}"))?;
+
+    println!("Key rotated. Re-encrypted {re_encrypted} values in environment '{environment}'.");
+    Ok(())
+}
+
+/// Walk a JSON value and re-encrypt any `enc:v1:` strings with the new key.
+fn re_encrypt_json(
+    value: &mut serde_json::Value,
+    old_key_bytes: &[u8],
+    new_store: &SecretStore,
+) -> Result<usize> {
+    let mut count = 0;
+    match value {
+        serde_json::Value::String(s) if SecretStore::is_encrypted(s) => {
+            let plaintext =
+                SecretStore::decrypt_with_key(old_key_bytes, s).map_err(|e| miette!("{e}"))?;
+            *s = new_store.encrypt(&plaintext).map_err(|e| miette!("{e}"))?;
+            count += 1;
+        }
+        serde_json::Value::Object(map) => {
+            for v in map.values_mut() {
+                count += re_encrypt_json(v, old_key_bytes, new_store)?;
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                count += re_encrypt_json(v, old_key_bytes, new_store)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(count)
+}
+
+// === Environment commands ===
+
+fn cmd_env_create(
+    name: &str,
+    layers: Option<&str>,
+    region: Option<&str>,
+    project_id: Option<&str>,
+    protected: bool,
+) -> Result<()> {
+    let mut config = ProjectConfig::load_or_default(Path::new(".")).map_err(|e| miette!("{e}"))?;
+
+    let env_config = EnvironmentConfig {
+        layers: layers
+            .map(|l| l.split(',').map(|s| s.trim().to_string()).collect())
+            .unwrap_or_default(),
+        region: region.map(|s| s.to_string()),
+        project_id: project_id.map(|s| s.to_string()),
+        protected,
+        ..Default::default()
+    };
+
+    config
+        .add_env(name, env_config)
+        .map_err(|e| miette!("{e}"))?;
+    config.save(Path::new(".")).map_err(|e| miette!("{e}"))?;
+
+    println!("Created environment '{name}'");
+    if let Some(layers) = layers {
+        println!("  layers: {layers}");
+    }
+    if let Some(region) = region {
+        println!("  region: {region}");
+    }
+    if protected {
+        println!("  protected: true (requires --yes for apply/destroy)");
+    }
+    Ok(())
+}
+
+fn cmd_env_list() -> Result<()> {
+    let config = ProjectConfig::load_or_default(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let store = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let refs = store.list_refs().unwrap_or_default();
+    let ref_map: BTreeMap<String, _> = refs.into_iter().collect();
+
+    println!("Environments:");
+    for (name, env_config) in &config.environments {
+        let is_default = name == &config.project.default_environment;
+        let marker = if is_default { " (default)" } else { "" };
+
+        let state_info = if let Some(hash) = ref_map.get(name) {
+            let tree = store.get_tree(hash).unwrap_or_default();
+            format!("{} resources, tree {}", tree.children.len(), hash.short())
+        } else {
+            "no state".to_string()
+        };
+
+        println!("  {name}{marker}");
+        if !env_config.layers.is_empty() {
+            println!("    layers: {}", env_config.layers.join(" → "));
+        }
+        if let Some(region) = &env_config.region {
+            println!("    region: {region}");
+        }
+        if env_config.protected {
+            println!("    protected: true");
+        }
+        println!("    state: {state_info}");
+    }
+
+    // Also show any environments with state but not in config
+    for (name, hash) in &ref_map {
+        if !config.environments.contains_key(name) {
+            let tree = store.get_tree(hash).unwrap_or_default();
+            println!("  {name} (not in smelt.toml)");
+            println!(
+                "    state: {} resources, tree {}",
+                tree.children.len(),
+                hash.short()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_env_delete(name: &str, yes: bool) -> Result<()> {
+    let mut config = ProjectConfig::load_or_default(Path::new(".")).map_err(|e| miette!("{e}"))?;
+
+    // Check if there's state
+    let store = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    if let Ok(hash) = store.get_ref(name) {
+        let tree = store.get_tree(&hash).unwrap_or_default();
+        if !tree.children.is_empty() && !yes {
+            return Err(miette!(
+                "environment '{name}' has {} resources in state. Use --yes to confirm, or destroy resources first.",
+                tree.children.len()
+            ));
+        }
+    }
+
+    config.remove_env(name).map_err(|e| miette!("{e}"))?;
+    config.save(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    println!("Removed environment '{name}' from smelt.toml");
+    Ok(())
+}
+
+fn cmd_env_show(name: &str) -> Result<()> {
+    let config = ProjectConfig::load_or_default(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let env_config = config.get_env(name).map_err(|e| miette!("{e}"))?;
+
+    println!("Environment: {name}");
+    if !env_config.layers.is_empty() {
+        println!("  layers: {}", env_config.layers.join(" → "));
+    }
+    if let Some(region) = &env_config.region {
+        println!("  region: {region}");
+    }
+    if let Some(project_id) = &env_config.project_id {
+        println!("  project_id: {project_id}");
+    }
+    println!("  protected: {}", env_config.protected);
+
+    if !env_config.vars.is_empty() {
+        println!("  vars:");
+        for (k, v) in &env_config.vars {
+            println!("    {k} = \"{v}\"");
+        }
+    }
+
+    // Show state info
+    let store = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    if let Ok(hash) = store.get_ref(name) {
+        let tree = store.get_tree(&hash).unwrap_or_default();
+        println!(
+            "  state: {} resources, tree {}",
+            tree.children.len(),
+            hash.short()
+        );
+        for (resource_id, entry) in &tree.children {
+            if let store::TreeEntry::Object(obj_hash) = entry
+                && let Ok(state) = store.get_object(obj_hash)
+            {
+                let pid = state.provider_id.as_deref().unwrap_or("<none>");
+                println!("    {resource_id} ({}) → {pid}", state.type_path);
+            }
+        }
+    } else {
+        println!("  state: no state yet");
+    }
+
+    Ok(())
+}
+
+// === Import discovery/generation ===
+
+fn find_schema(
+    provider: &dyn smelt::provider::Provider,
+    resource_type: &str,
+) -> Option<smelt::provider::ResourceSchema> {
+    provider
+        .resource_types()
+        .into_iter()
+        .find(|rt| rt.type_path == resource_type)
+        .map(|rt| rt.schema)
+}
+
+fn cmd_import_discover(type_path: &str) -> Result<()> {
+    let registry = build_registry();
+    let Some((provider, resource_type)) = registry.resolve(type_path) else {
+        return Err(miette!("no provider for type '{type_path}'"));
+    };
+
+    println!("Resource type: {type_path}");
+    println!("Provider: {}", provider.name());
+
+    if let Some(schema) = find_schema(provider, &resource_type) {
+        println!("Sections:");
+        for section in &schema.sections {
+            let required_count = section.fields.iter().filter(|f| f.required).count();
+            println!(
+                "  {} ({} fields, {} required)",
+                section.name,
+                section.fields.len(),
+                required_count
+            );
+            for field in &section.fields {
+                let req = if field.required { "*" } else { " " };
+                let sens = if field.sensitive { " [sensitive]" } else { "" };
+                println!("    {req} {} : {}{}", field.name, field.field_type, sens);
+            }
+        }
+    }
+    println!("\nTo import a specific resource:");
+    println!("  smelt import resource <kind.name> <provider-id>");
+    println!("\nTo generate a .smelt template:");
+    println!("  smelt import generate {type_path}");
+    Ok(())
+}
+
+fn cmd_import_generate(type_path: &str, output: Option<&Path>) -> Result<()> {
+    let registry = build_registry();
+    let Some((provider, resource_type)) = registry.resolve(type_path) else {
+        return Err(miette!("no provider for type '{type_path}'"));
+    };
+
+    let Some(schema) = find_schema(provider, &resource_type) else {
+        return Err(miette!("no schema for type '{type_path}'"));
+    };
+
+    // Generate a template .smelt resource declaration from the schema
+    let kind = type_path
+        .split('.')
+        .next_back()
+        .unwrap_or("resource")
+        .to_lowercase();
+    let mut smelt_code = format!("resource {kind} \"CHANGEME\" : {type_path} {{\n");
+    smelt_code.push_str("  @intent \"TODO: describe intent\"\n\n");
+
+    for section in &schema.sections {
+        smelt_code.push_str(&format!("  {} {{\n", section.name));
+        for field in &section.fields {
+            let type_hint = match &field.field_type {
+                smelt::provider::FieldType::String => "\"\"".to_string(),
+                smelt::provider::FieldType::Integer => "0".to_string(),
+                smelt::provider::FieldType::Float => "0.0".to_string(),
+                smelt::provider::FieldType::Bool => "false".to_string(),
+                smelt::provider::FieldType::Enum(variants) => {
+                    if let Some(first) = variants.first() {
+                        format!("\"{first}\"")
+                    } else {
+                        "\"\"".to_string()
+                    }
+                }
+                smelt::provider::FieldType::Ref(_) => "\"<ref>\"".to_string(),
+                smelt::provider::FieldType::Array(_) => "[]".to_string(),
+                smelt::provider::FieldType::Record(_) => "{}".to_string(),
+            };
+            let required = if field.required { " # required" } else { "" };
+            smelt_code.push_str(&format!("    {} = {}{}\n", field.name, type_hint, required));
+        }
+        smelt_code.push_str("  }\n\n");
+    }
+    smelt_code.push_str("}\n");
+
+    if let Some(path) = output {
+        fs::write(path, &smelt_code).into_diagnostic()?;
+        println!("Generated template at {}", path.display());
+    } else {
+        print!("{smelt_code}");
+    }
+
+    Ok(())
 }

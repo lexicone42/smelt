@@ -1,9 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::ast::{Declaration, SmeltFile, Value};
 use crate::plan::{ActionType, Plan, PlannedAction};
 use crate::provider::ProviderRegistry;
+use crate::secrets::SecretStore;
 use crate::signing::{SigningKeyStore, TransitionChange, TransitionData};
 use crate::store::{ContentHash, Event, EventType, ResourceState, Store, TreeEntry, TreeNode};
 
@@ -89,23 +90,28 @@ pub fn execute_plan(
     store: &Store,
     project_root: &Path,
 ) -> ApplySummary {
-    execute_plan_with_config(plan, registry, store, project_root, &[])
+    execute_plan_with_config(plan, registry, store, project_root, &[], None)
 }
 
 /// Execute a plan with resource configs extracted from parsed files.
 ///
 /// Actions within the same dependency tier are executed concurrently,
 /// while tiers are processed sequentially to respect dependency ordering.
+///
+/// If a `SecretStore` is provided, secret values (identified by `Value::Secret`
+/// in the AST) are encrypted before being stored in the state store.
 pub fn execute_plan_with_config(
     plan: &Plan,
     registry: &ProviderRegistry,
     store: &Store,
     project_root: &Path,
     parsed_files: &[SmeltFile],
+    secret_store: Option<&SecretStore>,
 ) -> ApplySummary {
     // Build a config lookup from parsed files
     let config_map = build_config_map(parsed_files);
     let dep_map = build_dependency_map(parsed_files);
+    let secret_paths_map = build_secret_paths(parsed_files);
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -451,7 +457,19 @@ pub fn execute_plan_with_config(
             let result = match outcome {
                 CallOutcome::Output(output) => {
                     let clean_config = p.config.clone();
-                    let redacted = redact_sensitive(&clean_config, p.provider, &p.resource_type);
+                    let mut redacted =
+                        redact_sensitive(&clean_config, p.provider, &p.resource_type);
+
+                    // Encrypt secret fields before storing
+                    if let Some(ss) = secret_store
+                        && let Some(paths) = secret_paths_map.get(&p.action.resource_id)
+                        && let Err(e) = ss.encrypt_json_at_paths(&mut redacted, paths)
+                    {
+                        eprintln!(
+                            "  warning: failed to encrypt secrets for {}: {e}",
+                            p.action.resource_id
+                        );
+                    }
                     let stored_outputs = if output.outputs.is_empty() {
                         None
                     } else {
@@ -865,6 +883,57 @@ fn resolve_refs(
     }
 }
 
+/// Build a map of resource_id -> set of dotted paths that contain `secret()` values.
+///
+/// Used to encrypt secret fields before storing in the state store.
+fn build_secret_paths(files: &[SmeltFile]) -> HashMap<String, HashSet<String>> {
+    let mut map: HashMap<String, HashSet<String>> = HashMap::new();
+    for file in files {
+        for decl in &file.declarations {
+            if let Declaration::Resource(resource) = decl {
+                let resource_id = format!("{}.{}", resource.kind, resource.name);
+                let mut paths = HashSet::new();
+                for section in &resource.sections {
+                    for field in &section.fields {
+                        collect_secret_paths(
+                            &field.value,
+                            &format!("{}.{}", section.name, field.name),
+                            &mut paths,
+                        );
+                    }
+                }
+                for field in &resource.fields {
+                    collect_secret_paths(&field.value, &field.name, &mut paths);
+                }
+                if !paths.is_empty() {
+                    map.insert(resource_id, paths);
+                }
+            }
+        }
+    }
+    map
+}
+
+/// Recursively collect dotted paths to `Value::Secret` fields.
+fn collect_secret_paths(value: &Value, current_path: &str, paths: &mut HashSet<String>) {
+    match value {
+        Value::Secret(_) => {
+            paths.insert(current_path.to_string());
+        }
+        Value::Record(fields) => {
+            for f in fields {
+                collect_secret_paths(&f.value, &format!("{current_path}.{}", f.name), paths);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_secret_paths(item, current_path, paths);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Build a map of resource_id -> JSON config from parsed files.
 fn build_config_map(files: &[SmeltFile]) -> HashMap<String, serde_json::Value> {
     let mut map = HashMap::new();
@@ -910,6 +979,10 @@ fn value_to_json(value: &Value) -> serde_json::Value {
             }
             serde_json::Value::Object(map)
         }
+        // Secret values are passed as plaintext to providers (decrypted at this point)
+        Value::Secret(s) => serde_json::Value::String(s.clone()),
+        // ParamRef should be resolved before reaching value_to_json
+        Value::ParamRef(name) => serde_json::Value::String(format!("{{param.{name}}}")),
     }
 }
 
@@ -1233,7 +1306,7 @@ mod tests {
         );
 
         // Will fail (no provider registered) but exercises the config path
-        let summary = execute_plan_with_config(&plan, &registry, &store, &project, &[file]);
+        let summary = execute_plan_with_config(&plan, &registry, &store, &project, &[file], None);
         assert_eq!(summary.failed, 1);
     }
 
@@ -1563,5 +1636,33 @@ mod tests {
         let arn_dep = subnet_deps.iter().find(|d| d.binding == "vpc_arn").unwrap();
         assert_eq!(arn_dep.target, "vpc.main");
         assert_eq!(arn_dep.output_key.as_deref(), Some("arn"));
+    }
+
+    #[test]
+    fn build_secret_paths_identifies_secret_fields() {
+        use crate::parser;
+
+        let file = parser::parse(
+            r#"
+            resource db "main" : aws.rds.Instance {
+                identity { name = "my-db" }
+                security {
+                    password = secret("hunter2")
+                    admin_key = secret("key-123")
+                }
+                network { port = 5432 }
+            }
+        "#,
+        )
+        .unwrap();
+
+        let paths_map = build_secret_paths(&[file]);
+        assert!(paths_map.contains_key("db.main"));
+
+        let paths = &paths_map["db.main"];
+        assert!(paths.contains("security.password"));
+        assert!(paths.contains("security.admin_key"));
+        assert!(!paths.contains("identity.name"));
+        assert!(!paths.contains("network.port"));
     }
 }

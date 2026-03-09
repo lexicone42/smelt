@@ -186,6 +186,28 @@ pub enum FieldType {
     Record(Vec<FieldSchema>),
 }
 
+impl std::fmt::Display for FieldType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::String => write!(f, "String"),
+            Self::Integer => write!(f, "Integer"),
+            Self::Float => write!(f, "Float"),
+            Self::Bool => write!(f, "Bool"),
+            Self::Enum(variants) => {
+                let preview: Vec<&str> = variants.iter().take(3).map(|s| s.as_str()).collect();
+                if variants.len() > 3 {
+                    write!(f, "Enum({}...)", preview.join("|"))
+                } else {
+                    write!(f, "Enum({})", preview.join("|"))
+                }
+            }
+            Self::Ref(target) => write!(f, "Ref({target})"),
+            Self::Array(inner) => write!(f, "Array<{inner}>"),
+            Self::Record(_) => write!(f, "Record"),
+        }
+    }
+}
+
 /// The output of a provider operation (create, read, update).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourceOutput {

@@ -31,11 +31,14 @@ fn file_parser() -> impl Parser<char, SmeltFile, Error = Simple<char>> {
     )
 }
 
-/// A declaration is either a resource or a layer.
+/// A declaration is a resource, layer, component, use, or include.
 fn declaration() -> impl Parser<char, Declaration, Error = Simple<char>> {
     resource_decl()
         .map(Declaration::Resource)
         .or(layer_decl().map(Declaration::Layer))
+        .or(component_decl().map(Declaration::Component))
+        .or(use_decl().map(Declaration::Use))
+        .or(include_decl().map(Declaration::Include))
         .padded_by(ws())
 }
 
@@ -230,6 +233,109 @@ fn override_body() -> impl Parser<char, (Vec<Section>, Vec<Field>), Error = Simp
     })
 }
 
+/// Parse a component declaration:
+/// `component "name" { params and resources }`
+fn component_decl() -> impl Parser<char, ComponentDecl, Error = Simple<char>> {
+    text::keyword("component")
+        .padded()
+        .ignore_then(string_literal())
+        .padded()
+        .then(component_body().delimited_by(just('{').padded(), just('}').padded()))
+        .map(|(name, body)| ComponentDecl {
+            name,
+            params: body.0,
+            annotations: body.1,
+            resources: body.2,
+        })
+}
+
+/// Parse the body of a component declaration.
+fn component_body()
+-> impl Parser<char, (Vec<ParamDecl>, Vec<Annotation>, Vec<ResourceDecl>), Error = Simple<char>> {
+    enum ComponentItem {
+        Param(ParamDecl),
+        Annotation(Annotation),
+        Resource(ResourceDecl),
+    }
+
+    let item = param_decl()
+        .map(ComponentItem::Param)
+        .or(annotation().map(ComponentItem::Annotation))
+        .or(resource_decl().map(ComponentItem::Resource));
+
+    item.padded_by(ws()).repeated().map(|items| {
+        let mut params = Vec::new();
+        let mut annotations = Vec::new();
+        let mut resources = Vec::new();
+        for item in items {
+            match item {
+                ComponentItem::Param(p) => params.push(p),
+                ComponentItem::Annotation(a) => annotations.push(a),
+                ComponentItem::Resource(r) => resources.push(r),
+            }
+        }
+        (params, annotations, resources)
+    })
+}
+
+/// Parse a parameter declaration:
+/// `param name : Type` or `param name : Type = default`
+fn param_decl() -> impl Parser<char, ParamDecl, Error = Simple<char>> {
+    text::keyword("param")
+        .padded()
+        .ignore_then(ident())
+        .padded()
+        .then_ignore(just(':').padded())
+        .then(param_type())
+        .padded()
+        .then(just('=').padded().ignore_then(value()).or_not())
+        .map(|((name, param_type), default)| ParamDecl {
+            name,
+            param_type,
+            default,
+        })
+}
+
+/// Parse a parameter type keyword.
+fn param_type() -> impl Parser<char, ParamType, Error = Simple<char>> {
+    text::keyword("String")
+        .to(ParamType::String)
+        .or(text::keyword("Integer").to(ParamType::Integer))
+        .or(text::keyword("Bool").to(ParamType::Bool))
+}
+
+/// Parse a use declaration:
+/// `use "component" as "instance" { field = value }`
+fn use_decl() -> impl Parser<char, UseDecl, Error = Simple<char>> {
+    text::keyword("use")
+        .padded()
+        .ignore_then(string_literal())
+        .padded()
+        .then_ignore(text::keyword("as").padded())
+        .then(string_literal())
+        .padded()
+        .then(
+            field()
+                .padded()
+                .repeated()
+                .delimited_by(just('{').padded(), just('}').padded()),
+        )
+        .map(|((component, instance), args)| UseDecl {
+            component,
+            instance,
+            args,
+        })
+}
+
+/// Parse an include declaration:
+/// `include "path/to/file.smelt"`
+fn include_decl() -> impl Parser<char, IncludeDecl, Error = Simple<char>> {
+    text::keyword("include")
+        .padded()
+        .ignore_then(string_literal())
+        .map(|path| IncludeDecl { path })
+}
+
 /// Parse an annotation: `@intent "description"`
 fn annotation() -> impl Parser<char, Annotation, Error = Simple<char>> {
     just('@')
@@ -289,6 +395,21 @@ fn field() -> impl Parser<char, Field, Error = Simple<char>> {
 /// Parse a value.
 fn value() -> impl Parser<char, Value, Error = Simple<char>> {
     recursive(|val| {
+        // secret("plaintext") — an encrypted secret value
+        let secret_val = text::keyword("secret")
+            .ignore_then(
+                string_literal()
+                    .padded()
+                    .delimited_by(just('(').padded(), just(')').padded()),
+            )
+            .map(Value::Secret);
+
+        // param.name — a parameter reference within a component
+        let param_ref = text::keyword("param")
+            .ignore_then(just('.'))
+            .ignore_then(ident())
+            .map(Value::ParamRef);
+
         let string_val = string_literal().map(Value::String);
 
         let number_val = {
@@ -338,7 +459,10 @@ fn value() -> impl Parser<char, Value, Error = Simple<char>> {
             .delimited_by(just('{').padded(), just('}').padded())
             .map(Value::Record);
 
-        bool_val
+        // Order matters: secret/param before string (secret starts with keyword, not quote)
+        secret_val
+            .or(param_ref)
+            .or(bool_val)
             .or(string_val)
             .or(number_val)
             .or(array_val)
@@ -734,5 +858,158 @@ mod tests {
             }
             _ => panic!("expected Layer"),
         }
+    }
+
+    #[test]
+    fn parse_secret_value() {
+        let result = field().parse("password = secret(\"my-s3cr3t\")");
+        assert!(result.is_ok(), "parse error: {:?}", result.err());
+        let f = result.unwrap();
+        assert_eq!(f.name, "password");
+        assert!(matches!(f.value, Value::Secret(ref s) if s == "my-s3cr3t"));
+    }
+
+    #[test]
+    fn parse_param_ref() {
+        let result = field().parse("name = param.instance_name");
+        assert!(result.is_ok(), "parse error: {:?}", result.err());
+        let f = result.unwrap();
+        assert_eq!(f.name, "name");
+        assert!(matches!(f.value, Value::ParamRef(ref s) if s == "instance_name"));
+    }
+
+    #[test]
+    fn parse_component() {
+        let input = r#"
+            component "web-app" {
+                param name : String
+                param instance_type : String = "t3.micro"
+
+                resource instance "main" : aws.ec2.Instance {
+                    @intent "Web server"
+                    identity { name = param.name }
+                    sizing { instance_type = param.instance_type }
+                }
+            }
+        "#;
+        let result = parse(input);
+        assert!(result.is_ok(), "parse error: {:?}", result.err());
+        let file = result.unwrap();
+        assert_eq!(file.declarations.len(), 1);
+        match &file.declarations[0] {
+            Declaration::Component(c) => {
+                assert_eq!(c.name, "web-app");
+                assert_eq!(c.params.len(), 2);
+                assert_eq!(c.params[0].name, "name");
+                assert_eq!(c.params[0].param_type, ParamType::String);
+                assert!(c.params[0].default.is_none());
+                assert_eq!(c.params[1].name, "instance_type");
+                assert!(
+                    matches!(c.params[1].default, Some(Value::String(ref s)) if s == "t3.micro")
+                );
+                assert_eq!(c.resources.len(), 1);
+                assert_eq!(c.resources[0].kind, "instance");
+            }
+            _ => panic!("expected Component"),
+        }
+    }
+
+    #[test]
+    fn parse_use() {
+        let input = r#"
+            use "web-app" as "api" {
+                name = "api-server"
+                instance_type = "t3.large"
+            }
+        "#;
+        let result = parse(input);
+        assert!(result.is_ok(), "parse error: {:?}", result.err());
+        let file = result.unwrap();
+        assert_eq!(file.declarations.len(), 1);
+        match &file.declarations[0] {
+            Declaration::Use(u) => {
+                assert_eq!(u.component, "web-app");
+                assert_eq!(u.instance, "api");
+                assert_eq!(u.args.len(), 2);
+            }
+            _ => panic!("expected Use"),
+        }
+    }
+
+    #[test]
+    fn parse_include() {
+        let input = r#"include "components/web-app.smelt""#;
+        let result = parse(input);
+        assert!(result.is_ok(), "parse error: {:?}", result.err());
+        let file = result.unwrap();
+        assert_eq!(file.declarations.len(), 1);
+        match &file.declarations[0] {
+            Declaration::Include(i) => {
+                assert_eq!(i.path, "components/web-app.smelt");
+            }
+            _ => panic!("expected Include"),
+        }
+    }
+
+    #[test]
+    fn parse_resource_with_secrets() {
+        let input = r#"
+            resource db "main" : aws.rds.Instance {
+                @intent "Primary database"
+                security {
+                    master_password = secret("hunter2")
+                    master_username = "admin"
+                }
+            }
+        "#;
+        let result = parse(input);
+        assert!(result.is_ok(), "parse error: {:?}", result.err());
+        let file = result.unwrap();
+        match &file.declarations[0] {
+            Declaration::Resource(r) => {
+                let security = &r.sections[0];
+                assert_eq!(security.name, "security");
+                let pw = &security
+                    .fields
+                    .iter()
+                    .find(|f| f.name == "master_password")
+                    .unwrap();
+                assert!(matches!(pw.value, Value::Secret(ref s) if s == "hunter2"));
+            }
+            _ => panic!("expected Resource"),
+        }
+    }
+
+    #[test]
+    fn parse_full_component_with_use() {
+        let input = r#"
+            component "vpc-stack" {
+                param cidr : String
+                param env_name : String
+
+                resource vpc "main" : aws.ec2.Vpc {
+                    @intent "VPC for environment"
+                    network { cidr_block = param.cidr }
+                    identity { name = param.env_name }
+                }
+            }
+
+            use "vpc-stack" as "production" {
+                cidr = "10.0.0.0/16"
+                env_name = "prod"
+            }
+
+            use "vpc-stack" as "staging" {
+                cidr = "10.1.0.0/16"
+                env_name = "staging"
+            }
+        "#;
+        let result = parse(input);
+        assert!(result.is_ok(), "parse error: {:?}", result.err());
+        let file = result.unwrap();
+        assert_eq!(file.declarations.len(), 3);
+        assert!(matches!(file.declarations[0], Declaration::Component(_)));
+        assert!(matches!(file.declarations[1], Declaration::Use(_)));
+        assert!(matches!(file.declarations[2], Declaration::Use(_)));
     }
 }

@@ -26,6 +26,9 @@ fn format_declaration(out: &mut String, decl: &Declaration, indent: usize) {
     match decl {
         Declaration::Resource(r) => format_resource(out, r, indent),
         Declaration::Layer(l) => format_layer(out, l, indent),
+        Declaration::Component(c) => format_component(out, c, indent),
+        Declaration::Use(u) => format_use(out, u, indent),
+        Declaration::Include(i) => format_include(out, i, indent),
     }
 }
 
@@ -121,6 +124,72 @@ fn format_override(out: &mut String, ovr: &Override, indent: usize) {
     }
 
     out.push_str(&format!("{pad}}}\n"));
+}
+
+fn format_component(out: &mut String, component: &ComponentDecl, indent: usize) {
+    let pad = "  ".repeat(indent);
+    out.push_str(&format!("{pad}component \"{}\" {{\n", component.name));
+
+    let inner = indent + 1;
+    let inner_pad = "  ".repeat(inner);
+
+    // Params first
+    for param in &component.params {
+        out.push_str(&format!(
+            "{inner_pad}param {} : {}",
+            param.name, param.param_type
+        ));
+        if let Some(default) = &param.default {
+            out.push_str(" = ");
+            format_value(out, default, inner);
+        }
+        out.push('\n');
+    }
+
+    if !component.params.is_empty()
+        && (!component.annotations.is_empty() || !component.resources.is_empty())
+    {
+        out.push('\n');
+    }
+
+    format_annotations(out, &component.annotations, inner);
+
+    if !component.annotations.is_empty() && !component.resources.is_empty() {
+        out.push('\n');
+    }
+
+    for (i, resource) in component.resources.iter().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        format_resource(out, resource, inner);
+    }
+
+    out.push_str(&format!("{pad}}}\n"));
+}
+
+fn format_use(out: &mut String, use_decl: &UseDecl, indent: usize) {
+    let pad = "  ".repeat(indent);
+    out.push_str(&format!(
+        "{pad}use \"{}\" as \"{}\" {{\n",
+        use_decl.component, use_decl.instance
+    ));
+
+    let mut sorted_args = use_decl.args.clone();
+    sorted_args.sort_by(|a, b| a.name.cmp(&b.name));
+    for arg in &sorted_args {
+        format_field(out, arg, indent + 1);
+    }
+
+    out.push_str(&format!("{pad}}}\n"));
+}
+
+fn format_include(out: &mut String, include: &IncludeDecl, indent: usize) {
+    let pad = "  ".repeat(indent);
+    out.push_str(&format!(
+        "{pad}include \"{}\"\n",
+        escape_string(&include.path)
+    ));
 }
 
 fn format_annotations(out: &mut String, annotations: &[Annotation], indent: usize) {
@@ -265,6 +334,12 @@ fn format_value(out: &mut String, value: &Value, indent: usize) {
                 }
             }
         }
+        Value::Secret(s) => {
+            out.push_str(&format!("secret(\"{}\")", escape_string(s)));
+        }
+        Value::ParamRef(name) => {
+            out.push_str(&format!("param.{name}"));
+        }
     }
 }
 
@@ -401,5 +476,73 @@ mod tests {
         let lifecycle_pos = formatted.find("@lifecycle").unwrap();
         assert!(intent_pos < owner_pos);
         assert!(owner_pos < lifecycle_pos);
+    }
+
+    #[test]
+    fn format_secret_value() {
+        let input = r#"resource db "main" : aws.rds.Instance {
+            security {
+                master_password = secret("hunter2")
+            }
+        }"#;
+        let parsed = parser::parse(input).expect("should parse");
+        let formatted = format(&parsed);
+        assert!(formatted.contains("secret(\"hunter2\")"));
+
+        // Should be idempotent
+        let reparsed = parser::parse(&formatted).expect("formatted should parse");
+        let reformatted = format(&reparsed);
+        assert_eq!(formatted, reformatted);
+    }
+
+    #[test]
+    fn format_component() {
+        let input = r#"
+            component "web-app" {
+                param name : String
+                param size : String = "small"
+
+                resource instance "main" : aws.ec2.Instance {
+                    identity { name = param.name }
+                }
+            }
+        "#;
+        let parsed = parser::parse(input).expect("should parse");
+        let formatted = format(&parsed);
+        assert!(formatted.contains("component \"web-app\""));
+        assert!(formatted.contains("param name : String"));
+        assert!(formatted.contains("param size : String = \"small\""));
+        assert!(formatted.contains("param.name"));
+
+        // Idempotent
+        let reparsed = parser::parse(&formatted).expect("formatted should parse");
+        let reformatted = format(&reparsed);
+        assert_eq!(formatted, reformatted);
+    }
+
+    #[test]
+    fn format_use() {
+        let input = r#"
+            use "web-app" as "api" {
+                name = "api-server"
+                size = "large"
+            }
+        "#;
+        let parsed = parser::parse(input).expect("should parse");
+        let formatted = format(&parsed);
+        assert!(formatted.contains("use \"web-app\" as \"api\""));
+
+        // Idempotent
+        let reparsed = parser::parse(&formatted).expect("formatted should parse");
+        let reformatted = format(&reparsed);
+        assert_eq!(formatted, reformatted);
+    }
+
+    #[test]
+    fn format_include() {
+        let input = r#"include "components/web.smelt""#;
+        let parsed = parser::parse(input).expect("should parse");
+        let formatted = format(&parsed);
+        assert!(formatted.contains("include \"components/web.smelt\""));
     }
 }

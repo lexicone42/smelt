@@ -107,14 +107,45 @@ impl std::fmt::Display for ActionType {
 ///
 /// If the environment name matches a layer declaration, the layer's
 /// overrides are merged into matching resources before diffing.
+///
+/// Use `build_plan_with_layers` to apply a specific layer chain from smelt.toml.
 pub fn build_plan(
     environment: &str,
     desired_files: &[SmeltFile],
     current_state: &BTreeMap<String, serde_json::Value>,
     graph: &DependencyGraph,
 ) -> Plan {
-    // Find layer overrides for this environment
-    let layer = find_layer(environment, desired_files);
+    // Fallback: look for a single layer matching the environment name
+    let layer_names: Vec<String> = match find_layer(environment, desired_files) {
+        Some(_) => vec![environment.to_string()],
+        None => vec![],
+    };
+    build_plan_with_layers(
+        environment,
+        desired_files,
+        current_state,
+        graph,
+        &layer_names,
+    )
+}
+
+/// Build a plan with an explicit layer chain (from smelt.toml environment config).
+///
+/// Layers are applied in order — the first layer is lowest priority,
+/// the last layer is highest priority. Each layer's overrides are merged
+/// into matching resources sequentially.
+pub fn build_plan_with_layers(
+    environment: &str,
+    desired_files: &[SmeltFile],
+    current_state: &BTreeMap<String, serde_json::Value>,
+    graph: &DependencyGraph,
+    layer_names: &[String],
+) -> Plan {
+    // Collect all matching layers in the specified order
+    let layers: Vec<&LayerDecl> = layer_names
+        .iter()
+        .filter_map(|name| find_layer(name, desired_files))
+        .collect();
 
     let tiered_order = graph.tiered_apply_order();
     let mut tier_map: BTreeMap<usize, Vec<PlannedAction>> = BTreeMap::new();
@@ -143,8 +174,8 @@ pub fn build_plan(
 
         let mut desired_json = resource_to_json(resource_decl);
 
-        // Apply layer overrides if this environment has a layer
-        if let Some(layer) = &layer {
+        // Apply layer overrides in order (first = lowest priority, last = highest)
+        for layer in &layers {
             apply_layer_overrides(&mut desired_json, &node.id.to_string(), layer);
         }
 
@@ -239,6 +270,8 @@ fn value_to_json(value: &Value) -> serde_json::Value {
             }
             serde_json::Value::Object(map)
         }
+        Value::Secret(s) => serde_json::Value::String(s.clone()),
+        Value::ParamRef(name) => serde_json::Value::String(format!("{{param.{name}}}")),
     }
 }
 
@@ -690,5 +723,73 @@ mod tests {
         // Override pattern is subnet.*, so vpc.main should be unchanged
         let plan = build_plan("staging", &[file], &current_state, &graph);
         assert_eq!(plan.summary.unchanged, 1);
+    }
+
+    #[test]
+    fn multi_layer_overrides_applied_in_order() {
+        let file = parser::parse(
+            r#"
+            resource instance "web" : aws.ec2.Instance {
+                sizing { instance_type = "t3.micro" }
+                network { cidr_block = "10.0.0.0/16" }
+            }
+            layer "base" over "none" {
+                override instance.* {
+                    sizing { instance_type = "t3.small" }
+                }
+            }
+            layer "production" over "base" {
+                override instance.* {
+                    sizing { instance_type = "t3.2xlarge" }
+                }
+            }
+        "#,
+        )
+        .unwrap();
+
+        let graph = DependencyGraph::build(&[file.clone()]).unwrap();
+
+        let mut current_state = BTreeMap::new();
+        current_state.insert(
+            "instance.web".to_string(),
+            serde_json::json!({
+                "sizing": { "instance_type": "t3.micro" },
+                "network": { "cidr_block": "10.0.0.0/16" }
+            }),
+        );
+
+        // Apply both layers: base (t3.small), then production (t3.2xlarge)
+        // Production wins because it's last
+        let layers = vec!["base".to_string(), "production".to_string()];
+        let plan = build_plan_with_layers("prod", &[file], &current_state, &graph, &layers);
+        assert_eq!(plan.summary.update, 1);
+
+        let action = plan.actions().next().unwrap();
+        assert_eq!(action.changes.len(), 1);
+        assert_eq!(action.changes[0].path, "sizing.instance_type");
+        // New value should be from production layer (highest priority)
+        assert_eq!(
+            action.changes[0].new_value,
+            Some(serde_json::json!("t3.2xlarge"))
+        );
+    }
+
+    #[test]
+    fn empty_layer_chain_uses_base_config() {
+        let file = parser::parse(
+            r#"
+            resource vpc "main" : aws.ec2.Vpc {
+                network { cidr_block = "10.0.0.0/16" }
+            }
+        "#,
+        )
+        .unwrap();
+
+        let graph = DependencyGraph::build(&[file.clone()]).unwrap();
+        let current_state = BTreeMap::new();
+
+        // No layers — should use base config as-is
+        let plan = build_plan_with_layers("dev", &[file], &current_state, &graph, &[]);
+        assert_eq!(plan.summary.create, 1);
     }
 }

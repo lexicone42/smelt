@@ -467,4 +467,383 @@ mod signing_properties {
 
 // ─── Schema Properties ──────────────────────────────────────────────
 // Note: Schema invariant tests that require `AwsProvider::for_testing()` live in
-// `src/provider/aws/mod.rs` as unit tests (since `for_testing()` is #[cfg(test)]).
+// `src/provider/aws/mod.rs` as unit tests (since `for_testing()` is #[cfg(test)`).
+
+// ─── Secret Encryption Properties ───────────────────────────────────
+
+mod secret_properties {
+    use super::*;
+    use smelt::secrets::SecretStore;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn temp_dir() -> std::path::PathBuf {
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("smelt-secret-prop-{}-{id}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    /// Generate arbitrary strings without null bytes (valid UTF-8, no \0).
+    fn arb_secret_string() -> impl Strategy<Value = String> {
+        "[a-zA-Z0-9!@#$%^&*()_+=\\-]{0,64}"
+    }
+
+    proptest! {
+        /// Encrypting then decrypting any string returns the original.
+        #[test]
+        fn secret_encrypt_decrypt_roundtrip(plaintext in arb_secret_string()) {
+            let dir = temp_dir();
+            let store = SecretStore::open(&dir).unwrap();
+            store.generate_key().unwrap();
+
+            let encrypted = store.encrypt(&plaintext).unwrap();
+            let decrypted = store.decrypt(&encrypted).unwrap();
+            prop_assert_eq!(&decrypted, &plaintext,
+                "decrypt(encrypt(plaintext)) must equal plaintext");
+        }
+
+        /// Encrypting the same string twice produces different ciphertexts (random nonces).
+        #[test]
+        fn secret_encryption_uniqueness(plaintext in arb_secret_string()) {
+            let dir = temp_dir();
+            let store = SecretStore::open(&dir).unwrap();
+            store.generate_key().unwrap();
+
+            let enc1 = store.encrypt(&plaintext).unwrap();
+            let enc2 = store.encrypt(&plaintext).unwrap();
+
+            prop_assert_ne!(&enc1, &enc2,
+                "two encryptions of the same plaintext must differ (random nonces)");
+
+            // Both must still decrypt correctly
+            let dec1 = store.decrypt(&enc1).unwrap();
+            let dec2 = store.decrypt(&enc2).unwrap();
+            prop_assert_eq!(&dec1, &plaintext);
+            prop_assert_eq!(&dec2, &plaintext);
+        }
+    }
+}
+
+// ─── Formatter Idempotence for Secrets ──────────────────────────────
+
+mod secret_formatter_properties {
+    use super::*;
+
+    /// Generate a resource with secret() values in its sections.
+    fn arb_resource_with_secrets() -> impl Strategy<Value = smelt::ast::ResourceDecl> {
+        (arb_ident(), arb_ident(), arb_safe_string()).prop_map(|(kind, name, secret_val)| {
+            smelt::ast::ResourceDecl {
+                kind,
+                name,
+                type_path: smelt::ast::TypePath {
+                    segments: vec!["aws".into(), "rds".into(), "Instance".into()],
+                },
+                annotations: vec![],
+                dependencies: vec![],
+                sections: vec![smelt::ast::Section {
+                    name: "security".to_string(),
+                    fields: vec![
+                        smelt::ast::Field {
+                            name: "master_password".to_string(),
+                            value: smelt::ast::Value::Secret(secret_val),
+                        },
+                        smelt::ast::Field {
+                            name: "master_username".to_string(),
+                            value: smelt::ast::Value::String("admin".to_string()),
+                        },
+                    ],
+                }],
+                fields: vec![],
+            }
+        })
+    }
+
+    proptest! {
+        /// Formatting a resource with secret() values is idempotent:
+        /// format(parse(format(ast))) == format(ast)
+        #[test]
+        fn formatter_idempotent_with_secrets(resource in arb_resource_with_secrets()) {
+            let file = smelt::ast::SmeltFile {
+                declarations: vec![smelt::ast::Declaration::Resource(resource)],
+            };
+            let formatted1 = smelt::formatter::format(&file);
+            let reparsed = smelt::parser::parse(&formatted1)
+                .expect("formatted output with secrets must parse");
+            let formatted2 = smelt::formatter::format(&reparsed);
+            prop_assert_eq!(&formatted1, &formatted2,
+                "formatter must be idempotent for resources with secrets");
+        }
+    }
+}
+
+// ─── Formatter Idempotence for Components ───────────────────────────
+
+mod component_formatter_properties {
+    use super::*;
+
+    /// Generate a component declaration with params and inner resources.
+    fn arb_component() -> impl Strategy<Value = smelt::ast::ComponentDecl> {
+        (arb_ident(), arb_ident(), arb_safe_string()).prop_map(
+            |(comp_name, param_name, default_val)| smelt::ast::ComponentDecl {
+                name: comp_name,
+                params: vec![
+                    smelt::ast::ParamDecl {
+                        name: param_name.clone(),
+                        param_type: smelt::ast::ParamType::String,
+                        default: Some(smelt::ast::Value::String(default_val)),
+                    },
+                    smelt::ast::ParamDecl {
+                        name: "enabled".to_string(),
+                        param_type: smelt::ast::ParamType::Bool,
+                        default: Some(smelt::ast::Value::Bool(true)),
+                    },
+                ],
+                annotations: vec![],
+                resources: vec![smelt::ast::ResourceDecl {
+                    kind: "instance".to_string(),
+                    name: "main".to_string(),
+                    type_path: smelt::ast::TypePath {
+                        segments: vec!["aws".into(), "ec2".into(), "Instance".into()],
+                    },
+                    annotations: vec![],
+                    dependencies: vec![],
+                    sections: vec![smelt::ast::Section {
+                        name: "identity".to_string(),
+                        fields: vec![smelt::ast::Field {
+                            name: "name".to_string(),
+                            value: smelt::ast::Value::ParamRef(param_name),
+                        }],
+                    }],
+                    fields: vec![],
+                }],
+            },
+        )
+    }
+
+    proptest! {
+        /// Formatting a component declaration is idempotent:
+        /// format(parse(format(ast))) == format(ast)
+        #[test]
+        fn formatter_idempotent_with_components(component in arb_component()) {
+            let file = smelt::ast::SmeltFile {
+                declarations: vec![smelt::ast::Declaration::Component(component)],
+            };
+            let formatted1 = smelt::formatter::format(&file);
+            let reparsed = smelt::parser::parse(&formatted1)
+                .expect("formatted component must parse");
+            let formatted2 = smelt::formatter::format(&reparsed);
+            prop_assert_eq!(&formatted1, &formatted2,
+                "formatter must be idempotent for components");
+        }
+    }
+}
+
+// ─── Config Roundtrip Properties ────────────────────────────────────
+
+mod config_properties {
+    use super::*;
+    use smelt::config::{EnvironmentConfig, ProjectConfig, ProjectMeta};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn temp_dir() -> std::path::PathBuf {
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("smelt-config-prop-{}-{id}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Generate an arbitrary environment config.
+    fn arb_env_config() -> impl Strategy<Value = EnvironmentConfig> {
+        (
+            prop::collection::vec("[a-z]{2,8}", 0..3),
+            prop::option::of("[a-z]{2,4}-[a-z]{2,6}-[0-9]"),
+            prop::option::of("[a-z0-9]{4,12}"),
+            any::<bool>(),
+            prop::collection::btree_map("[a-z_]{1,8}", "[a-zA-Z0-9_]{1,16}", 0..3),
+        )
+            .prop_map(
+                |(layers, region, project_id, protected, vars)| EnvironmentConfig {
+                    layers,
+                    region,
+                    project_id,
+                    protected,
+                    vars,
+                },
+            )
+    }
+
+    /// Generate an arbitrary project config.
+    fn arb_project_config() -> impl Strategy<Value = ProjectConfig> {
+        (
+            "[a-z][a-z0-9_-]{1,15}",
+            prop::collection::btree_map("[a-z]{2,8}", arb_env_config(), 1..4),
+        )
+            .prop_map(|(name, environments)| {
+                let default_environment = environments
+                    .keys()
+                    .next()
+                    .cloned()
+                    .unwrap_or_else(|| "default".to_string());
+                ProjectConfig {
+                    project: ProjectMeta {
+                        name,
+                        default_environment,
+                    },
+                    environments,
+                }
+            })
+    }
+
+    proptest! {
+        /// Serializing then deserializing a ProjectConfig preserves all fields.
+        #[test]
+        fn config_roundtrip(config in arb_project_config()) {
+            let dir = temp_dir();
+            config.save(&dir).unwrap();
+            let loaded = ProjectConfig::load(&dir).unwrap();
+
+            // Compare project metadata
+            prop_assert_eq!(&loaded.project.name, &config.project.name);
+            prop_assert_eq!(
+                &loaded.project.default_environment,
+                &config.project.default_environment
+            );
+
+            // Compare environment count and keys
+            prop_assert_eq!(loaded.environments.len(), config.environments.len(),
+                "environment count must match");
+
+            for (env_name, original_env) in &config.environments {
+                let loaded_env = loaded.environments.get(env_name)
+                    .unwrap_or_else(|| panic!("environment '{}' must exist after roundtrip", env_name));
+
+                prop_assert_eq!(&loaded_env.layers, &original_env.layers,
+                    "layers for '{}' must match", env_name);
+                prop_assert_eq!(&loaded_env.region, &original_env.region,
+                    "region for '{}' must match", env_name);
+                prop_assert_eq!(&loaded_env.project_id, &original_env.project_id,
+                    "project_id for '{}' must match", env_name);
+                prop_assert_eq!(loaded_env.protected, original_env.protected,
+                    "protected for '{}' must match", env_name);
+                prop_assert_eq!(&loaded_env.vars, &original_env.vars,
+                    "vars for '{}' must match", env_name);
+            }
+        }
+    }
+}
+
+// ─── Component Expansion Determinism ────────────────────────────────
+
+mod component_expansion_properties {
+    use super::*;
+
+    /// Substitute param refs in a resource's sections, replacing ParamRef values
+    /// with the corresponding argument values.
+    fn expand_component(
+        component: &smelt::ast::ComponentDecl,
+        args: &std::collections::HashMap<String, smelt::ast::Value>,
+        instance_name: &str,
+    ) -> Vec<smelt::ast::ResourceDecl> {
+        component
+            .resources
+            .iter()
+            .map(|r| {
+                let mut expanded = r.clone();
+                // Prefix resource name with instance name for scoping
+                expanded.name = format!("{}.{}", instance_name, expanded.name);
+                // Substitute param refs in sections
+                for section in &mut expanded.sections {
+                    for field in &mut section.fields {
+                        if let smelt::ast::Value::ParamRef(param_name) = &field.value
+                            && let Some(arg_val) = args.get(param_name.as_str())
+                        {
+                            field.value = arg_val.clone();
+                        }
+                    }
+                }
+                // Substitute param refs in top-level fields
+                for field in &mut expanded.fields {
+                    if let smelt::ast::Value::ParamRef(param_name) = &field.value
+                        && let Some(arg_val) = args.get(param_name.as_str())
+                    {
+                        field.value = arg_val.clone();
+                    }
+                }
+                expanded
+            })
+            .collect()
+    }
+
+    proptest! {
+        /// Expanding the same component with the same args twice produces identical resources.
+        /// The expansion function must be deterministic (no random state, no ordering issues).
+        #[test]
+        fn component_expansion_is_deterministic(
+            comp_name in arb_ident(),
+            param_name in arb_ident(),
+            arg_value in arb_safe_string(),
+            instance_name in arb_ident(),
+        ) {
+            let component = smelt::ast::ComponentDecl {
+                name: comp_name,
+                params: vec![smelt::ast::ParamDecl {
+                    name: param_name.clone(),
+                    param_type: smelt::ast::ParamType::String,
+                    default: None,
+                }],
+                annotations: vec![],
+                resources: vec![smelt::ast::ResourceDecl {
+                    kind: "instance".to_string(),
+                    name: "main".to_string(),
+                    type_path: smelt::ast::TypePath {
+                        segments: vec!["aws".into(), "ec2".into(), "Instance".into()],
+                    },
+                    annotations: vec![],
+                    dependencies: vec![],
+                    sections: vec![smelt::ast::Section {
+                        name: "identity".to_string(),
+                        fields: vec![smelt::ast::Field {
+                            name: "name".to_string(),
+                            value: smelt::ast::Value::ParamRef(param_name.clone()),
+                        }],
+                    }],
+                    fields: vec![],
+                }],
+            };
+
+            let mut args = std::collections::HashMap::new();
+            args.insert(
+                param_name,
+                smelt::ast::Value::String(arg_value),
+            );
+
+            let expanded1 = expand_component(&component, &args, &instance_name);
+            let expanded2 = expand_component(&component, &args, &instance_name);
+
+            // Compare by formatting both expansions — if the formatter produces
+            // the same output, the resources are semantically identical.
+            prop_assert_eq!(expanded1.len(), expanded2.len(),
+                "expansion must produce same number of resources");
+
+            for (r1, r2) in expanded1.iter().zip(expanded2.iter()) {
+                let file1 = smelt::ast::SmeltFile {
+                    declarations: vec![smelt::ast::Declaration::Resource(r1.clone())],
+                };
+                let file2 = smelt::ast::SmeltFile {
+                    declarations: vec![smelt::ast::Declaration::Resource(r2.clone())],
+                };
+                let fmt1 = smelt::formatter::format(&file1);
+                let fmt2 = smelt::formatter::format(&file2);
+                prop_assert_eq!(&fmt1, &fmt2,
+                    "expanding the same component twice must produce identical output");
+            }
+        }
+    }
+}

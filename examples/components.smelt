@@ -1,0 +1,39 @@
+component "vpc-stack" {
+  param env_name : String
+  param cidr : String
+  param public_cidr : String = "10.0.1.0/24"
+
+  resource vpc "main" : aws.ec2.Vpc {
+    @intent "VPC for environment"
+
+    identity {
+      name = param.env_name
+    }
+
+    network {
+      cidr_block = param.cidr
+    }
+  }
+
+  resource subnet "public" : aws.ec2.Subnet {
+    @intent "Public subnet for load balancers"
+
+    needs vpc.main -> vpc_id
+
+    network {
+      cidr_block = param.public_cidr
+    }
+  }
+}
+
+use "vpc-stack" as "prod" {
+  cidr = "10.0.0.0/16"
+  env_name = "production"
+  public_cidr = "10.0.1.0/24"
+}
+
+use "vpc-stack" as "staging" {
+  cidr = "10.1.0.0/16"
+  env_name = "staging"
+  public_cidr = "10.1.1.0/24"
+}

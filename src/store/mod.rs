@@ -169,6 +169,21 @@ pub enum StoreError {
     },
     #[error("store is locked by another process — if this is stale, remove .smelt/lock")]
     Locked,
+    #[error("invalid environment name '{0}': must be alphanumeric, hyphens, or underscores")]
+    InvalidRefName(String),
+}
+
+/// Validate that an environment/ref name is safe for use as a path component.
+/// Prevents path traversal attacks via names containing `..` or `/`.
+fn validate_ref_name(name: &str) -> Result<(), StoreError> {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(StoreError::InvalidRefName(name.to_string()));
+    }
+    Ok(())
 }
 
 /// Check if a process is still running (Unix: kill -0).
@@ -189,6 +204,11 @@ impl Store {
         fs::create_dir_all(root.join("refs/environments"))?;
         fs::create_dir_all(root.join("events"))?;
         Ok(Self { root })
+    }
+
+    /// Get the project root (parent of `.smelt/`).
+    pub fn project_root(&self) -> &Path {
+        self.root.parent().unwrap_or(&self.root)
     }
 
     /// Acquire an exclusive lock on the store.
@@ -281,12 +301,23 @@ impl Store {
     }
 
     /// Retrieve a tree node by hash.
+    ///
+    /// Verifies content integrity: the BLAKE3 hash of the stored bytes must
+    /// match the hash used to address the tree. Returns `StoreError::HashMismatch`
+    /// if the file has been tampered with.
     pub fn get_tree(&self, hash: &ContentHash) -> Result<TreeNode, StoreError> {
         let path = self.tree_path(hash);
         if !path.exists() {
             return Err(StoreError::ObjectNotFound(hash.clone()));
         }
         let data = fs::read(&path)?;
+        let actual_hash = ContentHash::of(&data);
+        if actual_hash != *hash {
+            return Err(StoreError::HashMismatch {
+                expected: hash.clone(),
+                actual: actual_hash,
+            });
+        }
         Ok(serde_json::from_slice(&data)?)
     }
 
@@ -294,6 +325,7 @@ impl Store {
 
     /// Set a named ref to point to a tree hash.
     pub fn set_ref(&self, name: &str, hash: &ContentHash) -> Result<(), StoreError> {
+        validate_ref_name(name)?;
         let path = self.ref_path(name);
         fs::write(&path, &hash.0)?;
         Ok(())
@@ -301,6 +333,7 @@ impl Store {
 
     /// Get the tree hash that a named ref points to.
     pub fn get_ref(&self, name: &str) -> Result<ContentHash, StoreError> {
+        validate_ref_name(name)?;
         let path = self.ref_path(name);
         if !path.exists() {
             return Err(StoreError::RefNotFound(name.to_string()));
