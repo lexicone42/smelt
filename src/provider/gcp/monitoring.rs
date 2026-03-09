@@ -43,7 +43,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "alert_strategy".into(),
                                 description: "Control over how this alerting policy's notification channels are notified.".into(),
-                                field_type: crate::provider::FieldType::Enum(vec!["TODO: list variants for AlertStrategy".into()]),
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -59,7 +59,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "conditions".into(),
                                 description: "A list of conditions for the policy. The conditions are combined by AND or".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* TODO: Enum variants */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -67,7 +67,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "creation_record".into(),
                                 description: "A read-only record of the creation of the alerting policy. If provided".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(MutationRecord) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -75,7 +75,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "documentation".into(),
                                 description: "Documentation that is included with notifications and incidents related to".into(),
-                                field_type: crate::provider::FieldType::Enum(vec!["TODO: list variants for Documentation".into()]),
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -83,7 +83,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "enabled".into(),
                                 description: "Whether or not the policy is enabled. On write, the default interpretation".into(),
-                                field_type: crate::provider::FieldType::Enum(vec!["TODO: list variants for BoolValue".into()]),
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -91,7 +91,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "mutation_record".into(),
                                 description: "A read-only record of the most recent change to the alerting policy. If".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(MutationRecord) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -123,7 +123,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "validity".into(),
                                 description: "Read-only description of how the alerting policy is invalid. This field is".into(),
-                                field_type: crate::provider::FieldType::Enum(vec!["TODO: list variants for Status".into()]),
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -140,39 +140,88 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        // TODO: extract alert_strategy (Enum(AlertStrategy)) from config["/config/alert_strategy"]
-        // TODO: extract combiner (Enum(ConditionCombinerType)) from config["/config/combiner"]
-        // TODO: extract conditions (Array(Enum(Condition))) from config["/config/conditions"]
-        // TODO: extract creation_record (Nested(MutationRecord)) from config["/config/creation_record"]
+        let alert_strategy = config.pointer("/config/alert_strategy").and_then(|v| {
+            serde_json::from_value::<
+                    google_cloud_monitoring_v3::model::alert_policy::AlertStrategy,
+                >(v.clone())
+                .ok()
+        });
+        let combiner = config.optional_str("/config/combiner").map(String::from);
+        let conditions = config.pointer("/config/conditions").and_then(|v| {
+            serde_json::from_value::<
+                    Vec<google_cloud_monitoring_v3::model::alert_policy::Condition>,
+                >(v.clone())
+                .ok()
+        });
+        let creation_record = config.pointer("/config/creation_record").and_then(|v| {
+            serde_json::from_value::<google_cloud_monitoring_v3::model::MutationRecord>(v.clone())
+                .ok()
+        });
         let display_name = config
             .optional_str("/identity/display_name")
             .map(String::from);
-        // TODO: extract documentation (Enum(Documentation)) from config["/config/documentation"]
-        // TODO: extract enabled (Enum(BoolValue)) from config["/config/enabled"]
-        // TODO: extract mutation_record (Nested(MutationRecord)) from config["/config/mutation_record"]
+        let documentation = config.pointer("/config/documentation").and_then(|v| {
+            serde_json::from_value::<
+                    google_cloud_monitoring_v3::model::alert_policy::Documentation,
+                >(v.clone())
+                .ok()
+        });
+        // TODO: extract enabled (Nested(BoolValue)) from config["/config/enabled"] — type path unknown
+        let mutation_record = config.pointer("/config/mutation_record").and_then(|v| {
+            serde_json::from_value::<google_cloud_monitoring_v3::model::MutationRecord>(v.clone())
+                .ok()
+        });
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract notification_channels (Array(String)) from config["/config/notification_channels"]
-        // TODO: extract severity (Enum(Severity)) from config["/config/severity"]
-        // TODO: extract user_labels (Record) from config["/config/user_labels"]
-        // TODO: extract validity (Enum(Status)) from config["/config/validity"]
+        let notification_channels = config
+            .pointer("/config/notification_channels")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let severity = config.optional_str("/config/severity").map(String::from);
+        let user_labels = config
+            .pointer("/config/user_labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        // TODO: extract validity (Nested(Status)) from config["/config/validity"] — type path unknown
 
         // Build SDK model
         let mut model = google_cloud_monitoring_v3::model::AlertPolicy::default();
-        // TODO: set alert_strategy on model via .set_alert_strategy()
-        // TODO: set combiner on model via .set_combiner()
-        // TODO: set conditions on model via .set_conditions()
-        // TODO: set creation_record on model via .set_creation_record()
+        if let Some(v) = alert_strategy {
+            model = model.set_alert_strategy(v);
+        }
+        if let Some(ref s) = combiner {
+            model = model.set_combiner(
+                google_cloud_monitoring_v3::model::alert_policy::ConditionCombinerType::from(
+                    s.as_str(),
+                ),
+            );
+        }
+        if let Some(v) = conditions {
+            model = model.set_conditions(v);
+        }
+        if let Some(v) = creation_record {
+            model = model.set_creation_record(v);
+        }
         if let Some(v) = display_name {
             model = model.set_display_name(v);
         }
-        // TODO: set documentation on model via .set_documentation()
-        // TODO: set enabled on model via .set_enabled()
-        // TODO: set mutation_record on model via .set_mutation_record()
+        if let Some(v) = documentation {
+            model = model.set_documentation(v);
+        }
+        // TODO: set enabled on model via .set_enabled() — type path unknown
+        if let Some(v) = mutation_record {
+            model = model.set_mutation_record(v);
+        }
         model = model.set_name(name.clone());
-        // TODO: set notification_channels on model via .set_notification_channels()
-        // TODO: set severity on model via .set_severity()
-        // TODO: set user_labels on model via .set_user_labels()
-        // TODO: set validity on model via .set_validity()
+        if let Some(v) = notification_channels {
+            model = model.set_notification_channels(v);
+        }
+        if let Some(ref s) = severity {
+            model = model.set_severity(
+                google_cloud_monitoring_v3::model::alert_policy::Severity::from(s.as_str()),
+            );
+        }
+        if let Some(v) = user_labels {
+            model = model.set_user_labels(v);
+        }
+        // TODO: set validity on model via .set_validity() — type path unknown
 
         // Make API call
         let parent = format!("projects/{}", self.project_id);
@@ -213,17 +262,17 @@ impl GcpProvider {
                 "name": alert_policy.name.as_str(),
             },
             "config": {
-                "alert_strategy": serde_json::json!(alert_policy.alert_strategy) /* TODO: complex type */,
-                "combiner": serde_json::json!(alert_policy.combiner) /* TODO: complex type */,
-                "conditions": serde_json::json!(alert_policy.conditions) /* TODO: complex type */,
-                "creation_record": serde_json::json!(alert_policy.creation_record) /* TODO: complex type */,
-                "documentation": serde_json::json!(alert_policy.documentation) /* TODO: complex type */,
-                "enabled": serde_json::json!(alert_policy.enabled) /* TODO: complex type */,
-                "mutation_record": serde_json::json!(alert_policy.mutation_record) /* TODO: complex type */,
-                "notification_channels": serde_json::json!(alert_policy.notification_channels) /* TODO: complex type */,
-                "severity": serde_json::json!(alert_policy.severity) /* TODO: complex type */,
-                "user_labels": serde_json::json!(alert_policy.user_labels) /* TODO: complex type */,
-                "validity": serde_json::json!(alert_policy.validity) /* TODO: complex type */,
+                "alert_strategy": &alert_policy.alert_strategy,
+                "combiner": &alert_policy.combiner,
+                "conditions": &alert_policy.conditions,
+                "creation_record": &alert_policy.creation_record,
+                "documentation": &alert_policy.documentation,
+                "enabled": serde_json::Value::Null,
+                "mutation_record": &alert_policy.mutation_record,
+                "notification_channels": &alert_policy.notification_channels,
+                "severity": &alert_policy.severity,
+                "user_labels": &alert_policy.user_labels,
+                "validity": serde_json::Value::Null,
             },
         });
 
@@ -248,37 +297,86 @@ impl GcpProvider {
             .unwrap_or(provider_id)
             .to_string();
         // Extract fields from config
-        // TODO: extract alert_strategy (Enum(AlertStrategy)) from config["/config/alert_strategy"]
-        // TODO: extract combiner (Enum(ConditionCombinerType)) from config["/config/combiner"]
-        // TODO: extract conditions (Array(Enum(Condition))) from config["/config/conditions"]
-        // TODO: extract creation_record (Nested(MutationRecord)) from config["/config/creation_record"]
+        let alert_strategy = config.pointer("/config/alert_strategy").and_then(|v| {
+            serde_json::from_value::<
+                    google_cloud_monitoring_v3::model::alert_policy::AlertStrategy,
+                >(v.clone())
+                .ok()
+        });
+        let combiner = config.optional_str("/config/combiner").map(String::from);
+        let conditions = config.pointer("/config/conditions").and_then(|v| {
+            serde_json::from_value::<
+                    Vec<google_cloud_monitoring_v3::model::alert_policy::Condition>,
+                >(v.clone())
+                .ok()
+        });
+        let creation_record = config.pointer("/config/creation_record").and_then(|v| {
+            serde_json::from_value::<google_cloud_monitoring_v3::model::MutationRecord>(v.clone())
+                .ok()
+        });
         let display_name = config
             .optional_str("/identity/display_name")
             .map(String::from);
-        // TODO: extract documentation (Enum(Documentation)) from config["/config/documentation"]
-        // TODO: extract enabled (Enum(BoolValue)) from config["/config/enabled"]
-        // TODO: extract mutation_record (Nested(MutationRecord)) from config["/config/mutation_record"]
-        // TODO: extract notification_channels (Array(String)) from config["/config/notification_channels"]
-        // TODO: extract severity (Enum(Severity)) from config["/config/severity"]
-        // TODO: extract user_labels (Record) from config["/config/user_labels"]
-        // TODO: extract validity (Enum(Status)) from config["/config/validity"]
+        let documentation = config.pointer("/config/documentation").and_then(|v| {
+            serde_json::from_value::<
+                    google_cloud_monitoring_v3::model::alert_policy::Documentation,
+                >(v.clone())
+                .ok()
+        });
+        // TODO: extract enabled (Nested(BoolValue)) from config["/config/enabled"] — type path unknown
+        let mutation_record = config.pointer("/config/mutation_record").and_then(|v| {
+            serde_json::from_value::<google_cloud_monitoring_v3::model::MutationRecord>(v.clone())
+                .ok()
+        });
+        let notification_channels = config
+            .pointer("/config/notification_channels")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let severity = config.optional_str("/config/severity").map(String::from);
+        let user_labels = config
+            .pointer("/config/user_labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        // TODO: extract validity (Nested(Status)) from config["/config/validity"] — type path unknown
 
         let mut model = google_cloud_monitoring_v3::model::AlertPolicy::default();
         model = model.set_name(provider_id);
-        // TODO: set alert_strategy on model via .set_alert_strategy()
-        // TODO: set combiner on model via .set_combiner()
-        // TODO: set conditions on model via .set_conditions()
-        // TODO: set creation_record on model via .set_creation_record()
+        if let Some(v) = alert_strategy {
+            model = model.set_alert_strategy(v);
+        }
+        if let Some(ref s) = combiner {
+            model = model.set_combiner(
+                google_cloud_monitoring_v3::model::alert_policy::ConditionCombinerType::from(
+                    s.as_str(),
+                ),
+            );
+        }
+        if let Some(v) = conditions {
+            model = model.set_conditions(v);
+        }
+        if let Some(v) = creation_record {
+            model = model.set_creation_record(v);
+        }
         if let Some(v) = display_name {
             model = model.set_display_name(v);
         }
-        // TODO: set documentation on model via .set_documentation()
-        // TODO: set enabled on model via .set_enabled()
-        // TODO: set mutation_record on model via .set_mutation_record()
-        // TODO: set notification_channels on model via .set_notification_channels()
-        // TODO: set severity on model via .set_severity()
-        // TODO: set user_labels on model via .set_user_labels()
-        // TODO: set validity on model via .set_validity()
+        if let Some(v) = documentation {
+            model = model.set_documentation(v);
+        }
+        // TODO: set enabled on model via .set_enabled() — type path unknown
+        if let Some(v) = mutation_record {
+            model = model.set_mutation_record(v);
+        }
+        if let Some(v) = notification_channels {
+            model = model.set_notification_channels(v);
+        }
+        if let Some(ref s) = severity {
+            model = model.set_severity(
+                google_cloud_monitoring_v3::model::alert_policy::Severity::from(s.as_str()),
+            );
+        }
+        if let Some(v) = user_labels {
+            model = model.set_user_labels(v);
+        }
+        // TODO: set validity on model via .set_validity() — type path unknown
 
         self.monitoring()
             .await?
@@ -362,7 +460,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "creation_record".into(),
                                 description: "Record of the creation of this channel.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(MutationRecord) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -370,7 +468,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "enabled".into(),
                                 description: "Whether notifications are forwarded to the described channel. This makes".into(),
-                                field_type: crate::provider::FieldType::Enum(vec!["TODO: list variants for BoolValue".into()]),
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -378,7 +476,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "mutation_records".into(),
                                 description: "Records of the modification of this channel.".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(MutationRecord) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -417,35 +515,61 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        // TODO: extract creation_record (Nested(MutationRecord)) from config["/config/creation_record"]
+        let creation_record = config.pointer("/config/creation_record").and_then(|v| {
+            serde_json::from_value::<google_cloud_monitoring_v3::model::MutationRecord>(v.clone())
+                .ok()
+        });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
         let display_name = config
             .optional_str("/identity/display_name")
             .map(String::from);
-        // TODO: extract enabled (Enum(BoolValue)) from config["/config/enabled"]
-        // TODO: extract labels (Record) from config["/identity/labels"]
-        // TODO: extract mutation_records (Array(Nested(MutationRecord))) from config["/config/mutation_records"]
+        // TODO: extract enabled (Nested(BoolValue)) from config["/config/enabled"] — type path unknown
+        let _labels = config
+            .pointer("/identity/labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        let mutation_records = config.pointer("/config/mutation_records").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_monitoring_v3::model::MutationRecord>>(
+                v.clone(),
+            )
+            .ok()
+        });
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract user_labels (Record) from config["/config/user_labels"]
-        // TODO: extract verification_status (Enum(VerificationStatus)) from config["/output/verification_status"]
+        let user_labels = config
+            .pointer("/config/user_labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        let verification_status = config
+            .optional_str("/output/verification_status")
+            .map(String::from);
 
         let labels = super::extract_labels(config);
         // Build SDK model
         let mut model = google_cloud_monitoring_v3::model::NotificationChannel::default();
-        // TODO: set creation_record on model via .set_creation_record()
+        if let Some(v) = creation_record {
+            model = model.set_creation_record(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
         if let Some(v) = display_name {
             model = model.set_display_name(v);
         }
-        // TODO: set enabled on model via .set_enabled()
-        // TODO: set mutation_records on model via .set_mutation_records()
+        // TODO: set enabled on model via .set_enabled() — type path unknown
+        if let Some(v) = mutation_records {
+            model = model.set_mutation_records(v);
+        }
         model = model.set_name(name.clone());
-        // TODO: set user_labels on model via .set_user_labels()
-        // TODO: set verification_status on model via .set_verification_status()
+        if let Some(v) = user_labels {
+            model = model.set_user_labels(v);
+        }
+        if let Some(ref s) = verification_status {
+            model = model.set_verification_status(
+                google_cloud_monitoring_v3::model::notification_channel::VerificationStatus::from(
+                    s.as_str(),
+                ),
+            );
+        }
         model = model.set_labels(labels);
 
         // Make API call
@@ -501,13 +625,13 @@ impl GcpProvider {
                 "name": notification_channel.name.as_str(),
             },
             "config": {
-                "creation_record": serde_json::json!(notification_channel.creation_record) /* TODO: complex type */,
-                "enabled": serde_json::json!(notification_channel.enabled) /* TODO: complex type */,
-                "mutation_records": serde_json::json!(notification_channel.mutation_records) /* TODO: complex type */,
-                "user_labels": serde_json::json!(notification_channel.user_labels) /* TODO: complex type */,
+                "creation_record": &notification_channel.creation_record,
+                "enabled": serde_json::Value::Null,
+                "mutation_records": &notification_channel.mutation_records,
+                "user_labels": &notification_channel.user_labels,
             },
             "output": {
-                "verification_status": serde_json::json!(notification_channel.verification_status) /* TODO: complex type */,
+                "verification_status": &notification_channel.verification_status,
             },
         });
 
@@ -532,32 +656,56 @@ impl GcpProvider {
             .unwrap_or(provider_id)
             .to_string();
         // Extract fields from config
-        // TODO: extract creation_record (Nested(MutationRecord)) from config["/config/creation_record"]
+        let creation_record = config.pointer("/config/creation_record").and_then(|v| {
+            serde_json::from_value::<google_cloud_monitoring_v3::model::MutationRecord>(v.clone())
+                .ok()
+        });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
         let display_name = config
             .optional_str("/identity/display_name")
             .map(String::from);
-        // TODO: extract enabled (Enum(BoolValue)) from config["/config/enabled"]
-        // TODO: extract mutation_records (Array(Nested(MutationRecord))) from config["/config/mutation_records"]
-        // TODO: extract user_labels (Record) from config["/config/user_labels"]
-        // TODO: extract verification_status (Enum(VerificationStatus)) from config["/output/verification_status"]
+        // TODO: extract enabled (Nested(BoolValue)) from config["/config/enabled"] — type path unknown
+        let mutation_records = config.pointer("/config/mutation_records").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_monitoring_v3::model::MutationRecord>>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let user_labels = config
+            .pointer("/config/user_labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        let verification_status = config
+            .optional_str("/output/verification_status")
+            .map(String::from);
         let labels = super::extract_labels(config);
 
         let mut model = google_cloud_monitoring_v3::model::NotificationChannel::default();
         model = model.set_name(provider_id);
-        // TODO: set creation_record on model via .set_creation_record()
+        if let Some(v) = creation_record {
+            model = model.set_creation_record(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
         if let Some(v) = display_name {
             model = model.set_display_name(v);
         }
-        // TODO: set enabled on model via .set_enabled()
-        // TODO: set mutation_records on model via .set_mutation_records()
-        // TODO: set user_labels on model via .set_user_labels()
-        // TODO: set verification_status on model via .set_verification_status()
+        // TODO: set enabled on model via .set_enabled() — type path unknown
+        if let Some(v) = mutation_records {
+            model = model.set_mutation_records(v);
+        }
+        if let Some(v) = user_labels {
+            model = model.set_user_labels(v);
+        }
+        if let Some(ref s) = verification_status {
+            model = model.set_verification_status(
+                google_cloud_monitoring_v3::model::notification_channel::VerificationStatus::from(
+                    s.as_str(),
+                ),
+            );
+        }
         model = model.set_labels(labels);
 
         self.notification_channels()
@@ -636,7 +784,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "content_matchers".into(),
                                 description: "The content that is expected to appear in the data returned by the target".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* TODO: Enum variants */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -644,7 +792,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "period".into(),
                                 description: "How often, in seconds, the Uptime check is performed.".into(),
-                                field_type: crate::provider::FieldType::String /* Duration */,
+                                field_type: crate::provider::FieldType::String,
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -652,7 +800,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "resource".into(),
                                 description: "The resource the check is checking. Required.".into(),
-                                field_type: crate::provider::FieldType::Enum(vec!["TODO: list variants for Resource".into()]),
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -668,7 +816,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "timeout".into(),
                                 description: "The maximum amount of time to wait for the request to complete (must be".into(),
-                                field_type: crate::provider::FieldType::String /* Duration */,
+                                field_type: crate::provider::FieldType::String,
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -693,31 +841,65 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        // TODO: extract checker_type (Enum(CheckerType)) from config["/config/checker_type"]
-        // TODO: extract content_matchers (Array(Enum(ContentMatcher))) from config["/config/content_matchers"]
+        let checker_type = config
+            .optional_str("/config/checker_type")
+            .map(String::from);
+        let content_matchers = config.pointer("/config/content_matchers").and_then(|v| {
+            serde_json::from_value::<
+                Vec<google_cloud_monitoring_v3::model::uptime_check_config::ContentMatcher>,
+            >(v.clone())
+            .ok()
+        });
         let display_name = config
             .optional_str("/identity/display_name")
             .map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract period (Duration) from config["/config/period"]
-        // TODO: extract resource (Enum(Resource)) from config["/config/resource"]
-        // TODO: extract selected_regions (Array(Enum(UptimeCheckRegion))) from config["/config/selected_regions"]
-        // TODO: extract timeout (Duration) from config["/config/timeout"]
-        // TODO: extract user_labels (Record) from config["/config/user_labels"]
+        let period = config
+            .pointer("/config/period")
+            .and_then(|v| serde_json::from_value::<google_cloud_wkt::Duration>(v.clone()).ok());
+        // TODO: extract resource (Nested(Resource)) from config["/config/resource"] — type path unknown
+        let selected_regions = config.pointer("/config/selected_regions").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_monitoring_v3::model::UptimeCheckRegion>>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let timeout = config
+            .pointer("/config/timeout")
+            .and_then(|v| serde_json::from_value::<google_cloud_wkt::Duration>(v.clone()).ok());
+        let user_labels = config
+            .pointer("/config/user_labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
 
         // Build SDK model
         let mut model = google_cloud_monitoring_v3::model::UptimeCheckConfig::default();
-        // TODO: set checker_type on model via .set_checker_type()
-        // TODO: set content_matchers on model via .set_content_matchers()
+        if let Some(ref s) = checker_type {
+            model = model.set_checker_type(
+                google_cloud_monitoring_v3::model::uptime_check_config::CheckerType::from(
+                    s.as_str(),
+                ),
+            );
+        }
+        if let Some(v) = content_matchers {
+            model = model.set_content_matchers(v);
+        }
         if let Some(v) = display_name {
             model = model.set_display_name(v);
         }
         model = model.set_name(name.clone());
-        // TODO: set period on model via .set_period()
-        // TODO: set resource on model via .set_resource()
-        // TODO: set selected_regions on model via .set_selected_regions()
-        // TODO: set timeout on model via .set_timeout()
-        // TODO: set user_labels on model via .set_user_labels()
+        if let Some(v) = period {
+            model = model.set_period(v);
+        }
+        // TODO: set resource on model via .set_resource() — type path unknown
+        if let Some(v) = selected_regions {
+            model = model.set_selected_regions(v);
+        }
+        if let Some(v) = timeout {
+            model = model.set_timeout(v);
+        }
+        if let Some(v) = user_labels {
+            model = model.set_user_labels(v);
+        }
 
         // Make API call
         let parent = format!("projects/{}", self.project_id);
@@ -760,13 +942,13 @@ impl GcpProvider {
                 "name": uptime_check_config.name.as_str(),
             },
             "config": {
-                "checker_type": serde_json::json!(uptime_check_config.checker_type) /* TODO: complex type */,
-                "content_matchers": serde_json::json!(uptime_check_config.content_matchers) /* TODO: complex type */,
-                "period": serde_json::json!(uptime_check_config.period) /* TODO: complex type */,
-                "resource": serde_json::Value::Null /* TODO: resource is complex type */,
-                "selected_regions": serde_json::json!(uptime_check_config.selected_regions) /* TODO: complex type */,
-                "timeout": serde_json::json!(uptime_check_config.timeout) /* TODO: complex type */,
-                "user_labels": serde_json::json!(uptime_check_config.user_labels) /* TODO: complex type */,
+                "checker_type": &uptime_check_config.checker_type,
+                "content_matchers": &uptime_check_config.content_matchers,
+                "period": &uptime_check_config.period,
+                "resource": serde_json::Value::Null,
+                "selected_regions": &uptime_check_config.selected_regions,
+                "timeout": &uptime_check_config.timeout,
+                "user_labels": &uptime_check_config.user_labels,
             },
         });
 
@@ -791,29 +973,63 @@ impl GcpProvider {
             .unwrap_or(provider_id)
             .to_string();
         // Extract fields from config
-        // TODO: extract checker_type (Enum(CheckerType)) from config["/config/checker_type"]
-        // TODO: extract content_matchers (Array(Enum(ContentMatcher))) from config["/config/content_matchers"]
+        let checker_type = config
+            .optional_str("/config/checker_type")
+            .map(String::from);
+        let content_matchers = config.pointer("/config/content_matchers").and_then(|v| {
+            serde_json::from_value::<
+                Vec<google_cloud_monitoring_v3::model::uptime_check_config::ContentMatcher>,
+            >(v.clone())
+            .ok()
+        });
         let display_name = config
             .optional_str("/identity/display_name")
             .map(String::from);
-        // TODO: extract period (Duration) from config["/config/period"]
-        // TODO: extract resource (Enum(Resource)) from config["/config/resource"]
-        // TODO: extract selected_regions (Array(Enum(UptimeCheckRegion))) from config["/config/selected_regions"]
-        // TODO: extract timeout (Duration) from config["/config/timeout"]
-        // TODO: extract user_labels (Record) from config["/config/user_labels"]
+        let period = config
+            .pointer("/config/period")
+            .and_then(|v| serde_json::from_value::<google_cloud_wkt::Duration>(v.clone()).ok());
+        // TODO: extract resource (Nested(Resource)) from config["/config/resource"] — type path unknown
+        let selected_regions = config.pointer("/config/selected_regions").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_monitoring_v3::model::UptimeCheckRegion>>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let timeout = config
+            .pointer("/config/timeout")
+            .and_then(|v| serde_json::from_value::<google_cloud_wkt::Duration>(v.clone()).ok());
+        let user_labels = config
+            .pointer("/config/user_labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
 
         let mut model = google_cloud_monitoring_v3::model::UptimeCheckConfig::default();
         model = model.set_name(provider_id);
-        // TODO: set checker_type on model via .set_checker_type()
-        // TODO: set content_matchers on model via .set_content_matchers()
+        if let Some(ref s) = checker_type {
+            model = model.set_checker_type(
+                google_cloud_monitoring_v3::model::uptime_check_config::CheckerType::from(
+                    s.as_str(),
+                ),
+            );
+        }
+        if let Some(v) = content_matchers {
+            model = model.set_content_matchers(v);
+        }
         if let Some(v) = display_name {
             model = model.set_display_name(v);
         }
-        // TODO: set period on model via .set_period()
-        // TODO: set resource on model via .set_resource()
-        // TODO: set selected_regions on model via .set_selected_regions()
-        // TODO: set timeout on model via .set_timeout()
-        // TODO: set user_labels on model via .set_user_labels()
+        if let Some(v) = period {
+            model = model.set_period(v);
+        }
+        // TODO: set resource on model via .set_resource() — type path unknown
+        if let Some(v) = selected_regions {
+            model = model.set_selected_regions(v);
+        }
+        if let Some(v) = timeout {
+            model = model.set_timeout(v);
+        }
+        if let Some(v) = user_labels {
+            model = model.set_user_labels(v);
+        }
 
         self.uptime_checks()
             .await?

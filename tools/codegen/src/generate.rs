@@ -207,10 +207,11 @@ fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
     if is_resource_name {
         // Resource-name style: set_parent + set_resource_id + set_resource(model)
         let parent = build_parent_expr(m);
+        let parent_setter = m.resource.parent_setter.as_deref().unwrap_or("set_parent");
         let _ = writeln!(out, "    let parent = {parent};");
         let _ = writeln!(out, "    self.{client_accessor}().await?");
         let _ = writeln!(out, "        .{create_method}()");
-        let _ = writeln!(out, "        .set_parent(&parent)");
+        let _ = writeln!(out, "        .{parent_setter}(&parent)");
 
         if let Some(ref id_setter) = m.resource.resource_id_setter {
             let _ = writeln!(out, "        .{id_setter}(&name)");
@@ -335,8 +336,9 @@ fn write_gcp_read_body(out: &mut String, m: &ResourceManifest) {
     let _ = writeln!(out, "        .{read_method}()");
 
     if is_resource_name {
-        // Resource-name style: just set_name with the full resource path
-        let _ = writeln!(out, "        .set_name(provider_id)");
+        // Resource-name style: set_name (or override) with the full resource path
+        let name_setter = m.resource.resource_name_param.as_deref().unwrap_or("set_name");
+        let _ = writeln!(out, "        .{name_setter}(provider_id)");
     } else {
         // Compute style: set_project + scope + resource name
         let _ = writeln!(out, "        .set_project(&self.project_id)");
@@ -349,7 +351,8 @@ fn write_gcp_read_body(out: &mut String, m: &ResourceManifest) {
             }
             _ => {}
         }
-        let resource_setter = format!("set_{}", snake_case(&m.resource.sdk_model));
+        let resource_setter = m.resource.resource_id_param.clone()
+            .unwrap_or_else(|| format!("set_{}", snake_case(&m.resource.sdk_model)));
         let _ = writeln!(out, "        .{resource_setter}(&name)");
     }
 
@@ -513,7 +516,8 @@ fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
             }
             _ => {}
         }
-        let resource_setter = format!("set_{}", snake_case(&m.resource.sdk_model));
+        let resource_setter = m.resource.resource_id_param.clone()
+            .unwrap_or_else(|| format!("set_{}", snake_case(&m.resource.sdk_model)));
         let _ = writeln!(out, "        .{resource_setter}(&name)");
         let _ = writeln!(out, "        .set_body(model)");
     }
@@ -577,7 +581,8 @@ fn write_delete_fn(out: &mut String, m: &ResourceManifest) {
         let _ = writeln!(out, "        .{delete_method}()");
 
         if is_resource_name {
-            let _ = writeln!(out, "        .set_name(provider_id)");
+            let name_setter = m.resource.resource_name_param.as_deref().unwrap_or("set_name");
+            let _ = writeln!(out, "        .{name_setter}(provider_id)");
         } else {
             let _ = writeln!(out, "        .set_project(&self.project_id)");
             match m.resource.scope.as_str() {
@@ -589,7 +594,8 @@ fn write_delete_fn(out: &mut String, m: &ResourceManifest) {
                 }
                 _ => {}
             }
-            let resource_setter = format!("set_{}", snake_case(&m.resource.sdk_model));
+            let resource_setter = m.resource.resource_id_param.clone()
+                .unwrap_or_else(|| format!("set_{}", snake_case(&m.resource.sdk_model)));
             let _ = writeln!(out, "        .{resource_setter}(&name)");
         }
 

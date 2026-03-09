@@ -51,7 +51,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "cloud_logging_config".into(),
                                 description: "".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(ManagedZoneCloudLoggingConfig) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -59,7 +59,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "dnssec_config".into(),
                                 description: "DNSSEC configuration.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(ManagedZoneDnsSecConfig) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -67,7 +67,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "forwarding_config".into(),
                                 description: "The presence for this field indicates that outbound forwarding is enabled for this zone. The value of this field contains the set of destinations to forward to.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(ManagedZoneForwardingConfig) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -83,7 +83,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "peering_config".into(),
                                 description: "The presence of this field indicates that DNS Peering is enabled for this zone. The value of this field contains the network to peer with.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(ManagedZonePeeringConfig) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -91,7 +91,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "reverse_lookup_config".into(),
                                 description: "The presence of this field indicates that this is a managed reverse lookup zone and Cloud DNS resolves reverse lookup queries using automatically configured records for VPC resources. This only applies to networks listed under private_visibility_config.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(ManagedZoneReverseLookupConfig) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -130,41 +130,84 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        // TODO: extract cloud_logging_config (Nested(ManagedZoneCloudLoggingConfig)) from config["/config/cloud_logging_config"]
+        let cloud_logging_config = config
+            .pointer("/config/cloud_logging_config")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_dns_v1::model::ManagedZoneCloudLoggingConfig>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
         let dns_name = config.optional_str("/dns/dns_name").map(String::from);
-        // TODO: extract dnssec_config (Nested(ManagedZoneDnsSecConfig)) from config["/config/dnssec_config"]
-        // TODO: extract forwarding_config (Nested(ManagedZoneForwardingConfig)) from config["/config/forwarding_config"]
-        // TODO: extract labels (Record) from config["/identity/labels"]
+        let dnssec_config = config.pointer("/config/dnssec_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_dns_v1::model::ManagedZoneDnsSecConfig>(v.clone())
+                .ok()
+        });
+        let forwarding_config = config.pointer("/config/forwarding_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_dns_v1::model::ManagedZoneForwardingConfig>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let _labels = config
+            .pointer("/identity/labels")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
         let name_server_set = config
             .optional_str("/config/name_server_set")
             .map(String::from);
-        // TODO: extract peering_config (Nested(ManagedZonePeeringConfig)) from config["/config/peering_config"]
-        // TODO: extract reverse_lookup_config (Nested(ManagedZoneReverseLookupConfig)) from config["/config/reverse_lookup_config"]
-        // TODO: extract visibility (Enum(Visibility)) from config["/config/visibility"]
+        let peering_config = config.pointer("/config/peering_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_dns_v1::model::ManagedZonePeeringConfig>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let reverse_lookup_config = config
+            .pointer("/config/reverse_lookup_config")
+            .and_then(|v| {
+                serde_json::from_value::<
+                        google_cloud_dns_v1::model::ManagedZoneReverseLookupConfig,
+                    >(v.clone())
+                    .ok()
+            });
+        let visibility = config.optional_str("/config/visibility").map(String::from);
 
         let labels = super::extract_labels(config);
         // Build SDK model
         let mut model = google_cloud_dns_v1::model::ManagedZone::default();
-        // TODO: set cloud_logging_config on model via .set_cloud_logging_config()
+        if let Some(v) = cloud_logging_config {
+            model = model.set_cloud_logging_config(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
         if let Some(v) = dns_name {
             model = model.set_dns_name(v);
         }
-        // TODO: set dnssec_config on model via .set_dnssec_config()
-        // TODO: set forwarding_config on model via .set_forwarding_config()
+        if let Some(v) = dnssec_config {
+            model = model.set_dnssec_config(v);
+        }
+        if let Some(v) = forwarding_config {
+            model = model.set_forwarding_config(v);
+        }
         model = model.set_name(name.clone());
         if let Some(v) = name_server_set {
             model = model.set_name_server_set(v);
         }
-        // TODO: set peering_config on model via .set_peering_config()
-        // TODO: set reverse_lookup_config on model via .set_reverse_lookup_config()
-        // TODO: set visibility on model via .set_visibility()
+        if let Some(v) = peering_config {
+            model = model.set_peering_config(v);
+        }
+        if let Some(v) = reverse_lookup_config {
+            model = model.set_reverse_lookup_config(v);
+        }
+        if let Some(ref s) = visibility {
+            model = model.set_visibility(
+                google_cloud_dns_v1::model::managed_zone::Visibility::from(s.as_str()),
+            );
+        }
         model = model.set_labels(labels);
 
         // Make API call
@@ -210,13 +253,13 @@ impl GcpProvider {
                 "name": managed_zone.name.as_deref().unwrap_or(""),
             },
             "config": {
-                "cloud_logging_config": serde_json::json!(managed_zone.cloud_logging_config) /* TODO: complex type */,
-                "dnssec_config": serde_json::json!(managed_zone.dnssec_config) /* TODO: complex type */,
-                "forwarding_config": serde_json::json!(managed_zone.forwarding_config) /* TODO: complex type */,
+                "cloud_logging_config": &managed_zone.cloud_logging_config,
+                "dnssec_config": &managed_zone.dnssec_config,
+                "forwarding_config": &managed_zone.forwarding_config,
                 "name_server_set": managed_zone.name_server_set.as_deref().unwrap_or(""),
-                "peering_config": serde_json::json!(managed_zone.peering_config) /* TODO: complex type */,
-                "reverse_lookup_config": serde_json::json!(managed_zone.reverse_lookup_config) /* TODO: complex type */,
-                "visibility": serde_json::json!(managed_zone.visibility) /* TODO: complex type */,
+                "peering_config": &managed_zone.peering_config,
+                "reverse_lookup_config": &managed_zone.reverse_lookup_config,
+                "visibility": &managed_zone.visibility,
             },
             "dns": {
                 "dns_name": managed_zone.dns_name.as_deref().unwrap_or(""),
@@ -224,10 +267,7 @@ impl GcpProvider {
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert(
-            "name".into(),
-            serde_json::json!(managed_zone.name.as_deref().unwrap_or("")),
-        );
+        outputs.insert("name".into(), serde_json::json!(&managed_zone.name));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -243,37 +283,78 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let name = provider_id.to_string();
         // Extract fields from config
-        // TODO: extract cloud_logging_config (Nested(ManagedZoneCloudLoggingConfig)) from config["/config/cloud_logging_config"]
+        let cloud_logging_config = config
+            .pointer("/config/cloud_logging_config")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_dns_v1::model::ManagedZoneCloudLoggingConfig>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
         let dns_name = config.optional_str("/dns/dns_name").map(String::from);
-        // TODO: extract dnssec_config (Nested(ManagedZoneDnsSecConfig)) from config["/config/dnssec_config"]
-        // TODO: extract forwarding_config (Nested(ManagedZoneForwardingConfig)) from config["/config/forwarding_config"]
+        let dnssec_config = config.pointer("/config/dnssec_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_dns_v1::model::ManagedZoneDnsSecConfig>(v.clone())
+                .ok()
+        });
+        let forwarding_config = config.pointer("/config/forwarding_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_dns_v1::model::ManagedZoneForwardingConfig>(
+                v.clone(),
+            )
+            .ok()
+        });
         let name_server_set = config
             .optional_str("/config/name_server_set")
             .map(String::from);
-        // TODO: extract peering_config (Nested(ManagedZonePeeringConfig)) from config["/config/peering_config"]
-        // TODO: extract reverse_lookup_config (Nested(ManagedZoneReverseLookupConfig)) from config["/config/reverse_lookup_config"]
-        // TODO: extract visibility (Enum(Visibility)) from config["/config/visibility"]
+        let peering_config = config.pointer("/config/peering_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_dns_v1::model::ManagedZonePeeringConfig>(
+                v.clone(),
+            )
+            .ok()
+        });
+        let reverse_lookup_config = config
+            .pointer("/config/reverse_lookup_config")
+            .and_then(|v| {
+                serde_json::from_value::<
+                        google_cloud_dns_v1::model::ManagedZoneReverseLookupConfig,
+                    >(v.clone())
+                    .ok()
+            });
+        let visibility = config.optional_str("/config/visibility").map(String::from);
         let labels = super::extract_labels(config);
 
         let mut model = google_cloud_dns_v1::model::ManagedZone::default();
-        // TODO: set cloud_logging_config on model via .set_cloud_logging_config()
+        if let Some(v) = cloud_logging_config {
+            model = model.set_cloud_logging_config(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
         if let Some(v) = dns_name {
             model = model.set_dns_name(v);
         }
-        // TODO: set dnssec_config on model via .set_dnssec_config()
-        // TODO: set forwarding_config on model via .set_forwarding_config()
+        if let Some(v) = dnssec_config {
+            model = model.set_dnssec_config(v);
+        }
+        if let Some(v) = forwarding_config {
+            model = model.set_forwarding_config(v);
+        }
         if let Some(v) = name_server_set {
             model = model.set_name_server_set(v);
         }
-        // TODO: set peering_config on model via .set_peering_config()
-        // TODO: set reverse_lookup_config on model via .set_reverse_lookup_config()
-        // TODO: set visibility on model via .set_visibility()
+        if let Some(v) = peering_config {
+            model = model.set_peering_config(v);
+        }
+        if let Some(v) = reverse_lookup_config {
+            model = model.set_reverse_lookup_config(v);
+        }
+        if let Some(ref s) = visibility {
+            model = model.set_visibility(
+                google_cloud_dns_v1::model::managed_zone::Visibility::from(s.as_str()),
+            );
+        }
         model = model.set_labels(labels);
 
         self.managed_zones()
@@ -332,7 +413,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "routing_policy".into(),
                                 description: "Configures dynamic query responses based on either the geo location of the querying user or a weighted round robin based routing policy. A valid `ResourceRecordSet` contains only `rrdata` (for static resolution) or a `routing_policy` (for dynamic resolution).".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(RRSetRoutingPolicy) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -380,17 +461,29 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract routing_policy (Nested(RRSetRoutingPolicy)) from config["/config/routing_policy"]
-        // TODO: extract rrdatas (Array(String)) from config["/dns/rrdatas"]
-        // TODO: extract signature_rrdatas (Array(String)) from config["/config/signature_rrdatas"]
+        let routing_policy = config.pointer("/config/routing_policy").and_then(|v| {
+            serde_json::from_value::<google_cloud_dns_v1::model::RRSetRoutingPolicy>(v.clone()).ok()
+        });
+        let rrdatas = config
+            .pointer("/dns/rrdatas")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let signature_rrdatas = config
+            .pointer("/config/signature_rrdatas")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let ttl = config.optional_i64("/dns/ttl");
 
         // Build SDK model
         let mut model = google_cloud_dns_v1::model::ResourceRecordSet::default();
         model = model.set_name(name.clone());
-        // TODO: set routing_policy on model via .set_routing_policy()
-        // TODO: set rrdatas on model via .set_rrdatas()
-        // TODO: set signature_rrdatas on model via .set_signature_rrdatas()
+        if let Some(v) = routing_policy {
+            model = model.set_routing_policy(v);
+        }
+        if let Some(v) = rrdatas {
+            model = model.set_rrdatas(v);
+        }
+        if let Some(v) = signature_rrdatas {
+            model = model.set_signature_rrdatas(v);
+        }
         if let Some(v) = ttl {
             model = model.set_ttl(v as i32);
         }
@@ -429,20 +522,17 @@ impl GcpProvider {
                 "name": resource_record_set.name.as_deref().unwrap_or(""),
             },
             "config": {
-                "routing_policy": serde_json::json!(resource_record_set.routing_policy) /* TODO: complex type */,
-                "signature_rrdatas": serde_json::json!(resource_record_set.signature_rrdatas) /* TODO: complex type */,
+                "routing_policy": &resource_record_set.routing_policy,
+                "signature_rrdatas": &resource_record_set.signature_rrdatas,
             },
             "dns": {
-                "rrdatas": serde_json::json!(resource_record_set.rrdatas) /* TODO: complex type */,
+                "rrdatas": &resource_record_set.rrdatas,
                 "ttl": resource_record_set.ttl.unwrap_or(0),
             },
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert(
-            "name".into(),
-            serde_json::json!(resource_record_set.name.as_deref().unwrap_or("")),
-        );
+        outputs.insert("name".into(), serde_json::json!(&resource_record_set.name));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -457,7 +547,7 @@ impl GcpProvider {
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         Err(ProviderError::RequiresReplacement(
-            "DNS RecordSet update not supported - requires replacement".into(),
+            "resource does not support in-place update".into(),
         ))
     }
 
@@ -512,7 +602,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "dns_64_config".into(),
                                 description: "Configurations related to DNS64 for this policy.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(PolicyDns64Config) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -536,7 +626,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "networks".into(),
                                 description: "List of network names specifying networks to which this policy is applied.".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(PolicyNetwork) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -556,18 +646,24 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract dns_64_config (Nested(PolicyDns64Config)) from config["/config/dns_64_config"]
+        let dns_64_config = config.pointer("/config/dns_64_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_dns_v1::model::PolicyDns64Config>(v.clone()).ok()
+        });
         let enable_inbound_forwarding = config.optional_bool("/config/enable_inbound_forwarding");
         let enable_logging = config.optional_bool("/config/enable_logging");
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract networks (Array(Nested(PolicyNetwork))) from config["/config/networks"]
+        let networks = config.pointer("/config/networks").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_dns_v1::model::PolicyNetwork>>(v.clone()).ok()
+        });
 
         // Build SDK model
         let mut model = google_cloud_dns_v1::model::Policy::default();
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set dns_64_config on model via .set_dns_64_config()
+        if let Some(v) = dns_64_config {
+            model = model.set_dns_64_config(v);
+        }
         if let Some(v) = enable_inbound_forwarding {
             model = model.set_enable_inbound_forwarding(v);
         }
@@ -575,7 +671,9 @@ impl GcpProvider {
             model = model.set_enable_logging(v);
         }
         model = model.set_name(name.clone());
-        // TODO: set networks on model via .set_networks()
+        if let Some(v) = networks {
+            model = model.set_networks(v);
+        }
 
         // Make API call
         self.policies()
@@ -612,18 +710,15 @@ impl GcpProvider {
                 "name": policy.name.as_deref().unwrap_or(""),
             },
             "config": {
-                "dns_64_config": serde_json::json!(policy.dns_64_config) /* TODO: complex type */,
+                "dns_64_config": &policy.dns_64_config,
                 "enable_inbound_forwarding": policy.enable_inbound_forwarding.unwrap_or(false),
                 "enable_logging": policy.enable_logging.unwrap_or(false),
-                "networks": serde_json::json!(policy.networks) /* TODO: complex type */,
+                "networks": &policy.networks,
             },
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert(
-            "name".into(),
-            serde_json::json!(policy.name.as_deref().unwrap_or("")),
-        );
+        outputs.insert("name".into(), serde_json::json!(&policy.name));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -642,23 +737,31 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract dns_64_config (Nested(PolicyDns64Config)) from config["/config/dns_64_config"]
+        let dns_64_config = config.pointer("/config/dns_64_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_dns_v1::model::PolicyDns64Config>(v.clone()).ok()
+        });
         let enable_inbound_forwarding = config.optional_bool("/config/enable_inbound_forwarding");
         let enable_logging = config.optional_bool("/config/enable_logging");
-        // TODO: extract networks (Array(Nested(PolicyNetwork))) from config["/config/networks"]
+        let networks = config.pointer("/config/networks").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_dns_v1::model::PolicyNetwork>>(v.clone()).ok()
+        });
 
         let mut model = google_cloud_dns_v1::model::Policy::default();
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set dns_64_config on model via .set_dns_64_config()
+        if let Some(v) = dns_64_config {
+            model = model.set_dns_64_config(v);
+        }
         if let Some(v) = enable_inbound_forwarding {
             model = model.set_enable_inbound_forwarding(v);
         }
         if let Some(v) = enable_logging {
             model = model.set_enable_logging(v);
         }
-        // TODO: set networks on model via .set_networks()
+        if let Some(v) = networks {
+            model = model.set_networks(v);
+        }
 
         self.policies()
             .await?

@@ -101,6 +101,8 @@ pub struct GcpProvider {
         tokio::sync::OnceCell<google_cloud_compute_v1::client::Reservations>,
     pub(crate) interconnect_attachments_client:
         tokio::sync::OnceCell<google_cloud_compute_v1::client::InterconnectAttachments>,
+    pub(crate) firewall_policies_client:
+        tokio::sync::OnceCell<google_cloud_compute_v1::client::FirewallPolicies>,
     pub(crate) resource_policies_client:
         tokio::sync::OnceCell<google_cloud_compute_v1::client::ResourcePolicies>,
     pub(crate) backend_services_client:
@@ -207,6 +209,7 @@ impl GcpProvider {
             vpn_tunnels_client: tokio::sync::OnceCell::new(),
             reservations_client: tokio::sync::OnceCell::new(),
             interconnect_attachments_client: tokio::sync::OnceCell::new(),
+            firewall_policies_client: tokio::sync::OnceCell::new(),
             resource_policies_client: tokio::sync::OnceCell::new(),
             backend_services_client: tokio::sync::OnceCell::new(),
             health_checks_client: tokio::sync::OnceCell::new(),
@@ -437,9 +440,15 @@ impl GcpProvider {
             "init InterconnectAttachments"
         )
     }
-    // PHASE2:     pub(crate) async fn firewall_policies(&self) -> Result<&google_cloud_compute_v1::client::FirewallPolicies, ProviderError> {
-    // PHASE2:         gcp_client!(self.firewall_policies_client, google_cloud_compute_v1::client::FirewallPolicies::builder(), "init FirewallPolicies")
-    // PHASE2:     }
+    pub(crate) async fn firewall_policies(
+        &self,
+    ) -> Result<&google_cloud_compute_v1::client::FirewallPolicies, ProviderError> {
+        gcp_client!(
+            self.firewall_policies_client,
+            google_cloud_compute_v1::client::FirewallPolicies::builder(),
+            "init FirewallPolicies"
+        )
+    }
     pub(crate) async fn resource_policies(
         &self,
     ) -> Result<&google_cloud_compute_v1::client::ResourcePolicies, ProviderError> {
@@ -824,15 +833,17 @@ impl Provider for GcpProvider {
             Self::kms_cryptokey_schema(),
             // Secret Manager (1)
             Self::secretmanager_secret_schema(),
-            // Cloud Logging
+            // Cloud Logging (4)
             Self::logging_logbucket_schema(),
+            Self::logging_logsink_schema(),
+            Self::logging_logexclusion_schema(),
+            Self::logging_logmetric_schema(),
             // Cloud SQL (3)
             Self::sql_instance_schema(),
             Self::sql_database_schema(),
             Self::sql_user_schema(),
-            // IAM (3)
+            // IAM (2)
             Self::iam_serviceaccount_schema(),
-            Self::iam_serviceaccountkey_schema(),
             Self::iam_role_schema(),
             // Cloud DNS (3)
             Self::dns_managedzone_schema(),
@@ -840,7 +851,6 @@ impl Provider for GcpProvider {
             Self::dns_policy_schema(),
             // GKE (2)
             Self::container_cluster_schema(),
-            Self::container_nodepool_schema(),
             // Cloud Monitoring (4)
             Self::monitoring_alertpolicy_schema(),
             Self::monitoring_notificationchannel_schema(),
@@ -896,14 +906,12 @@ impl Provider for GcpProvider {
                 // IAM
                 "iam.ServiceAccount" => read_iam_serviceaccount,
                 "iam.Role" => read_iam_role,
-                "iam.ServiceAccountKey" => read_iam_serviceaccountkey,
                 // Cloud DNS
                 "dns.ManagedZone" => read_dns_managedzone,
                 "dns.RecordSet" => read_dns_recordset,
                 "dns.Policy" => read_dns_policy,
                 // GKE
                 "container.Cluster" => read_container_cluster,
-                "container.NodePool" => read_container_nodepool,
                 // Cloud Run
                 "run.Service" => read_run_service,
                 "run.Job" => read_run_job,
@@ -919,6 +927,9 @@ impl Provider for GcpProvider {
                 "secretmanager.Secret" => read_secretmanager_secret,
                 // Cloud Logging
                 "logging.LogBucket" => read_logging_logbucket,
+                "logging.LogSink" => read_logging_logsink,
+                "logging.LogExclusion" => read_logging_logexclusion,
+                "logging.LogMetric" => read_logging_logmetric,
                 // Cloud Monitoring
                 "monitoring.AlertPolicy" => read_monitoring_alertpolicy,
                 "monitoring.NotificationChannel" => read_monitoring_notificationchannel,
@@ -975,14 +986,12 @@ impl Provider for GcpProvider {
                 // IAM
                 "iam.ServiceAccount" => create_iam_serviceaccount,
                 "iam.Role" => create_iam_role,
-                "iam.ServiceAccountKey" => create_iam_serviceaccountkey,
                 // Cloud DNS
                 "dns.ManagedZone" => create_dns_managedzone,
                 "dns.RecordSet" => create_dns_recordset,
                 "dns.Policy" => create_dns_policy,
                 // GKE
                 "container.Cluster" => create_container_cluster,
-                "container.NodePool" => create_container_nodepool,
                 // Cloud Run
                 "run.Service" => create_run_service,
                 "run.Job" => create_run_job,
@@ -998,6 +1007,9 @@ impl Provider for GcpProvider {
                 "secretmanager.Secret" => create_secretmanager_secret,
                 // Cloud Logging
                 "logging.LogBucket" => create_logging_logbucket,
+                "logging.LogSink" => create_logging_logsink,
+                "logging.LogExclusion" => create_logging_logexclusion,
+                "logging.LogMetric" => create_logging_logmetric,
                 // Cloud Monitoring
                 "monitoring.AlertPolicy" => create_monitoring_alertpolicy,
                 "monitoring.NotificationChannel" => create_monitoring_notificationchannel,
@@ -1057,14 +1069,12 @@ impl Provider for GcpProvider {
                 // IAM
                 "iam.ServiceAccount" => update_iam_serviceaccount,
                 "iam.Role" => update_iam_role,
-                "iam.ServiceAccountKey" => update_iam_serviceaccountkey,
                 // Cloud DNS
                 "dns.ManagedZone" => update_dns_managedzone,
                 "dns.RecordSet" => update_dns_recordset,
                 "dns.Policy" => update_dns_policy,
                 // GKE
                 "container.Cluster" => update_container_cluster,
-                "container.NodePool" => update_container_nodepool,
                 // Cloud Run
                 "run.Service" => update_run_service,
                 "run.Job" => update_run_job,
@@ -1079,6 +1089,9 @@ impl Provider for GcpProvider {
                 "secretmanager.Secret" => update_secretmanager_secret,
                 // Cloud Logging
                 "logging.LogBucket" => update_logging_logbucket,
+                "logging.LogSink" => update_logging_logsink,
+                "logging.LogExclusion" => update_logging_logexclusion,
+                "logging.LogMetric" => update_logging_logmetric,
                 // Cloud Monitoring
                 "monitoring.AlertPolicy" => update_monitoring_alertpolicy,
                 "monitoring.NotificationChannel" => update_monitoring_notificationchannel,
@@ -1135,14 +1148,12 @@ impl Provider for GcpProvider {
                 // IAM
                 "iam.ServiceAccount" => delete_iam_serviceaccount,
                 "iam.Role" => delete_iam_role,
-                "iam.ServiceAccountKey" => delete_iam_serviceaccountkey,
                 // Cloud DNS
                 "dns.ManagedZone" => delete_dns_managedzone,
                 "dns.RecordSet" => delete_dns_recordset,
                 "dns.Policy" => delete_dns_policy,
                 // GKE
                 "container.Cluster" => delete_container_cluster,
-                "container.NodePool" => delete_container_nodepool,
                 // Cloud Run
                 "run.Service" => delete_run_service,
                 "run.Job" => delete_run_job,
@@ -1158,6 +1169,9 @@ impl Provider for GcpProvider {
                 "secretmanager.Secret" => delete_secretmanager_secret,
                 // Cloud Logging
                 "logging.LogBucket" => delete_logging_logbucket,
+                "logging.LogSink" => delete_logging_logsink,
+                "logging.LogExclusion" => delete_logging_logexclusion,
+                "logging.LogMetric" => delete_logging_logmetric,
                 // Cloud Monitoring
                 "monitoring.AlertPolicy" => delete_monitoring_alertpolicy,
                 "monitoring.NotificationChannel" => delete_monitoring_notificationchannel,
@@ -1242,17 +1256,11 @@ impl Provider for GcpProvider {
                 "sql.User" => sql::sql_user_forces_replacement(&change.path),
                 "iam.ServiceAccount" => iam::iam_serviceaccount_forces_replacement(&change.path),
                 "iam.Role" => iam::iam_role_forces_replacement(&change.path),
-                "iam.ServiceAccountKey" => {
-                    iam::iam_serviceaccountkey_forces_replacement(&change.path)
-                }
                 "dns.ManagedZone" => dns::dns_managedzone_forces_replacement(&change.path),
                 "dns.RecordSet" => dns::dns_recordset_forces_replacement(&change.path),
                 "dns.Policy" => dns::dns_policy_forces_replacement(&change.path),
                 "container.Cluster" => {
                     container::container_cluster_forces_replacement(&change.path)
-                }
-                "container.NodePool" => {
-                    container::container_nodepool_forces_replacement(&change.path)
                 }
                 "run.Service" => run::run_service_forces_replacement(&change.path),
                 "run.Job" => run::run_job_forces_replacement(&change.path),
@@ -1265,6 +1273,11 @@ impl Provider for GcpProvider {
                     secretmanager::secretmanager_secret_forces_replacement(&change.path)
                 }
                 "logging.LogBucket" => logging::logging_logbucket_forces_replacement(&change.path),
+                "logging.LogSink" => logging::logging_logsink_forces_replacement(&change.path),
+                "logging.LogExclusion" => {
+                    logging::logging_logexclusion_forces_replacement(&change.path)
+                }
+                "logging.LogMetric" => logging::logging_logmetric_forces_replacement(&change.path),
                 "monitoring.AlertPolicy" => {
                     monitoring::monitoring_alertpolicy_forces_replacement(&change.path)
                 }
@@ -1319,6 +1332,7 @@ mod tests {
             vpn_tunnels_client: tokio::sync::OnceCell::new(),
             reservations_client: tokio::sync::OnceCell::new(),
             interconnect_attachments_client: tokio::sync::OnceCell::new(),
+            firewall_policies_client: tokio::sync::OnceCell::new(),
             resource_policies_client: tokio::sync::OnceCell::new(),
             backend_services_client: tokio::sync::OnceCell::new(),
             health_checks_client: tokio::sync::OnceCell::new(),
@@ -1346,10 +1360,10 @@ mod tests {
             uptime_checks_client: tokio::sync::OnceCell::new(),
             monitoring_groups_client: tokio::sync::OnceCell::new(),
         };
-        // 23 compute + 3 LB + 1 storage + 3 SQL + 3 IAM + 3 DNS + 2 GKE
-        // + 2 run + 1 functions + 2 pubsub + 2 kms + 1 secret + 1 logging + 4 monitoring = 51
+        // 23 compute + 3 LB + 1 storage + 3 SQL + 2 IAM + 3 DNS + 1 GKE
+        // + 2 run + 1 functions + 2 pubsub + 2 kms + 1 secret + 4 logging + 4 monitoring = 52
         let schemas = provider.resource_types();
-        assert_eq!(schemas.len(), 51);
+        assert_eq!(schemas.len(), 52);
     }
 
     #[test]

@@ -62,6 +62,19 @@ pub struct ResourceMeta {
     /// If not set, defaults to snake_case of sdk_client.
     #[serde(default)]
     pub client_accessor: Option<String>,
+    /// For compute-style: overrides the resource ID parameter in read/update/delete.
+    /// Defaults to "set_{snake_case(sdk_model)}". E.g. "set_instance" for SQL Instance
+    /// (whose sdk_model is "DatabaseInstance" but uses set_instance in the API).
+    #[serde(default)]
+    pub resource_id_param: Option<String>,
+    /// For resource_name style: overrides the parent setter on create.
+    /// Defaults to "set_parent". Some APIs use "set_name" for parent (e.g. Monitoring).
+    #[serde(default)]
+    pub parent_setter: Option<String>,
+    /// For resource_name style: overrides "set_name" in read/delete.
+    /// Some APIs use resource-specific names like "set_sink_name" (Logging).
+    #[serde(default)]
+    pub resource_name_param: Option<String>,
 }
 
 fn default_scope() -> String {
@@ -284,6 +297,9 @@ impl ResourceManifest {
                 resource_id_setter,
                 resource_body_setter,
                 client_accessor: None,
+                resource_id_param: None,
+                parent_setter: None,
+                resource_name_param: None,
             },
             crud,
             fields: field_defs,

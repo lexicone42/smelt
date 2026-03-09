@@ -37,6 +37,12 @@ pub struct CatalogEntry {
     #[serde(default)]
     pub client_accessor: Option<String>,
     #[serde(default)]
+    pub resource_id_param: Option<String>,
+    #[serde(default)]
+    pub parent_setter: Option<String>,
+    #[serde(default)]
+    pub resource_name_param: Option<String>,
+    #[serde(default)]
     pub crud_create: Option<String>,
     #[serde(default)]
     pub crud_read: Option<String>,
@@ -176,13 +182,30 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
             manifest.resource.parent_format = Some(pf.clone());
         }
         if let Some(ref ids) = entry.resource_id_setter {
-            manifest.resource.resource_id_setter = Some(ids.clone());
+            if ids.is_empty() {
+                manifest.resource.resource_id_setter = None;
+            } else {
+                manifest.resource.resource_id_setter = Some(ids.clone());
+            }
         }
         if let Some(ref rbs) = entry.resource_body_setter {
-            manifest.resource.resource_body_setter = Some(rbs.clone());
+            if rbs.is_empty() {
+                manifest.resource.resource_body_setter = None;
+            } else {
+                manifest.resource.resource_body_setter = Some(rbs.clone());
+            }
         }
         if let Some(ref ca) = entry.client_accessor {
             manifest.resource.client_accessor = Some(ca.clone());
+        }
+        if let Some(ref rip) = entry.resource_id_param {
+            manifest.resource.resource_id_param = Some(rip.clone());
+        }
+        if let Some(ref ps) = entry.parent_setter {
+            manifest.resource.parent_setter = Some(ps.clone());
+        }
+        if let Some(ref rnp) = entry.resource_name_param {
+            manifest.resource.resource_name_param = Some(rnp.clone());
         }
 
         // Override CRUD methods from catalog

@@ -328,13 +328,276 @@ crud_read = "get_bucket"
 crud_update = "update_bucket"
 crud_delete = "delete_bucket"
 
-# ─── Phase 2 TODO ────────────────────────────────────────────────────────────
-# The following resources need API-specific codegen patterns:
-# - DNS (ManagedZone, RecordSet, Policy) — compute-style but different setters
-# - SQL (Instance, Database, User) — compute-style but set_instance/set_name
-# - Container (Cluster, NodePool) — resource_name but unique create/update
-# - IAM (ServiceAccount, ServiceAccountKey, Role) — set_name as parent
-# - Monitoring (AlertPolicy, NotificationChannel, UptimeCheck, Group) — set_name as parent
-# - Logging (LogSink, LogExclusion, LogMetric) — different setter names
-# - FirewallPolicy — org-level, no set_project
-# - SecretVersion — different create pattern (add_secret_version)
+# ─── DNS ─────────────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "ManagedZone"
+sdk_crate = "google-cloud-dns-v1"
+sdk_client = "ManagedZones"
+client_accessor = "managed_zones"
+type_path = "dns.ManagedZone"
+api_style = "compute"
+scope = "global"
+crud_create = "create"
+crud_read = "get"
+crud_update = "patch"
+crud_delete = "delete"
+
+[[resource]]
+struct_name = "ResourceRecordSet"
+sdk_crate = "google-cloud-dns-v1"
+sdk_client = "ResourceRecordSets"
+client_accessor = "resource_record_sets"
+type_path = "dns.RecordSet"
+api_style = "compute"
+scope = "global"
+resource_id_param = "set_name"
+crud_create = "create"
+crud_read = "get"
+# RecordSets are immutable — delete and recreate
+crud_update = ""
+crud_delete = "delete"
+
+[[resource]]
+struct_name = "Policy"
+sdk_crate = "google-cloud-dns-v1"
+sdk_client = "Policies"
+client_accessor = "policies"
+type_path = "dns.Policy"
+api_style = "compute"
+scope = "global"
+crud_create = "create"
+crud_read = "get"
+crud_update = "patch"
+crud_delete = "delete"
+
+# ─── Cloud SQL ──────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "DatabaseInstance"
+sdk_crate = "google-cloud-sql-v1"
+sdk_client = "SqlInstancesService"
+client_accessor = "sql_instances"
+type_path = "sql.Instance"
+api_style = "compute"
+scope = "global"
+# SDK uses set_instance() not set_database_instance() for read/update/delete
+resource_id_param = "set_instance"
+crud_create = "insert"
+crud_read = "get"
+crud_update = "patch"
+crud_delete = "delete"
+
+[[resource]]
+struct_name = "Database"
+sdk_crate = "google-cloud-sql-v1"
+sdk_client = "SqlDatabasesService"
+client_accessor = "sql_databases"
+type_path = "sql.Database"
+api_style = "compute"
+scope = "global"
+crud_create = "insert"
+crud_read = "get"
+crud_update = "patch"
+crud_delete = "delete"
+
+[[resource]]
+struct_name = "User"
+sdk_crate = "google-cloud-sql-v1"
+sdk_client = "SqlUsersService"
+client_accessor = "sql_users"
+type_path = "sql.User"
+api_style = "compute"
+scope = "global"
+resource_id_param = "set_name"
+crud_create = "insert"
+crud_read = "get"
+crud_update = "update"
+crud_delete = "delete"
+
+# ─── GKE (Container) ───────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Cluster"
+sdk_crate = "google-cloud-container-v1"
+sdk_client = "ClusterManager"
+client_accessor = "cluster_manager"
+type_path = "container.Cluster"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+# No resource_id_setter — name is set on the model itself
+resource_id_setter = ""
+resource_body_setter = "set_cluster"
+crud_create = "create_cluster"
+crud_read = "get_cluster"
+# GKE clusters use request-based update pattern, not direct patch
+crud_update = ""
+crud_delete = "delete_cluster"
+
+# ─── IAM ────────────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "ServiceAccount"
+sdk_crate = "google-cloud-iam-admin-v1"
+sdk_client = "IAM"
+client_accessor = "iam"
+type_path = "iam.ServiceAccount"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+# IAM create_service_account uses set_name for parent, not set_parent
+parent_setter = "set_name"
+resource_id_setter = "set_account_id"
+resource_body_setter = "set_service_account"
+crud_create = "create_service_account"
+crud_read = "get_service_account"
+crud_update = "patch_service_account"
+crud_delete = "delete_service_account"
+
+[[resource]]
+struct_name = "Role"
+sdk_crate = "google-cloud-iam-admin-v1"
+sdk_client = "IAM"
+client_accessor = "iam"
+type_path = "iam.Role"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+resource_id_setter = "set_role_id"
+resource_body_setter = "set_role"
+crud_create = "create_role"
+crud_read = "get_role"
+crud_update = "update_role"
+crud_delete = "delete_role"
+
+# ─── Monitoring ─────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "AlertPolicy"
+sdk_crate = "google-cloud-monitoring-v3"
+sdk_client = "AlertPolicyService"
+client_accessor = "monitoring"
+type_path = "monitoring.AlertPolicy"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+parent_setter = "set_name"
+resource_id_setter = ""
+resource_body_setter = "set_alert_policy"
+crud_create = "create_alert_policy"
+crud_read = "get_alert_policy"
+crud_update = "update_alert_policy"
+crud_delete = "delete_alert_policy"
+
+[[resource]]
+struct_name = "NotificationChannel"
+sdk_crate = "google-cloud-monitoring-v3"
+sdk_client = "NotificationChannelService"
+client_accessor = "notification_channels"
+type_path = "monitoring.NotificationChannel"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+parent_setter = "set_name"
+resource_id_setter = ""
+resource_body_setter = "set_notification_channel"
+crud_create = "create_notification_channel"
+crud_read = "get_notification_channel"
+crud_update = "update_notification_channel"
+crud_delete = "delete_notification_channel"
+
+[[resource]]
+struct_name = "UptimeCheckConfig"
+sdk_crate = "google-cloud-monitoring-v3"
+sdk_client = "UptimeCheckService"
+client_accessor = "uptime_checks"
+type_path = "monitoring.UptimeCheckConfig"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+resource_id_setter = ""
+resource_body_setter = "set_uptime_check_config"
+crud_create = "create_uptime_check_config"
+crud_read = "get_uptime_check_config"
+crud_update = "update_uptime_check_config"
+crud_delete = "delete_uptime_check_config"
+
+[[resource]]
+struct_name = "Group"
+sdk_crate = "google-cloud-monitoring-v3"
+sdk_client = "GroupService"
+client_accessor = "monitoring_groups"
+type_path = "monitoring.Group"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+parent_setter = "set_name"
+resource_id_setter = ""
+resource_body_setter = "set_group"
+crud_create = "create_group"
+crud_read = "get_group"
+crud_update = "update_group"
+crud_delete = "delete_group"
+
+# ─── Logging (additional resources) ─────────────────────────────────────────
+
+[[resource]]
+struct_name = "LogSink"
+sdk_crate = "google-cloud-logging-v2"
+sdk_client = "ConfigServiceV2"
+client_accessor = "logging"
+type_path = "logging.LogSink"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+# No resource_id_setter — name is set on the model itself
+resource_id_setter = ""
+resource_body_setter = "set_sink"
+# Logging uses set_sink_name, not set_name, for read/delete
+resource_name_param = "set_sink_name"
+crud_create = "create_sink"
+crud_read = "get_sink"
+crud_update = "update_sink"
+crud_delete = "delete_sink"
+
+[[resource]]
+struct_name = "LogExclusion"
+sdk_crate = "google-cloud-logging-v2"
+sdk_client = "ConfigServiceV2"
+client_accessor = "logging"
+type_path = "logging.LogExclusion"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+resource_id_setter = ""
+resource_body_setter = "set_exclusion"
+# Logging exclusions use set_name for get/delete (not set_exclusion_name)
+resource_name_param = "set_name"
+crud_create = "create_exclusion"
+crud_read = "get_exclusion"
+crud_update = "update_exclusion"
+crud_delete = "delete_exclusion"
+
+[[resource]]
+struct_name = "LogMetric"
+sdk_crate = "google-cloud-logging-v2"
+sdk_client = "MetricsServiceV2"
+client_accessor = "logging_metrics"
+type_path = "logging.LogMetric"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+resource_id_setter = ""
+resource_body_setter = "set_metric"
+resource_name_param = "set_metric_name"
+crud_create = "create_log_metric"
+crud_read = "get_log_metric"
+crud_update = "update_log_metric"
+crud_delete = "delete_log_metric"
+
+# ─── Skipped resources (require non-standard patterns) ──────────────────────
+# - FirewallPolicy — org-level, no set_project (different scope model)
+# - Container NodePool — parent includes cluster name from config
+# - IAM ServiceAccountKey — create doesn't take a body
+# - SecretVersion — uses add_secret_version, non-standard lifecycle

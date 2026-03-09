@@ -75,7 +75,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "failover_replica".into(),
                                 description: "The name and status of the failover replica.".into(),
-                                field_type: crate::provider::FieldType::Enum(vec!["TODO: list variants for SqlFailoverReplica".into()]),
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -91,7 +91,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "gemini_config".into(),
                                 description: "Gemini instance configuration.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(GeminiInstanceConfig) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -99,7 +99,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "include_replicas_for_major_version_upgrade".into(),
                                 description: "Input only. Determines whether an in-place major version upgrade of".into(),
-                                field_type: crate::provider::FieldType::Enum(vec!["TODO: list variants for BoolValue".into()]),
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -107,7 +107,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "ip_addresses".into(),
                                 description: "The assigned IP addresses for the instance.".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* Nested(IpMapping) */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -139,7 +139,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "on_premises_configuration".into(),
                                 description: "Configuration specific to on-premises instances.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(OnPremisesConfiguration) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -155,7 +155,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "replica_configuration".into(),
                                 description: "Configuration specific to failover replicas and read replicas.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(ReplicaConfiguration) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -171,7 +171,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "replication_cluster".into(),
                                 description: "Optional. A primary instance and disaster recovery (DR) replica pair.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(ReplicationCluster) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -187,7 +187,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "satisfies_pzs".into(),
                                 description: "This status indicates whether the instance satisfies PZS.".into(),
-                                field_type: crate::provider::FieldType::Enum(vec!["TODO: list variants for BoolValue".into()]),
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -203,7 +203,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "server_ca_cert".into(),
                                 description: "SSL configuration.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(SslCert) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -219,7 +219,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "settings".into(),
                                 description: "The user settings.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(Settings) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -243,7 +243,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "switch_transaction_logs_to_cloud_storage_enabled".into(),
                                 description: "Input only. Whether Cloud SQL is enabled to switch storing point-in-time".into(),
-                                field_type: crate::provider::FieldType::Enum(vec!["TODO: list variants for BoolValue".into()]),
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -257,7 +257,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "disk_encryption_status".into(),
                                 description: "Disk encryption status specific to an instance.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(DiskEncryptionStatus) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -296,19 +296,43 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        // TODO: extract backend_type (Enum(SqlBackendType)) from config["/config/backend_type"]
+        let backend_type = config
+            .optional_str("/config/backend_type")
+            .map(String::from);
         let connection_name = config
             .optional_str("/config/connection_name")
             .map(String::from);
-        // TODO: extract database_version (Enum(SqlDatabaseVersion)) from config["/config/database_version"]
-        // TODO: extract disk_encryption_status (Nested(DiskEncryptionStatus)) from config["/output/disk_encryption_status"]
+        let database_version = config
+            .optional_str("/config/database_version")
+            .map(String::from);
+        let disk_encryption_status =
+            config
+                .pointer("/output/disk_encryption_status")
+                .and_then(|v| {
+                    serde_json::from_value::<google_cloud_sql_v1::model::DiskEncryptionStatus>(
+                        v.clone(),
+                    )
+                    .ok()
+                });
         let etag = config.optional_str("/config/etag").map(String::from);
-        // TODO: extract failover_replica (Enum(SqlFailoverReplica)) from config["/config/failover_replica"]
+        let failover_replica = config.pointer("/config/failover_replica").and_then(|v| {
+            serde_json::from_value::<
+                google_cloud_sql_v1::model::database_instance::SqlFailoverReplica,
+            >(v.clone())
+            .ok()
+        });
         let gce_zone = config.optional_str("/config/gce_zone").map(String::from);
-        // TODO: extract gemini_config (Nested(GeminiInstanceConfig)) from config["/config/gemini_config"]
-        // TODO: extract include_replicas_for_major_version_upgrade (Enum(BoolValue)) from config["/config/include_replicas_for_major_version_upgrade"]
-        // TODO: extract instance_type (Enum(SqlInstanceType)) from config["/sizing/instance_type"]
-        // TODO: extract ip_addresses (Array(Nested(IpMapping))) from config["/config/ip_addresses"]
+        let gemini_config = config.pointer("/config/gemini_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_sql_v1::model::GeminiInstanceConfig>(v.clone())
+                .ok()
+        });
+        // TODO: extract include_replicas_for_major_version_upgrade (Nested(BoolValue)) from config["/config/include_replicas_for_major_version_upgrade"] — type path unknown
+        let instance_type = config
+            .optional_str("/sizing/instance_type")
+            .map(String::from);
+        let ip_addresses = config.pointer("/config/ip_addresses").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_sql_v1::model::IpMapping>>(v.clone()).ok()
+        });
         let maintenance_version = config
             .optional_str("/config/maintenance_version")
             .map(String::from);
@@ -317,48 +341,96 @@ impl GcpProvider {
             .map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
         let node_count = config.optional_i64("/config/node_count");
-        // TODO: extract on_premises_configuration (Nested(OnPremisesConfiguration)) from config["/config/on_premises_configuration"]
+        let on_premises_configuration = config
+            .pointer("/config/on_premises_configuration")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_sql_v1::model::OnPremisesConfiguration>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let project = config.optional_str("/config/project").map(String::from);
         let region = config.optional_str("/sizing/region").map(String::from);
-        // TODO: extract replica_configuration (Nested(ReplicaConfiguration)) from config["/config/replica_configuration"]
-        // TODO: extract replica_names (Array(String)) from config["/config/replica_names"]
-        // TODO: extract replication_cluster (Nested(ReplicationCluster)) from config["/config/replication_cluster"]
+        let replica_configuration = config
+            .pointer("/config/replica_configuration")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_sql_v1::model::ReplicaConfiguration>(
+                    v.clone(),
+                )
+                .ok()
+            });
+        let replica_names = config
+            .pointer("/config/replica_names")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let replication_cluster = config.pointer("/config/replication_cluster").and_then(|v| {
+            serde_json::from_value::<google_cloud_sql_v1::model::ReplicationCluster>(v.clone()).ok()
+        });
         let root_password = config
             .optional_str("/config/root_password")
             .map(String::from);
-        // TODO: extract satisfies_pzs (Enum(BoolValue)) from config["/config/satisfies_pzs"]
+        // TODO: extract satisfies_pzs (Nested(BoolValue)) from config["/config/satisfies_pzs"] — type path unknown
         let secondary_gce_zone = config
             .optional_str("/config/secondary_gce_zone")
             .map(String::from);
-        // TODO: extract server_ca_cert (Nested(SslCert)) from config["/config/server_ca_cert"]
+        let server_ca_cert = config.pointer("/config/server_ca_cert").and_then(|v| {
+            serde_json::from_value::<google_cloud_sql_v1::model::SslCert>(v.clone()).ok()
+        });
         let service_account_email_address = config
             .optional_str("/config/service_account_email_address")
             .map(String::from);
-        // TODO: extract settings (Nested(Settings)) from config["/config/settings"]
-        // TODO: extract state (Enum(SqlInstanceState)) from config["/config/state"]
-        // TODO: extract suspension_reason (Array(Enum(SqlSuspensionReason))) from config["/config/suspension_reason"]
-        // TODO: extract switch_transaction_logs_to_cloud_storage_enabled (Enum(BoolValue)) from config["/config/switch_transaction_logs_to_cloud_storage_enabled"]
-        // TODO: extract tags (Record) from config["/identity/tags"]
+        let settings = config.pointer("/config/settings").and_then(|v| {
+            serde_json::from_value::<google_cloud_sql_v1::model::Settings>(v.clone()).ok()
+        });
+        let state = config.optional_str("/config/state").map(String::from);
+        let suspension_reason = config.pointer("/config/suspension_reason").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_sql_v1::model::SqlSuspensionReason>>(
+                v.clone(),
+            )
+            .ok()
+        });
+        // TODO: extract switch_transaction_logs_to_cloud_storage_enabled (Nested(BoolValue)) from config["/config/switch_transaction_logs_to_cloud_storage_enabled"] — type path unknown
+        let tags = config
+            .pointer("/identity/tags")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
 
         // Build SDK model
         let mut model = google_cloud_sql_v1::model::DatabaseInstance::default();
-        // TODO: set backend_type on model via .set_backend_type()
+        if let Some(ref s) = backend_type {
+            model = model
+                .set_backend_type(google_cloud_sql_v1::model::SqlBackendType::from(s.as_str()));
+        }
         if let Some(v) = connection_name {
             model = model.set_connection_name(v);
         }
-        // TODO: set database_version on model via .set_database_version()
-        // TODO: set disk_encryption_status on model via .set_disk_encryption_status()
+        if let Some(ref s) = database_version {
+            model = model.set_database_version(
+                google_cloud_sql_v1::model::SqlDatabaseVersion::from(s.as_str()),
+            );
+        }
+        if let Some(v) = disk_encryption_status {
+            model = model.set_disk_encryption_status(v);
+        }
         if let Some(v) = etag {
             model = model.set_etag(v);
         }
-        // TODO: set failover_replica on model via .set_failover_replica()
+        if let Some(v) = failover_replica {
+            model = model.set_failover_replica(v);
+        }
         if let Some(v) = gce_zone {
             model = model.set_gce_zone(v);
         }
-        // TODO: set gemini_config on model via .set_gemini_config()
-        // TODO: set include_replicas_for_major_version_upgrade on model via .set_include_replicas_for_major_version_upgrade()
-        // TODO: set instance_type on model via .set_instance_type()
-        // TODO: set ip_addresses on model via .set_ip_addresses()
+        if let Some(v) = gemini_config {
+            model = model.set_gemini_config(v);
+        }
+        // TODO: set include_replicas_for_major_version_upgrade on model via .set_include_replicas_for_major_version_upgrade() — type path unknown
+        if let Some(ref s) = instance_type {
+            model = model.set_instance_type(google_cloud_sql_v1::model::SqlInstanceType::from(
+                s.as_str(),
+            ));
+        }
+        if let Some(v) = ip_addresses {
+            model = model.set_ip_addresses(v);
+        }
         if let Some(v) = maintenance_version {
             model = model.set_maintenance_version(v);
         }
@@ -369,32 +441,52 @@ impl GcpProvider {
         if let Some(v) = node_count {
             model = model.set_node_count(v as i32);
         }
-        // TODO: set on_premises_configuration on model via .set_on_premises_configuration()
+        if let Some(v) = on_premises_configuration {
+            model = model.set_on_premises_configuration(v);
+        }
         if let Some(v) = project {
             model = model.set_project(v);
         }
         if let Some(v) = region {
             model = model.set_region(v);
         }
-        // TODO: set replica_configuration on model via .set_replica_configuration()
-        // TODO: set replica_names on model via .set_replica_names()
-        // TODO: set replication_cluster on model via .set_replication_cluster()
+        if let Some(v) = replica_configuration {
+            model = model.set_replica_configuration(v);
+        }
+        if let Some(v) = replica_names {
+            model = model.set_replica_names(v);
+        }
+        if let Some(v) = replication_cluster {
+            model = model.set_replication_cluster(v);
+        }
         if let Some(v) = root_password {
             model = model.set_root_password(v);
         }
-        // TODO: set satisfies_pzs on model via .set_satisfies_pzs()
+        // TODO: set satisfies_pzs on model via .set_satisfies_pzs() — type path unknown
         if let Some(v) = secondary_gce_zone {
             model = model.set_secondary_gce_zone(v);
         }
-        // TODO: set server_ca_cert on model via .set_server_ca_cert()
+        if let Some(v) = server_ca_cert {
+            model = model.set_server_ca_cert(v);
+        }
         if let Some(v) = service_account_email_address {
             model = model.set_service_account_email_address(v);
         }
-        // TODO: set settings on model via .set_settings()
-        // TODO: set state on model via .set_state()
-        // TODO: set suspension_reason on model via .set_suspension_reason()
-        // TODO: set switch_transaction_logs_to_cloud_storage_enabled on model via .set_switch_transaction_logs_to_cloud_storage_enabled()
-        // TODO: set tags on model via .set_tags()
+        if let Some(v) = settings {
+            model = model.set_settings(v);
+        }
+        if let Some(ref s) = state {
+            model = model.set_state(
+                google_cloud_sql_v1::model::database_instance::SqlInstanceState::from(s.as_str()),
+            );
+        }
+        if let Some(v) = suspension_reason {
+            model = model.set_suspension_reason(v);
+        }
+        // TODO: set switch_transaction_logs_to_cloud_storage_enabled on model via .set_switch_transaction_logs_to_cloud_storage_enabled() — type path unknown
+        if let Some(v) = tags {
+            model = model.set_tags(v);
+        }
 
         // Make API call
         self.sql_instances()
@@ -428,50 +520,47 @@ impl GcpProvider {
         let state = serde_json::json!({
             "identity": {
                 "name": database_instance.name.as_str(),
-                "tags": serde_json::json!(database_instance.tags) /* TODO: complex type */,
+                "tags": &database_instance.tags,
             },
             "config": {
-                "backend_type": serde_json::json!(database_instance.backend_type) /* TODO: complex type */,
+                "backend_type": &database_instance.backend_type,
                 "connection_name": database_instance.connection_name.as_str(),
-                "database_version": serde_json::json!(database_instance.database_version) /* TODO: complex type */,
+                "database_version": &database_instance.database_version,
                 "etag": database_instance.etag.as_str(),
-                "failover_replica": serde_json::json!(database_instance.failover_replica) /* TODO: complex type */,
+                "failover_replica": &database_instance.failover_replica,
                 "gce_zone": database_instance.gce_zone.as_str(),
-                "gemini_config": serde_json::json!(database_instance.gemini_config) /* TODO: complex type */,
-                "include_replicas_for_major_version_upgrade": serde_json::json!(database_instance.include_replicas_for_major_version_upgrade) /* TODO: complex type */,
-                "ip_addresses": serde_json::json!(database_instance.ip_addresses) /* TODO: complex type */,
+                "gemini_config": &database_instance.gemini_config,
+                "include_replicas_for_major_version_upgrade": serde_json::Value::Null,
+                "ip_addresses": &database_instance.ip_addresses,
                 "maintenance_version": database_instance.maintenance_version.as_str(),
                 "master_instance_name": database_instance.master_instance_name.as_str(),
                 "node_count": database_instance.node_count.unwrap_or(0),
-                "on_premises_configuration": serde_json::json!(database_instance.on_premises_configuration) /* TODO: complex type */,
+                "on_premises_configuration": &database_instance.on_premises_configuration,
                 "project": database_instance.project.as_str(),
-                "replica_configuration": serde_json::json!(database_instance.replica_configuration) /* TODO: complex type */,
-                "replica_names": serde_json::json!(database_instance.replica_names) /* TODO: complex type */,
-                "replication_cluster": serde_json::json!(database_instance.replication_cluster) /* TODO: complex type */,
+                "replica_configuration": &database_instance.replica_configuration,
+                "replica_names": &database_instance.replica_names,
+                "replication_cluster": &database_instance.replication_cluster,
                 "root_password": database_instance.root_password.as_str(),
-                "satisfies_pzs": serde_json::json!(database_instance.satisfies_pzs) /* TODO: complex type */,
+                "satisfies_pzs": serde_json::Value::Null,
                 "secondary_gce_zone": database_instance.secondary_gce_zone.as_str(),
-                "server_ca_cert": serde_json::json!(database_instance.server_ca_cert) /* TODO: complex type */,
+                "server_ca_cert": &database_instance.server_ca_cert,
                 "service_account_email_address": database_instance.service_account_email_address.as_str(),
-                "settings": serde_json::json!(database_instance.settings) /* TODO: complex type */,
-                "state": serde_json::json!(database_instance.state) /* TODO: complex type */,
-                "suspension_reason": serde_json::json!(database_instance.suspension_reason) /* TODO: complex type */,
-                "switch_transaction_logs_to_cloud_storage_enabled": serde_json::json!(database_instance.switch_transaction_logs_to_cloud_storage_enabled) /* TODO: complex type */,
+                "settings": &database_instance.settings,
+                "state": &database_instance.state,
+                "suspension_reason": &database_instance.suspension_reason,
+                "switch_transaction_logs_to_cloud_storage_enabled": serde_json::Value::Null,
             },
             "output": {
-                "disk_encryption_status": serde_json::json!(database_instance.disk_encryption_status) /* TODO: complex type */,
+                "disk_encryption_status": &database_instance.disk_encryption_status,
             },
             "sizing": {
-                "instance_type": serde_json::json!(database_instance.instance_type) /* TODO: complex type */,
+                "instance_type": &database_instance.instance_type,
                 "region": database_instance.region.as_str(),
             },
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert(
-            "self_link".into(),
-            serde_json::json!(&database_instance.self_link),
-        );
+        outputs.insert("name".into(), serde_json::json!(&database_instance.name));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -487,19 +576,43 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let name = provider_id.to_string();
         // Extract fields from config
-        // TODO: extract backend_type (Enum(SqlBackendType)) from config["/config/backend_type"]
+        let backend_type = config
+            .optional_str("/config/backend_type")
+            .map(String::from);
         let connection_name = config
             .optional_str("/config/connection_name")
             .map(String::from);
-        // TODO: extract database_version (Enum(SqlDatabaseVersion)) from config["/config/database_version"]
-        // TODO: extract disk_encryption_status (Nested(DiskEncryptionStatus)) from config["/output/disk_encryption_status"]
+        let database_version = config
+            .optional_str("/config/database_version")
+            .map(String::from);
+        let disk_encryption_status =
+            config
+                .pointer("/output/disk_encryption_status")
+                .and_then(|v| {
+                    serde_json::from_value::<google_cloud_sql_v1::model::DiskEncryptionStatus>(
+                        v.clone(),
+                    )
+                    .ok()
+                });
         let etag = config.optional_str("/config/etag").map(String::from);
-        // TODO: extract failover_replica (Enum(SqlFailoverReplica)) from config["/config/failover_replica"]
+        let failover_replica = config.pointer("/config/failover_replica").and_then(|v| {
+            serde_json::from_value::<
+                google_cloud_sql_v1::model::database_instance::SqlFailoverReplica,
+            >(v.clone())
+            .ok()
+        });
         let gce_zone = config.optional_str("/config/gce_zone").map(String::from);
-        // TODO: extract gemini_config (Nested(GeminiInstanceConfig)) from config["/config/gemini_config"]
-        // TODO: extract include_replicas_for_major_version_upgrade (Enum(BoolValue)) from config["/config/include_replicas_for_major_version_upgrade"]
-        // TODO: extract instance_type (Enum(SqlInstanceType)) from config["/sizing/instance_type"]
-        // TODO: extract ip_addresses (Array(Nested(IpMapping))) from config["/config/ip_addresses"]
+        let gemini_config = config.pointer("/config/gemini_config").and_then(|v| {
+            serde_json::from_value::<google_cloud_sql_v1::model::GeminiInstanceConfig>(v.clone())
+                .ok()
+        });
+        // TODO: extract include_replicas_for_major_version_upgrade (Nested(BoolValue)) from config["/config/include_replicas_for_major_version_upgrade"] — type path unknown
+        let instance_type = config
+            .optional_str("/sizing/instance_type")
+            .map(String::from);
+        let ip_addresses = config.pointer("/config/ip_addresses").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_sql_v1::model::IpMapping>>(v.clone()).ok()
+        });
         let maintenance_version = config
             .optional_str("/config/maintenance_version")
             .map(String::from);
@@ -507,46 +620,94 @@ impl GcpProvider {
             .optional_str("/config/master_instance_name")
             .map(String::from);
         let node_count = config.optional_i64("/config/node_count");
-        // TODO: extract on_premises_configuration (Nested(OnPremisesConfiguration)) from config["/config/on_premises_configuration"]
+        let on_premises_configuration = config
+            .pointer("/config/on_premises_configuration")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_sql_v1::model::OnPremisesConfiguration>(
+                    v.clone(),
+                )
+                .ok()
+            });
         let project = config.optional_str("/config/project").map(String::from);
-        // TODO: extract replica_configuration (Nested(ReplicaConfiguration)) from config["/config/replica_configuration"]
-        // TODO: extract replica_names (Array(String)) from config["/config/replica_names"]
-        // TODO: extract replication_cluster (Nested(ReplicationCluster)) from config["/config/replication_cluster"]
+        let replica_configuration = config
+            .pointer("/config/replica_configuration")
+            .and_then(|v| {
+                serde_json::from_value::<google_cloud_sql_v1::model::ReplicaConfiguration>(
+                    v.clone(),
+                )
+                .ok()
+            });
+        let replica_names = config
+            .pointer("/config/replica_names")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let replication_cluster = config.pointer("/config/replication_cluster").and_then(|v| {
+            serde_json::from_value::<google_cloud_sql_v1::model::ReplicationCluster>(v.clone()).ok()
+        });
         let root_password = config
             .optional_str("/config/root_password")
             .map(String::from);
-        // TODO: extract satisfies_pzs (Enum(BoolValue)) from config["/config/satisfies_pzs"]
+        // TODO: extract satisfies_pzs (Nested(BoolValue)) from config["/config/satisfies_pzs"] — type path unknown
         let secondary_gce_zone = config
             .optional_str("/config/secondary_gce_zone")
             .map(String::from);
-        // TODO: extract server_ca_cert (Nested(SslCert)) from config["/config/server_ca_cert"]
+        let server_ca_cert = config.pointer("/config/server_ca_cert").and_then(|v| {
+            serde_json::from_value::<google_cloud_sql_v1::model::SslCert>(v.clone()).ok()
+        });
         let service_account_email_address = config
             .optional_str("/config/service_account_email_address")
             .map(String::from);
-        // TODO: extract settings (Nested(Settings)) from config["/config/settings"]
-        // TODO: extract state (Enum(SqlInstanceState)) from config["/config/state"]
-        // TODO: extract suspension_reason (Array(Enum(SqlSuspensionReason))) from config["/config/suspension_reason"]
-        // TODO: extract switch_transaction_logs_to_cloud_storage_enabled (Enum(BoolValue)) from config["/config/switch_transaction_logs_to_cloud_storage_enabled"]
-        // TODO: extract tags (Record) from config["/identity/tags"]
+        let settings = config.pointer("/config/settings").and_then(|v| {
+            serde_json::from_value::<google_cloud_sql_v1::model::Settings>(v.clone()).ok()
+        });
+        let state = config.optional_str("/config/state").map(String::from);
+        let suspension_reason = config.pointer("/config/suspension_reason").and_then(|v| {
+            serde_json::from_value::<Vec<google_cloud_sql_v1::model::SqlSuspensionReason>>(
+                v.clone(),
+            )
+            .ok()
+        });
+        // TODO: extract switch_transaction_logs_to_cloud_storage_enabled (Nested(BoolValue)) from config["/config/switch_transaction_logs_to_cloud_storage_enabled"] — type path unknown
+        let tags = config
+            .pointer("/identity/tags")
+            .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
 
         let mut model = google_cloud_sql_v1::model::DatabaseInstance::default();
-        // TODO: set backend_type on model via .set_backend_type()
+        if let Some(ref s) = backend_type {
+            model = model
+                .set_backend_type(google_cloud_sql_v1::model::SqlBackendType::from(s.as_str()));
+        }
         if let Some(v) = connection_name {
             model = model.set_connection_name(v);
         }
-        // TODO: set database_version on model via .set_database_version()
-        // TODO: set disk_encryption_status on model via .set_disk_encryption_status()
+        if let Some(ref s) = database_version {
+            model = model.set_database_version(
+                google_cloud_sql_v1::model::SqlDatabaseVersion::from(s.as_str()),
+            );
+        }
+        if let Some(v) = disk_encryption_status {
+            model = model.set_disk_encryption_status(v);
+        }
         if let Some(v) = etag {
             model = model.set_etag(v);
         }
-        // TODO: set failover_replica on model via .set_failover_replica()
+        if let Some(v) = failover_replica {
+            model = model.set_failover_replica(v);
+        }
         if let Some(v) = gce_zone {
             model = model.set_gce_zone(v);
         }
-        // TODO: set gemini_config on model via .set_gemini_config()
-        // TODO: set include_replicas_for_major_version_upgrade on model via .set_include_replicas_for_major_version_upgrade()
-        // TODO: set instance_type on model via .set_instance_type()
-        // TODO: set ip_addresses on model via .set_ip_addresses()
+        if let Some(v) = gemini_config {
+            model = model.set_gemini_config(v);
+        }
+        // TODO: set include_replicas_for_major_version_upgrade on model via .set_include_replicas_for_major_version_upgrade() — type path unknown
+        if let Some(ref s) = instance_type {
+            model = model.set_instance_type(google_cloud_sql_v1::model::SqlInstanceType::from(
+                s.as_str(),
+            ));
+        }
+        if let Some(v) = ip_addresses {
+            model = model.set_ip_addresses(v);
+        }
         if let Some(v) = maintenance_version {
             model = model.set_maintenance_version(v);
         }
@@ -556,29 +717,49 @@ impl GcpProvider {
         if let Some(v) = node_count {
             model = model.set_node_count(v as i32);
         }
-        // TODO: set on_premises_configuration on model via .set_on_premises_configuration()
+        if let Some(v) = on_premises_configuration {
+            model = model.set_on_premises_configuration(v);
+        }
         if let Some(v) = project {
             model = model.set_project(v);
         }
-        // TODO: set replica_configuration on model via .set_replica_configuration()
-        // TODO: set replica_names on model via .set_replica_names()
-        // TODO: set replication_cluster on model via .set_replication_cluster()
+        if let Some(v) = replica_configuration {
+            model = model.set_replica_configuration(v);
+        }
+        if let Some(v) = replica_names {
+            model = model.set_replica_names(v);
+        }
+        if let Some(v) = replication_cluster {
+            model = model.set_replication_cluster(v);
+        }
         if let Some(v) = root_password {
             model = model.set_root_password(v);
         }
-        // TODO: set satisfies_pzs on model via .set_satisfies_pzs()
+        // TODO: set satisfies_pzs on model via .set_satisfies_pzs() — type path unknown
         if let Some(v) = secondary_gce_zone {
             model = model.set_secondary_gce_zone(v);
         }
-        // TODO: set server_ca_cert on model via .set_server_ca_cert()
+        if let Some(v) = server_ca_cert {
+            model = model.set_server_ca_cert(v);
+        }
         if let Some(v) = service_account_email_address {
             model = model.set_service_account_email_address(v);
         }
-        // TODO: set settings on model via .set_settings()
-        // TODO: set state on model via .set_state()
-        // TODO: set suspension_reason on model via .set_suspension_reason()
-        // TODO: set switch_transaction_logs_to_cloud_storage_enabled on model via .set_switch_transaction_logs_to_cloud_storage_enabled()
-        // TODO: set tags on model via .set_tags()
+        if let Some(v) = settings {
+            model = model.set_settings(v);
+        }
+        if let Some(ref s) = state {
+            model = model.set_state(
+                google_cloud_sql_v1::model::database_instance::SqlInstanceState::from(s.as_str()),
+            );
+        }
+        if let Some(v) = suspension_reason {
+            model = model.set_suspension_reason(v);
+        }
+        // TODO: set switch_transaction_logs_to_cloud_storage_enabled on model via .set_switch_transaction_logs_to_cloud_storage_enabled() — type path unknown
+        if let Some(v) = tags {
+            model = model.set_tags(v);
+        }
 
         self.sql_instances()
             .await?
@@ -649,7 +830,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "database_details".into(),
                                 description: "".into(),
-                                field_type: crate::provider::FieldType::Enum(vec!["TODO: list variants for DatabaseDetails".into()]),
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -692,7 +873,7 @@ impl GcpProvider {
         // Extract fields from config
         let charset = config.optional_str("/config/charset").map(String::from);
         let collation = config.optional_str("/config/collation").map(String::from);
-        // TODO: extract database_details (Enum(DatabaseDetails)) from config["/config/database_details"]
+        // TODO: extract database_details (Nested(DatabaseDetails)) from config["/config/database_details"] — type path unknown
         let etag = config.optional_str("/config/etag").map(String::from);
         let instance = config.optional_str("/config/instance").map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
@@ -706,7 +887,7 @@ impl GcpProvider {
         if let Some(v) = collation {
             model = model.set_collation(v);
         }
-        // TODO: set database_details on model via .set_database_details()
+        // TODO: set database_details on model via .set_database_details() — type path unknown
         if let Some(v) = etag {
             model = model.set_etag(v);
         }
@@ -754,7 +935,7 @@ impl GcpProvider {
             "config": {
                 "charset": database.charset.as_str(),
                 "collation": database.collation.as_str(),
-                "database_details": serde_json::Value::Null /* TODO: database_details is complex type */,
+                "database_details": serde_json::Value::Null,
                 "etag": database.etag.as_str(),
                 "instance": database.instance.as_str(),
                 "project": database.project.as_str(),
@@ -762,7 +943,7 @@ impl GcpProvider {
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert("self_link".into(), serde_json::json!(&database.self_link));
+        outputs.insert("name".into(), serde_json::json!(&database.name));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -780,7 +961,7 @@ impl GcpProvider {
         // Extract fields from config
         let charset = config.optional_str("/config/charset").map(String::from);
         let collation = config.optional_str("/config/collation").map(String::from);
-        // TODO: extract database_details (Enum(DatabaseDetails)) from config["/config/database_details"]
+        // TODO: extract database_details (Nested(DatabaseDetails)) from config["/config/database_details"] — type path unknown
         let etag = config.optional_str("/config/etag").map(String::from);
         let instance = config.optional_str("/config/instance").map(String::from);
         let project = config.optional_str("/config/project").map(String::from);
@@ -792,7 +973,7 @@ impl GcpProvider {
         if let Some(v) = collation {
             model = model.set_collation(v);
         }
-        // TODO: set database_details on model via .set_database_details()
+        // TODO: set database_details on model via .set_database_details() — type path unknown
         if let Some(v) = etag {
             model = model.set_etag(v);
         }
@@ -912,7 +1093,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "password_policy".into(),
                                 description: "User level password validation policy.".into(),
-                                field_type: crate::provider::FieldType::String /* Nested(UserPasswordValidationPolicy) */,
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: true,
@@ -928,7 +1109,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "user_details".into(),
                                 description: "User details for specific database type".into(),
-                                field_type: crate::provider::FieldType::Enum(vec!["TODO: list variants for UserDetails".into()]),
+                                field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -959,23 +1140,38 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        // TODO: extract database_roles (Array(String)) from config["/config/database_roles"]
-        // TODO: extract dual_password_type (Enum(DualPasswordType)) from config["/config/dual_password_type"]
+        let database_roles = config
+            .pointer("/config/database_roles")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let dual_password_type = config
+            .optional_str("/config/dual_password_type")
+            .map(String::from);
         let etag = config.optional_str("/config/etag").map(String::from);
         let host = config.optional_str("/config/host").map(String::from);
         let iam_email = config.optional_str("/config/iam_email").map(String::from);
-        // TODO: extract iam_status (Enum(IamStatus)) from config["/output/iam_status"]
+        let iam_status = config.optional_str("/output/iam_status").map(String::from);
         let instance = config.optional_str("/config/instance").map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
         let password = config.optional_str("/config/password").map(String::from);
-        // TODO: extract password_policy (Nested(UserPasswordValidationPolicy)) from config["/config/password_policy"]
+        let password_policy = config.pointer("/config/password_policy").and_then(|v| {
+            serde_json::from_value::<google_cloud_sql_v1::model::UserPasswordValidationPolicy>(
+                v.clone(),
+            )
+            .ok()
+        });
         let project = config.optional_str("/config/project").map(String::from);
-        // TODO: extract user_details (Enum(UserDetails)) from config["/config/user_details"]
+        // TODO: extract user_details (Nested(UserDetails)) from config["/config/user_details"] — type path unknown
 
         // Build SDK model
         let mut model = google_cloud_sql_v1::model::User::default();
-        // TODO: set database_roles on model via .set_database_roles()
-        // TODO: set dual_password_type on model via .set_dual_password_type()
+        if let Some(v) = database_roles {
+            model = model.set_database_roles(v);
+        }
+        if let Some(ref s) = dual_password_type {
+            model = model.set_dual_password_type(
+                google_cloud_sql_v1::model::user::DualPasswordType::from(s.as_str()),
+            );
+        }
         if let Some(v) = etag {
             model = model.set_etag(v);
         }
@@ -985,7 +1181,11 @@ impl GcpProvider {
         if let Some(v) = iam_email {
             model = model.set_iam_email(v);
         }
-        // TODO: set iam_status on model via .set_iam_status()
+        if let Some(ref s) = iam_status {
+            model = model.set_iam_status(google_cloud_sql_v1::model::user::IamStatus::from(
+                s.as_str(),
+            ));
+        }
         if let Some(v) = instance {
             model = model.set_instance(v);
         }
@@ -993,11 +1193,13 @@ impl GcpProvider {
         if let Some(v) = password {
             model = model.set_password(v);
         }
-        // TODO: set password_policy on model via .set_password_policy()
+        if let Some(v) = password_policy {
+            model = model.set_password_policy(v);
+        }
         if let Some(v) = project {
             model = model.set_project(v);
         }
-        // TODO: set user_details on model via .set_user_details()
+        // TODO: set user_details on model via .set_user_details() — type path unknown
 
         // Make API call
         self.sql_users()
@@ -1033,19 +1235,19 @@ impl GcpProvider {
                 "name": user.name.as_str(),
             },
             "config": {
-                "database_roles": serde_json::json!(user.database_roles) /* TODO: complex type */,
-                "dual_password_type": serde_json::json!(user.dual_password_type) /* TODO: complex type */,
+                "database_roles": &user.database_roles,
+                "dual_password_type": &user.dual_password_type,
                 "etag": user.etag.as_str(),
                 "host": user.host.as_str(),
                 "iam_email": user.iam_email.as_str(),
                 "instance": user.instance.as_str(),
                 "password": user.password.as_str(),
-                "password_policy": serde_json::json!(user.password_policy) /* TODO: complex type */,
+                "password_policy": &user.password_policy,
                 "project": user.project.as_str(),
-                "user_details": serde_json::Value::Null /* TODO: user_details is complex type */,
+                "user_details": serde_json::Value::Null,
             },
             "output": {
-                "iam_status": serde_json::json!(user.iam_status) /* TODO: complex type */,
+                "iam_status": &user.iam_status,
             },
         });
 
@@ -1066,21 +1268,36 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let name = provider_id.to_string();
         // Extract fields from config
-        // TODO: extract database_roles (Array(String)) from config["/config/database_roles"]
-        // TODO: extract dual_password_type (Enum(DualPasswordType)) from config["/config/dual_password_type"]
+        let database_roles = config
+            .pointer("/config/database_roles")
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
+        let dual_password_type = config
+            .optional_str("/config/dual_password_type")
+            .map(String::from);
         let etag = config.optional_str("/config/etag").map(String::from);
         let host = config.optional_str("/config/host").map(String::from);
         let iam_email = config.optional_str("/config/iam_email").map(String::from);
-        // TODO: extract iam_status (Enum(IamStatus)) from config["/output/iam_status"]
+        let iam_status = config.optional_str("/output/iam_status").map(String::from);
         let instance = config.optional_str("/config/instance").map(String::from);
         let password = config.optional_str("/config/password").map(String::from);
-        // TODO: extract password_policy (Nested(UserPasswordValidationPolicy)) from config["/config/password_policy"]
+        let password_policy = config.pointer("/config/password_policy").and_then(|v| {
+            serde_json::from_value::<google_cloud_sql_v1::model::UserPasswordValidationPolicy>(
+                v.clone(),
+            )
+            .ok()
+        });
         let project = config.optional_str("/config/project").map(String::from);
-        // TODO: extract user_details (Enum(UserDetails)) from config["/config/user_details"]
+        // TODO: extract user_details (Nested(UserDetails)) from config["/config/user_details"] — type path unknown
 
         let mut model = google_cloud_sql_v1::model::User::default();
-        // TODO: set database_roles on model via .set_database_roles()
-        // TODO: set dual_password_type on model via .set_dual_password_type()
+        if let Some(v) = database_roles {
+            model = model.set_database_roles(v);
+        }
+        if let Some(ref s) = dual_password_type {
+            model = model.set_dual_password_type(
+                google_cloud_sql_v1::model::user::DualPasswordType::from(s.as_str()),
+            );
+        }
         if let Some(v) = etag {
             model = model.set_etag(v);
         }
@@ -1090,18 +1307,24 @@ impl GcpProvider {
         if let Some(v) = iam_email {
             model = model.set_iam_email(v);
         }
-        // TODO: set iam_status on model via .set_iam_status()
+        if let Some(ref s) = iam_status {
+            model = model.set_iam_status(google_cloud_sql_v1::model::user::IamStatus::from(
+                s.as_str(),
+            ));
+        }
         if let Some(v) = instance {
             model = model.set_instance(v);
         }
         if let Some(v) = password {
             model = model.set_password(v);
         }
-        // TODO: set password_policy on model via .set_password_policy()
+        if let Some(v) = password_policy {
+            model = model.set_password_policy(v);
+        }
         if let Some(v) = project {
             model = model.set_project(v);
         }
-        // TODO: set user_details on model via .set_user_details()
+        // TODO: set user_details on model via .set_user_details() — type path unknown
 
         self.sql_users()
             .await?
