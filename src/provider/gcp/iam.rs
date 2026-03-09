@@ -54,8 +54,12 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        let description = config.optional_str("/identity/description").map(String::from);
-        let display_name = config.optional_str("/identity/display_name").map(String::from);
+        let description = config
+            .optional_str("/identity/description")
+            .map(String::from);
+        let display_name = config
+            .optional_str("/identity/display_name")
+            .map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
 
         // Build SDK model
@@ -70,10 +74,11 @@ impl GcpProvider {
 
         // Make API call
         let parent = format!("projects/{}", self.project_id);
-        self.iam().await?
+        self.iam()
+            .await?
             .create_service_account()
-            .set_parent(&parent)
-            .set_service_account_id(&name)
+            .set_name(&parent)
+            .set_account_id(&name)
             .set_service_account(model)
             .send()
             .await
@@ -87,9 +92,14 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
         let service_account = self
-            .iam().await?
+            .iam()
+            .await?
             .get_service_account()
             .set_name(provider_id)
             .send()
@@ -119,10 +129,18 @@ impl GcpProvider {
         provider_id: &str,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
         // Extract fields from config
-        let description = config.optional_str("/identity/description").map(String::from);
-        let display_name = config.optional_str("/identity/display_name").map(String::from);
+        let description = config
+            .optional_str("/identity/description")
+            .map(String::from);
+        let display_name = config
+            .optional_str("/identity/display_name")
+            .map(String::from);
 
         let mut model = google_cloud_iam_admin_v1::model::ServiceAccount::default();
         model = model.set_name(provider_id);
@@ -133,7 +151,8 @@ impl GcpProvider {
             model = model.set_display_name(v);
         }
 
-        self.iam().await?
+        self.iam()
+            .await?
             .patch_service_account()
             .set_service_account(model)
             .set_update_mask(google_cloud_wkt::FieldMask::default())
@@ -148,8 +167,13 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<(), ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
-        self.iam().await?
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
+        self.iam()
+            .await?
             .delete_service_account()
             .set_name(provider_id)
             .send()
@@ -157,7 +181,6 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("DeleteServiceAccount", e))?;
         Ok(())
     }
-
 
     pub(super) fn iam_serviceaccountkey_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
@@ -293,18 +316,21 @@ impl GcpProvider {
         // TODO: set valid_after_time on model via .set_valid_after_time()
         // TODO: set valid_before_time on model via .set_valid_before_time()
 
-        // Make API call
-        let parent = format!("projects/{}", self.project_id);
-        self.iam().await?
+        // Make API call — CreateServiceAccountKey takes the service account
+        // resource path as `name`, not a separate key ID
+        let parent = format!("projects/{}/serviceAccounts/{}", self.project_id, name);
+        let key = self
+            .iam()
+            .await?
             .create_service_account_key()
-            .set_parent(&parent)
-            .set_service_account_key_id(&name)
-            .set_service_account_key(model)
+            .set_name(&parent)
             .send()
             .await
-            .map_err(|e| super::classify_gcp_error("Create_service_account_key ServiceAccountKey", e))?;
+            .map_err(|e| {
+                super::classify_gcp_error("Create_service_account_key ServiceAccountKey", e)
+            })?;
 
-        let provider_id = format!("projects/{}/service_account_keys/{}", self.project_id, name);
+        let provider_id = key.name.clone();
         self.read_iam_serviceaccountkey(&provider_id).await
     }
 
@@ -312,9 +338,14 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
         let service_account_key = self
-            .iam().await?
+            .iam()
+            .await?
             .get_service_account_key()
             .set_name(provider_id)
             .send()
@@ -350,52 +381,25 @@ impl GcpProvider {
 
     pub(super) async fn update_iam_serviceaccountkey(
         &self,
-        provider_id: &str,
-        config: &serde_json::Value,
+        _provider_id: &str,
+        _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
-        // Extract fields from config
-        let disabled = config.optional_bool("/config/disabled");
-        // TODO: extract key_algorithm (Enum(ServiceAccountKeyAlgorithm)) from config["/config/key_algorithm"]
-        // TODO: extract key_origin (Enum(ServiceAccountKeyOrigin)) from config["/config/key_origin"]
-        // TODO: extract key_type (Enum(KeyType)) from config["/config/key_type"]
-        // TODO: extract private_key_data (Enum(Bytes)) from config["/config/private_key_data"]
-        // TODO: extract private_key_type (Enum(ServiceAccountPrivateKeyType)) from config["/config/private_key_type"]
-        // TODO: extract public_key_data (Enum(Bytes)) from config["/config/public_key_data"]
-        // TODO: extract valid_after_time (Timestamp) from config["/config/valid_after_time"]
-        // TODO: extract valid_before_time (Timestamp) from config["/config/valid_before_time"]
-
-        let mut model = google_cloud_iam_admin_v1::model::ServiceAccountKey::default();
-        model = model.set_name(provider_id);
-        if let Some(v) = disabled {
-            model = model.set_disabled(v);
-        }
-        // TODO: set key_algorithm on model via .set_key_algorithm()
-        // TODO: set key_origin on model via .set_key_origin()
-        // TODO: set key_type on model via .set_key_type()
-        // TODO: set private_key_data on model via .set_private_key_data()
-        // TODO: set private_key_type on model via .set_private_key_type()
-        // TODO: set public_key_data on model via .set_public_key_data()
-        // TODO: set valid_after_time on model via .set_valid_after_time()
-        // TODO: set valid_before_time on model via .set_valid_before_time()
-
-        self.iam().await?
-            .update_service_account_key()
-            .set_service_account_key(model)
-            .set_update_mask(google_cloud_wkt::FieldMask::default())
-            .send()
-            .await
-            .map_err(|e| super::classify_gcp_error("update_service_account_key ServiceAccountKey", e))?;
-
-        self.read_iam_serviceaccountkey(provider_id).await
+        Err(ProviderError::RequiresReplacement(
+            "ServiceAccountKey is immutable".into(),
+        ))
     }
 
     pub(super) async fn delete_iam_serviceaccountkey(
         &self,
         provider_id: &str,
     ) -> Result<(), ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
-        self.iam().await?
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
+        self.iam()
+            .await?
             .delete_service_account_key()
             .set_name(provider_id)
             .send()
@@ -403,7 +407,6 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("DeleteServiceAccountKey", e))?;
         Ok(())
     }
-
 
     pub(super) fn iam_role_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
@@ -490,7 +493,9 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
         let deleted = config.optional_bool("/config/deleted");
-        let description = config.optional_str("/identity/description").map(String::from);
+        let description = config
+            .optional_str("/identity/description")
+            .map(String::from);
         // TODO: extract etag (Enum(Bytes)) from config["/config/etag"]
         // TODO: extract included_permissions (Array(String)) from config["/config/included_permissions"]
         let name = config.require_str("/identity/name")?.to_string();
@@ -515,7 +520,8 @@ impl GcpProvider {
 
         // Make API call
         let parent = format!("projects/{}", self.project_id);
-        self.iam().await?
+        self.iam()
+            .await?
             .create_role()
             .set_parent(&parent)
             .set_role_id(&name)
@@ -532,9 +538,14 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
         let role = self
-            .iam().await?
+            .iam()
+            .await?
             .get_role()
             .set_name(provider_id)
             .send()
@@ -570,10 +581,16 @@ impl GcpProvider {
         provider_id: &str,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
         // Extract fields from config
         let deleted = config.optional_bool("/config/deleted");
-        let description = config.optional_str("/identity/description").map(String::from);
+        let description = config
+            .optional_str("/identity/description")
+            .map(String::from);
         // TODO: extract etag (Enum(Bytes)) from config["/config/etag"]
         // TODO: extract included_permissions (Array(String)) from config["/config/included_permissions"]
         // TODO: extract stage (Enum(RoleLaunchStage)) from config["/config/stage"]
@@ -594,7 +611,8 @@ impl GcpProvider {
             model = model.set_title(v);
         }
 
-        self.iam().await?
+        self.iam()
+            .await?
             .update_role()
             .set_role(model)
             .set_update_mask(google_cloud_wkt::FieldMask::default())
@@ -605,12 +623,14 @@ impl GcpProvider {
         self.read_iam_role(provider_id).await
     }
 
-    pub(super) async fn delete_iam_role(
-        &self,
-        provider_id: &str,
-    ) -> Result<(), ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
-        self.iam().await?
+    pub(super) async fn delete_iam_role(&self, provider_id: &str) -> Result<(), ProviderError> {
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
+        self.iam()
+            .await?
             .delete_role()
             .set_name(provider_id)
             .send()
@@ -618,27 +638,19 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("DeleteRole", e))?;
         Ok(())
     }
-
-
 }
 
 // Diff: fields that force replacement
 pub(super) fn iam_serviceaccount_forces_replacement(path: &str) -> bool {
-    matches!(path,
-        "identity.name"
-    )
+    matches!(path, "identity.name")
 }
 
 // Diff: fields that force replacement
 pub(super) fn iam_serviceaccountkey_forces_replacement(path: &str) -> bool {
-    matches!(path,
-        "identity.name"
-    )
+    matches!(path, "identity.name")
 }
 
 // Diff: fields that force replacement
 pub(super) fn iam_role_forces_replacement(path: &str) -> bool {
-    matches!(path,
-        "identity.name"
-    )
+    matches!(path, "identity.name")
 }

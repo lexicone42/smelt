@@ -472,32 +472,42 @@ impl GcpProvider {
         // TODO: extract autopilot (Nested(Autopilot)) from config["/config/autopilot"]
         // TODO: extract autoscaling (Nested(ClusterAutoscaling)) from config["/config/autoscaling"]
         // TODO: extract binary_authorization (Nested(BinaryAuthorization)) from config["/config/binary_authorization"]
-        let cluster_ipv4_cidr = config.optional_str("/config/cluster_ipv4_cidr").map(String::from);
+        let cluster_ipv4_cidr = config
+            .optional_str("/config/cluster_ipv4_cidr")
+            .map(String::from);
         // TODO: extract compliance_posture_config (Nested(CompliancePostureConfig)) from config["/config/compliance_posture_config"]
         // TODO: extract conditions (Array(Nested(StatusCondition))) from config["/config/conditions"]
         // TODO: extract confidential_nodes (Nested(ConfidentialNodes)) from config["/config/confidential_nodes"]
         // TODO: extract cost_management_config (Nested(CostManagementConfig)) from config["/config/cost_management_config"]
         // TODO: extract database_encryption (Nested(DatabaseEncryption)) from config["/config/database_encryption"]
         // TODO: extract default_max_pods_constraint (Nested(MaxPodsConstraint)) from config["/config/default_max_pods_constraint"]
-        let description = config.optional_str("/identity/description").map(String::from);
+        let description = config
+            .optional_str("/identity/description")
+            .map(String::from);
         // TODO: extract enable_k8s_beta_apis (Nested(K8sBetaAPIConfig)) from config["/config/enable_k8s_beta_apis"]
         let enable_kubernetes_alpha = config.optional_bool("/config/enable_kubernetes_alpha");
         let etag = config.optional_str("/config/etag").map(String::from);
         // TODO: extract fleet (Nested(Fleet)) from config["/config/fleet"]
         // TODO: extract gke_auto_upgrade_config (Nested(GkeAutoUpgradeConfig)) from config["/config/gke_auto_upgrade_config"]
         // TODO: extract identity_service_config (Nested(IdentityServiceConfig)) from config["/config/identity_service_config"]
-        let initial_cluster_version = config.optional_str("/config/initial_cluster_version").map(String::from);
+        let initial_cluster_version = config
+            .optional_str("/config/initial_cluster_version")
+            .map(String::from);
         // TODO: extract ip_allocation_policy (Nested(IPAllocationPolicy)) from config["/config/ip_allocation_policy"]
         // TODO: extract legacy_abac (Nested(LegacyAbac)) from config["/config/legacy_abac"]
         // TODO: extract locations (Array(String)) from config["/config/locations"]
         // TODO: extract logging_config (Nested(LoggingConfig)) from config["/config/logging_config"]
-        let logging_service = config.optional_str("/config/logging_service").map(String::from);
+        let logging_service = config
+            .optional_str("/config/logging_service")
+            .map(String::from);
         // TODO: extract maintenance_policy (Nested(MaintenancePolicy)) from config["/config/maintenance_policy"]
         // TODO: extract managed_opentelemetry_config (Nested(ManagedOpenTelemetryConfig)) from config["/config/managed_opentelemetry_config"]
         // TODO: extract master_auth (Nested(MasterAuth)) from config["/config/master_auth"]
         // TODO: extract mesh_certificates (Nested(MeshCertificates)) from config["/config/mesh_certificates"]
         // TODO: extract monitoring_config (Nested(MonitoringConfig)) from config["/config/monitoring_config"]
-        let monitoring_service = config.optional_str("/config/monitoring_service").map(String::from);
+        let monitoring_service = config
+            .optional_str("/config/monitoring_service")
+            .map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
         let network = config.optional_str("/network/network").map(String::from);
         // TODO: extract network_config (Nested(NetworkConfig)) from config["/config/network_config"]
@@ -596,16 +606,19 @@ impl GcpProvider {
 
         // Make API call
         let parent = format!("projects/{}/locations/{}", self.project_id, self.region);
-        self.cluster_manager().await?
+        self.cluster_manager()
+            .await?
             .create_cluster()
             .set_parent(&parent)
-            .set_cluster_id(&name)
             .set_cluster(model)
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("Create_cluster Cluster", e))?;
 
-        let provider_id = format!("projects/{}/locations/{}/clusters/{}", self.project_id, self.region, name);
+        let provider_id = format!(
+            "projects/{}/locations/{}/clusters/{}",
+            self.project_id, self.region, name
+        );
         self.read_container_cluster(&provider_id).await
     }
 
@@ -613,9 +626,14 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
         let cluster = self
-            .cluster_manager().await?
+            .cluster_manager()
+            .await?
             .get_cluster()
             .set_name(provider_id)
             .send()
@@ -696,154 +714,27 @@ impl GcpProvider {
 
     pub(super) async fn update_container_cluster(
         &self,
-        provider_id: &str,
-        config: &serde_json::Value,
+        _provider_id: &str,
+        _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
-        // Extract fields from config
-        // TODO: extract addons_config (Nested(AddonsConfig)) from config["/config/addons_config"]
-        // TODO: extract alpha_cluster_feature_gates (Array(String)) from config["/config/alpha_cluster_feature_gates"]
-        // TODO: extract authenticator_groups_config (Nested(AuthenticatorGroupsConfig)) from config["/config/authenticator_groups_config"]
-        // TODO: extract autopilot (Nested(Autopilot)) from config["/config/autopilot"]
-        // TODO: extract autoscaling (Nested(ClusterAutoscaling)) from config["/config/autoscaling"]
-        // TODO: extract binary_authorization (Nested(BinaryAuthorization)) from config["/config/binary_authorization"]
-        let cluster_ipv4_cidr = config.optional_str("/config/cluster_ipv4_cidr").map(String::from);
-        // TODO: extract compliance_posture_config (Nested(CompliancePostureConfig)) from config["/config/compliance_posture_config"]
-        // TODO: extract conditions (Array(Nested(StatusCondition))) from config["/config/conditions"]
-        // TODO: extract confidential_nodes (Nested(ConfidentialNodes)) from config["/config/confidential_nodes"]
-        // TODO: extract cost_management_config (Nested(CostManagementConfig)) from config["/config/cost_management_config"]
-        // TODO: extract database_encryption (Nested(DatabaseEncryption)) from config["/config/database_encryption"]
-        // TODO: extract default_max_pods_constraint (Nested(MaxPodsConstraint)) from config["/config/default_max_pods_constraint"]
-        let description = config.optional_str("/identity/description").map(String::from);
-        // TODO: extract enable_k8s_beta_apis (Nested(K8sBetaAPIConfig)) from config["/config/enable_k8s_beta_apis"]
-        let enable_kubernetes_alpha = config.optional_bool("/config/enable_kubernetes_alpha");
-        let etag = config.optional_str("/config/etag").map(String::from);
-        // TODO: extract fleet (Nested(Fleet)) from config["/config/fleet"]
-        // TODO: extract gke_auto_upgrade_config (Nested(GkeAutoUpgradeConfig)) from config["/config/gke_auto_upgrade_config"]
-        // TODO: extract identity_service_config (Nested(IdentityServiceConfig)) from config["/config/identity_service_config"]
-        let initial_cluster_version = config.optional_str("/config/initial_cluster_version").map(String::from);
-        // TODO: extract ip_allocation_policy (Nested(IPAllocationPolicy)) from config["/config/ip_allocation_policy"]
-        // TODO: extract legacy_abac (Nested(LegacyAbac)) from config["/config/legacy_abac"]
-        // TODO: extract locations (Array(String)) from config["/config/locations"]
-        // TODO: extract logging_config (Nested(LoggingConfig)) from config["/config/logging_config"]
-        let logging_service = config.optional_str("/config/logging_service").map(String::from);
-        // TODO: extract maintenance_policy (Nested(MaintenancePolicy)) from config["/config/maintenance_policy"]
-        // TODO: extract managed_opentelemetry_config (Nested(ManagedOpenTelemetryConfig)) from config["/config/managed_opentelemetry_config"]
-        // TODO: extract master_auth (Nested(MasterAuth)) from config["/config/master_auth"]
-        // TODO: extract mesh_certificates (Nested(MeshCertificates)) from config["/config/mesh_certificates"]
-        // TODO: extract monitoring_config (Nested(MonitoringConfig)) from config["/config/monitoring_config"]
-        let monitoring_service = config.optional_str("/config/monitoring_service").map(String::from);
-        let network = config.optional_str("/network/network").map(String::from);
-        // TODO: extract network_config (Nested(NetworkConfig)) from config["/config/network_config"]
-        // TODO: extract network_policy (Nested(NetworkPolicy)) from config["/config/network_policy"]
-        // TODO: extract node_pool_auto_config (Nested(NodePoolAutoConfig)) from config["/config/node_pool_auto_config"]
-        // TODO: extract node_pool_defaults (Nested(NodePoolDefaults)) from config["/config/node_pool_defaults"]
-        // TODO: extract node_pools (Array(Nested(NodePool))) from config["/config/node_pools"]
-        // TODO: extract notification_config (Nested(NotificationConfig)) from config["/config/notification_config"]
-        // TODO: extract pod_autoscaling (Nested(PodAutoscaling)) from config["/config/pod_autoscaling"]
-        // TODO: extract private_cluster_config (Nested(PrivateClusterConfig)) from config["/config/private_cluster_config"]
-        // TODO: extract rbac_binding_config (Nested(RBACBindingConfig)) from config["/config/rbac_binding_config"]
-        // TODO: extract release_channel (Nested(ReleaseChannel)) from config["/config/release_channel"]
-        // TODO: extract resource_labels (Record) from config["/config/resource_labels"]
-        // TODO: extract resource_usage_export_config (Nested(ResourceUsageExportConfig)) from config["/config/resource_usage_export_config"]
-        // TODO: extract secret_manager_config (Nested(SecretManagerConfig)) from config["/config/secret_manager_config"]
-        // TODO: extract security_posture_config (Nested(SecurityPostureConfig)) from config["/config/security_posture_config"]
-        // TODO: extract shielded_nodes (Nested(ShieldedNodes)) from config["/config/shielded_nodes"]
-        let subnetwork = config.optional_str("/network/subnetwork").map(String::from);
-        // TODO: extract user_managed_keys_config (Nested(UserManagedKeysConfig)) from config["/config/user_managed_keys_config"]
-        // TODO: extract vertical_pod_autoscaling (Nested(VerticalPodAutoscaling)) from config["/config/vertical_pod_autoscaling"]
-        // TODO: extract workload_identity_config (Nested(WorkloadIdentityConfig)) from config["/config/workload_identity_config"]
-
-        let mut model = google_cloud_container_v1::model::Cluster::default();
-        model = model.set_name(provider_id);
-        // TODO: set addons_config on model via .set_addons_config()
-        // TODO: set alpha_cluster_feature_gates on model via .set_alpha_cluster_feature_gates()
-        // TODO: set authenticator_groups_config on model via .set_authenticator_groups_config()
-        // TODO: set autopilot on model via .set_autopilot()
-        // TODO: set autoscaling on model via .set_autoscaling()
-        // TODO: set binary_authorization on model via .set_binary_authorization()
-        if let Some(v) = cluster_ipv4_cidr {
-            model = model.set_cluster_ipv4_cidr(v);
-        }
-        // TODO: set compliance_posture_config on model via .set_compliance_posture_config()
-        // TODO: set conditions on model via .set_conditions()
-        // TODO: set confidential_nodes on model via .set_confidential_nodes()
-        // TODO: set cost_management_config on model via .set_cost_management_config()
-        // TODO: set database_encryption on model via .set_database_encryption()
-        // TODO: set default_max_pods_constraint on model via .set_default_max_pods_constraint()
-        if let Some(v) = description {
-            model = model.set_description(v);
-        }
-        // TODO: set enable_k8s_beta_apis on model via .set_enable_k8s_beta_apis()
-        if let Some(v) = enable_kubernetes_alpha {
-            model = model.set_enable_kubernetes_alpha(v);
-        }
-        if let Some(v) = etag {
-            model = model.set_etag(v);
-        }
-        // TODO: set fleet on model via .set_fleet()
-        // TODO: set gke_auto_upgrade_config on model via .set_gke_auto_upgrade_config()
-        // TODO: set identity_service_config on model via .set_identity_service_config()
-        if let Some(v) = initial_cluster_version {
-            model = model.set_initial_cluster_version(v);
-        }
-        // TODO: set ip_allocation_policy on model via .set_ip_allocation_policy()
-        // TODO: set legacy_abac on model via .set_legacy_abac()
-        // TODO: set locations on model via .set_locations()
-        // TODO: set logging_config on model via .set_logging_config()
-        if let Some(v) = logging_service {
-            model = model.set_logging_service(v);
-        }
-        // TODO: set maintenance_policy on model via .set_maintenance_policy()
-        // TODO: set managed_opentelemetry_config on model via .set_managed_opentelemetry_config()
-        // TODO: set master_auth on model via .set_master_auth()
-        // TODO: set mesh_certificates on model via .set_mesh_certificates()
-        // TODO: set monitoring_config on model via .set_monitoring_config()
-        if let Some(v) = monitoring_service {
-            model = model.set_monitoring_service(v);
-        }
-        if let Some(v) = network {
-            model = model.set_network(v);
-        }
-        // TODO: set network_config on model via .set_network_config()
-        // TODO: set network_policy on model via .set_network_policy()
-        // TODO: set node_pool_auto_config on model via .set_node_pool_auto_config()
-        // TODO: set node_pool_defaults on model via .set_node_pool_defaults()
-        // TODO: set node_pools on model via .set_node_pools()
-        // TODO: set notification_config on model via .set_notification_config()
-        // TODO: set pod_autoscaling on model via .set_pod_autoscaling()
-        // TODO: set private_cluster_config on model via .set_private_cluster_config()
-        // TODO: set rbac_binding_config on model via .set_rbac_binding_config()
-        // TODO: set release_channel on model via .set_release_channel()
-        // TODO: set resource_labels on model via .set_resource_labels()
-        // TODO: set resource_usage_export_config on model via .set_resource_usage_export_config()
-        // TODO: set secret_manager_config on model via .set_secret_manager_config()
-        // TODO: set security_posture_config on model via .set_security_posture_config()
-        // TODO: set shielded_nodes on model via .set_shielded_nodes()
-        if let Some(v) = subnetwork {
-            model = model.set_subnetwork(v);
-        }
-        // TODO: set user_managed_keys_config on model via .set_user_managed_keys_config()
-        // TODO: set vertical_pod_autoscaling on model via .set_vertical_pod_autoscaling()
-        // TODO: set workload_identity_config on model via .set_workload_identity_config()
-
-        self.cluster_manager().await?
-            .update_cluster()
-            .set_cluster(model)
-            .set_update_mask(google_cloud_wkt::FieldMask::default())
-            .send()
-            .await
-            .map_err(|e| super::classify_gcp_error("update_cluster Cluster", e))?;
-
-        self.read_container_cluster(provider_id).await
+        // GKE UpdateCluster uses a request-based pattern that doesn't map to
+        // simple set_cluster(); require replacement instead.
+        Err(ProviderError::RequiresReplacement(
+            "GKE cluster update not supported — requires replacement".into(),
+        ))
     }
 
     pub(super) async fn delete_container_cluster(
         &self,
         provider_id: &str,
     ) -> Result<(), ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
-        self.cluster_manager().await?
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
+        self.cluster_manager()
+            .await?
             .delete_cluster()
             .set_name(provider_id)
             .send()
@@ -851,7 +742,6 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("DeleteCluster", e))?;
         Ok(())
     }
-
 
     pub(super) fn container_nodepool_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
@@ -1036,7 +926,7 @@ impl GcpProvider {
             model = model.set_etag(v);
         }
         if let Some(v) = initial_node_count {
-            model = model.set_initial_node_count(v as _);
+            model = model.set_initial_node_count(v as i32);
         }
         // TODO: set locations on model via .set_locations()
         // TODO: set management on model via .set_management()
@@ -1053,16 +943,19 @@ impl GcpProvider {
 
         // Make API call
         let parent = format!("projects/{}/locations/{}", self.project_id, self.region);
-        self.cluster_manager().await?
+        self.cluster_manager()
+            .await?
             .create_node_pool()
             .set_parent(&parent)
-            .set_node_pool_id(&name)
             .set_node_pool(model)
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("Create_node_pool NodePool", e))?;
 
-        let provider_id = format!("projects/{}/locations/{}/node_pools/{}", self.project_id, self.region, name);
+        let provider_id = format!(
+            "projects/{}/locations/{}/node_pools/{}",
+            self.project_id, self.region, name
+        );
         self.read_container_nodepool(&provider_id).await
     }
 
@@ -1070,9 +963,14 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
         let node_pool = self
-            .cluster_manager().await?
+            .cluster_manager()
+            .await?
             .get_node_pool()
             .set_name(provider_id)
             .send()
@@ -1114,68 +1012,27 @@ impl GcpProvider {
 
     pub(super) async fn update_container_nodepool(
         &self,
-        provider_id: &str,
-        config: &serde_json::Value,
+        _provider_id: &str,
+        _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
-        // Extract fields from config
-        // TODO: extract autoscaling (Nested(NodePoolAutoscaling)) from config["/config/autoscaling"]
-        // TODO: extract best_effort_provisioning (Nested(BestEffortProvisioning)) from config["/config/best_effort_provisioning"]
-        // TODO: extract conditions (Array(Nested(StatusCondition))) from config["/config/conditions"]
-        // TODO: extract config (Nested(NodeConfig)) from config["/config/config"]
-        let etag = config.optional_str("/config/etag").map(String::from);
-        let initial_node_count = config.optional_i64("/config/initial_node_count");
-        // TODO: extract locations (Array(String)) from config["/config/locations"]
-        // TODO: extract management (Nested(NodeManagement)) from config["/config/management"]
-        // TODO: extract max_pods_constraint (Nested(MaxPodsConstraint)) from config["/config/max_pods_constraint"]
-        // TODO: extract network_config (Nested(NodeNetworkConfig)) from config["/config/network_config"]
-        // TODO: extract node_drain_config (Enum(NodeDrainConfig)) from config["/config/node_drain_config"]
-        // TODO: extract placement_policy (Enum(PlacementPolicy)) from config["/config/placement_policy"]
-        // TODO: extract queued_provisioning (Enum(QueuedProvisioning)) from config["/config/queued_provisioning"]
-        // TODO: extract upgrade_settings (Enum(UpgradeSettings)) from config["/config/upgrade_settings"]
-        let version = config.optional_str("/config/version").map(String::from);
-
-        let mut model = google_cloud_container_v1::model::NodePool::default();
-        model = model.set_name(provider_id);
-        // TODO: set autoscaling on model via .set_autoscaling()
-        // TODO: set best_effort_provisioning on model via .set_best_effort_provisioning()
-        // TODO: set conditions on model via .set_conditions()
-        // TODO: set config on model via .set_config()
-        if let Some(v) = etag {
-            model = model.set_etag(v);
-        }
-        if let Some(v) = initial_node_count {
-            model = model.set_initial_node_count(v as _);
-        }
-        // TODO: set locations on model via .set_locations()
-        // TODO: set management on model via .set_management()
-        // TODO: set max_pods_constraint on model via .set_max_pods_constraint()
-        // TODO: set network_config on model via .set_network_config()
-        // TODO: set node_drain_config on model via .set_node_drain_config()
-        // TODO: set placement_policy on model via .set_placement_policy()
-        // TODO: set queued_provisioning on model via .set_queued_provisioning()
-        // TODO: set upgrade_settings on model via .set_upgrade_settings()
-        if let Some(v) = version {
-            model = model.set_version(v);
-        }
-
-        self.cluster_manager().await?
-            .update_node_pool()
-            .set_node_pool(model)
-            .set_update_mask(google_cloud_wkt::FieldMask::default())
-            .send()
-            .await
-            .map_err(|e| super::classify_gcp_error("update_node_pool NodePool", e))?;
-
-        self.read_container_nodepool(provider_id).await
+        // GKE UpdateNodePool uses a request-based pattern that doesn't map to
+        // simple set_node_pool(); require replacement instead.
+        Err(ProviderError::RequiresReplacement(
+            "GKE node pool update not supported — requires replacement".into(),
+        ))
     }
 
     pub(super) async fn delete_container_nodepool(
         &self,
         provider_id: &str,
     ) -> Result<(), ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
-        self.cluster_manager().await?
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
+        self.cluster_manager()
+            .await?
             .delete_node_pool()
             .set_name(provider_id)
             .send()
@@ -1183,20 +1040,14 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("DeleteNodePool", e))?;
         Ok(())
     }
-
-
 }
 
 // Diff: fields that force replacement
 pub(super) fn container_cluster_forces_replacement(path: &str) -> bool {
-    matches!(path,
-        "identity.name"
-    )
+    matches!(path, "identity.name")
 }
 
 // Diff: fields that force replacement
 pub(super) fn container_nodepool_forces_replacement(path: &str) -> bool {
-    matches!(path,
-        "identity.name"
-    )
+    matches!(path, "identity.name")
 }

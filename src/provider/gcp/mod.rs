@@ -1,16 +1,16 @@
 mod compute;
-// PHASE2: mod container;
-// PHASE2: mod dns;
+mod container;
+mod dns;
 mod functions;
-// PHASE2: mod iam;
+mod iam;
 mod kms;
 mod loadbalancing;
 mod logging;
-// PHASE2: mod monitoring;
+mod monitoring;
 mod pubsub;
 mod run;
 mod secretmanager;
-// PHASE2: mod sql;
+mod sql;
 mod storage;
 
 use std::future::Future;
@@ -112,17 +112,23 @@ pub struct GcpProvider {
     // Cloud Storage
     pub(crate) storage_client: tokio::sync::OnceCell<google_cloud_storage::client::Storage>,
     // Cloud SQL
-    // PHASE2: //     pub(crate) sql_instances_client: tokio::sync::OnceCell<google_cloud_sql_v1::client::SqlInstancesService>,
-    // PHASE2: //     pub(crate) sql_databases_client: tokio::sync::OnceCell<google_cloud_sql_v1::client::SqlDatabasesService>,
-    // PHASE2: //     pub(crate) sql_users_client: tokio::sync::OnceCell<google_cloud_sql_v1::client::SqlUsersService>,
+    pub(crate) sql_instances_client:
+        tokio::sync::OnceCell<google_cloud_sql_v1::client::SqlInstancesService>,
+    pub(crate) sql_databases_client:
+        tokio::sync::OnceCell<google_cloud_sql_v1::client::SqlDatabasesService>,
+    pub(crate) sql_users_client:
+        tokio::sync::OnceCell<google_cloud_sql_v1::client::SqlUsersService>,
     // IAM
-    // PHASE2: //     pub(crate) iam_client: tokio::sync::OnceCell<google_cloud_iam_admin_v1::client::Iam>,
+    pub(crate) iam_client: tokio::sync::OnceCell<google_cloud_iam_admin_v1::client::Iam>,
     // Cloud DNS
-    // PHASE2: //     pub(crate) managed_zones_client: tokio::sync::OnceCell<google_cloud_dns_v1::client::ManagedZones>,
-    // PHASE2: //     pub(crate) resource_record_sets_client: tokio::sync::OnceCell<google_cloud_dns_v1::client::ResourceRecordSets>,
-    // PHASE2: //     pub(crate) policies_client: tokio::sync::OnceCell<google_cloud_dns_v1::client::Policies>,
+    pub(crate) managed_zones_client:
+        tokio::sync::OnceCell<google_cloud_dns_v1::client::ManagedZones>,
+    pub(crate) resource_record_sets_client:
+        tokio::sync::OnceCell<google_cloud_dns_v1::client::ResourceRecordSets>,
+    pub(crate) policies_client: tokio::sync::OnceCell<google_cloud_dns_v1::client::Policies>,
     // GKE
-    // PHASE2: //     pub(crate) cluster_manager_client: tokio::sync::OnceCell<google_cloud_container_v1::client::ClusterManager>,
+    pub(crate) cluster_manager_client:
+        tokio::sync::OnceCell<google_cloud_container_v1::client::ClusterManager>,
     // Cloud Run
     pub(crate) run_services_client: tokio::sync::OnceCell<google_cloud_run_v2::client::Services>,
     pub(crate) run_jobs_client: tokio::sync::OnceCell<google_cloud_run_v2::client::Jobs>,
@@ -141,12 +147,17 @@ pub struct GcpProvider {
     // Cloud Logging
     pub(crate) logging_client:
         tokio::sync::OnceCell<google_cloud_logging_v2::client::ConfigServiceV2>,
-    // PHASE2: //     pub(crate) logging_metrics_client: tokio::sync::OnceCell<google_cloud_logging_v2::client::MetricsServiceV2>,
+    pub(crate) logging_metrics_client:
+        tokio::sync::OnceCell<google_cloud_logging_v2::client::MetricsServiceV2>,
     // Cloud Monitoring
-    // PHASE2: //     pub(crate) monitoring_client: tokio::sync::OnceCell<google_cloud_monitoring_v3::client::AlertPolicyService>,
-    // PHASE2: //     pub(crate) notification_channels_client: tokio::sync::OnceCell<google_cloud_monitoring_v3::client::NotificationChannelService>,
-    // PHASE2: //     pub(crate) uptime_checks_client: tokio::sync::OnceCell<google_cloud_monitoring_v3::client::UptimeCheckService>,
-    // PHASE2: //     pub(crate) monitoring_groups_client: tokio::sync::OnceCell<google_cloud_monitoring_v3::client::GroupService>,
+    pub(crate) monitoring_client:
+        tokio::sync::OnceCell<google_cloud_monitoring_v3::client::AlertPolicyService>,
+    pub(crate) notification_channels_client:
+        tokio::sync::OnceCell<google_cloud_monitoring_v3::client::NotificationChannelService>,
+    pub(crate) uptime_checks_client:
+        tokio::sync::OnceCell<google_cloud_monitoring_v3::client::UptimeCheckService>,
+    pub(crate) monitoring_groups_client:
+        tokio::sync::OnceCell<google_cloud_monitoring_v3::client::GroupService>,
 }
 
 /// Helper macro to get-or-init a lazily initialized GCP SDK client.
@@ -201,6 +212,14 @@ impl GcpProvider {
             health_checks_client: tokio::sync::OnceCell::new(),
             forwarding_rules_client: tokio::sync::OnceCell::new(),
             storage_client: tokio::sync::OnceCell::new(),
+            sql_instances_client: tokio::sync::OnceCell::new(),
+            sql_databases_client: tokio::sync::OnceCell::new(),
+            sql_users_client: tokio::sync::OnceCell::new(),
+            iam_client: tokio::sync::OnceCell::new(),
+            managed_zones_client: tokio::sync::OnceCell::new(),
+            resource_record_sets_client: tokio::sync::OnceCell::new(),
+            policies_client: tokio::sync::OnceCell::new(),
+            cluster_manager_client: tokio::sync::OnceCell::new(),
             run_services_client: tokio::sync::OnceCell::new(),
             run_jobs_client: tokio::sync::OnceCell::new(),
             functions_client: tokio::sync::OnceCell::new(),
@@ -209,6 +228,11 @@ impl GcpProvider {
             kms_client: tokio::sync::OnceCell::new(),
             secretmanager_client: tokio::sync::OnceCell::new(),
             logging_client: tokio::sync::OnceCell::new(),
+            logging_metrics_client: tokio::sync::OnceCell::new(),
+            monitoring_client: tokio::sync::OnceCell::new(),
+            notification_channels_client: tokio::sync::OnceCell::new(),
+            uptime_checks_client: tokio::sync::OnceCell::new(),
+            monitoring_groups_client: tokio::sync::OnceCell::new(),
         })
     }
 
@@ -463,33 +487,81 @@ impl GcpProvider {
         )
     }
     // Cloud SQL
-    // PHASE2:     pub(crate) async fn sql_instances(&self) -> Result<&google_cloud_sql_v1::client::SqlInstancesService, ProviderError> {
-    // PHASE2:         gcp_client!(self.sql_instances_client, google_cloud_sql_v1::client::SqlInstancesService::builder(), "init SqlInstances")
-    // PHASE2:     }
-    // PHASE2:     pub(crate) async fn sql_databases(&self) -> Result<&google_cloud_sql_v1::client::SqlDatabasesService, ProviderError> {
-    // PHASE2:         gcp_client!(self.sql_databases_client, google_cloud_sql_v1::client::SqlDatabasesService::builder(), "init SqlDatabases")
-    // PHASE2:     }
-    // PHASE2:     pub(crate) async fn sql_users(&self) -> Result<&google_cloud_sql_v1::client::SqlUsersService, ProviderError> {
-    // PHASE2:         gcp_client!(self.sql_users_client, google_cloud_sql_v1::client::SqlUsersService::builder(), "init SqlUsers")
-    // PHASE2:     }
+    pub(crate) async fn sql_instances(
+        &self,
+    ) -> Result<&google_cloud_sql_v1::client::SqlInstancesService, ProviderError> {
+        gcp_client!(
+            self.sql_instances_client,
+            google_cloud_sql_v1::client::SqlInstancesService::builder(),
+            "init SqlInstances"
+        )
+    }
+    pub(crate) async fn sql_databases(
+        &self,
+    ) -> Result<&google_cloud_sql_v1::client::SqlDatabasesService, ProviderError> {
+        gcp_client!(
+            self.sql_databases_client,
+            google_cloud_sql_v1::client::SqlDatabasesService::builder(),
+            "init SqlDatabases"
+        )
+    }
+    pub(crate) async fn sql_users(
+        &self,
+    ) -> Result<&google_cloud_sql_v1::client::SqlUsersService, ProviderError> {
+        gcp_client!(
+            self.sql_users_client,
+            google_cloud_sql_v1::client::SqlUsersService::builder(),
+            "init SqlUsers"
+        )
+    }
     // IAM
-    // PHASE2:     pub(crate) async fn iam(&self) -> Result<&google_cloud_iam_admin_v1::client::Iam, ProviderError> {
-    // PHASE2:         gcp_client!(self.iam_client, google_cloud_iam_admin_v1::client::Iam::builder(), "init Iam")
-    // PHASE2:     }
+    pub(crate) async fn iam(
+        &self,
+    ) -> Result<&google_cloud_iam_admin_v1::client::Iam, ProviderError> {
+        gcp_client!(
+            self.iam_client,
+            google_cloud_iam_admin_v1::client::Iam::builder(),
+            "init Iam"
+        )
+    }
     // Cloud DNS
-    // PHASE2:     pub(crate) async fn managed_zones(&self) -> Result<&google_cloud_dns_v1::client::ManagedZones, ProviderError> {
-    // PHASE2:         gcp_client!(self.managed_zones_client, google_cloud_dns_v1::client::ManagedZones::builder(), "init ManagedZones")
-    // PHASE2:     }
-    // PHASE2:     pub(crate) async fn resource_record_sets(&self) -> Result<&google_cloud_dns_v1::client::ResourceRecordSets, ProviderError> {
-    // PHASE2:         gcp_client!(self.resource_record_sets_client, google_cloud_dns_v1::client::ResourceRecordSets::builder(), "init ResourceRecordSets")
-    // PHASE2:     }
-    // PHASE2: pub(crate) async fn policies(&self) -> Result<&google_cloud_dns_v1::client::Policies, ProviderError> {
-    // PHASE2:     gcp_client!(self.policies_client, google_cloud_dns_v1::client::Policies::builder(), "init Policies")
-    // PHASE2: }
+    pub(crate) async fn managed_zones(
+        &self,
+    ) -> Result<&google_cloud_dns_v1::client::ManagedZones, ProviderError> {
+        gcp_client!(
+            self.managed_zones_client,
+            google_cloud_dns_v1::client::ManagedZones::builder(),
+            "init ManagedZones"
+        )
+    }
+    pub(crate) async fn resource_record_sets(
+        &self,
+    ) -> Result<&google_cloud_dns_v1::client::ResourceRecordSets, ProviderError> {
+        gcp_client!(
+            self.resource_record_sets_client,
+            google_cloud_dns_v1::client::ResourceRecordSets::builder(),
+            "init ResourceRecordSets"
+        )
+    }
+    pub(crate) async fn policies(
+        &self,
+    ) -> Result<&google_cloud_dns_v1::client::Policies, ProviderError> {
+        gcp_client!(
+            self.policies_client,
+            google_cloud_dns_v1::client::Policies::builder(),
+            "init Policies"
+        )
+    }
     // GKE
-    // PHASE2:     pub(crate) async fn cluster_manager(&self) -> Result<&google_cloud_container_v1::client::ClusterManager, ProviderError> {
-    // PHASE2:         gcp_client!(self.cluster_manager_client, google_cloud_container_v1::client::ClusterManager::builder(), "init ClusterManager")
-    // PHASE2:     }
+    pub(crate) async fn cluster_manager(
+        &self,
+    ) -> Result<&google_cloud_container_v1::client::ClusterManager, ProviderError> {
+        gcp_client!(
+            self.cluster_manager_client,
+            google_cloud_container_v1::client::ClusterManager::builder(),
+            "init ClusterManager"
+        )
+    }
     // Cloud Run
     pub(crate) async fn run_services(
         &self,
@@ -568,22 +640,53 @@ impl GcpProvider {
             "init Logging"
         )
     }
-    // PHASE2:     pub(crate) async fn logging_metrics(&self) -> Result<&google_cloud_logging_v2::client::MetricsServiceV2, ProviderError> {
-    // PHASE2:         gcp_client!(self.logging_metrics_client, google_cloud_logging_v2::client::MetricsServiceV2::builder(), "init LoggingMetrics")
-    // PHASE2:     }
+    pub(crate) async fn logging_metrics(
+        &self,
+    ) -> Result<&google_cloud_logging_v2::client::MetricsServiceV2, ProviderError> {
+        gcp_client!(
+            self.logging_metrics_client,
+            google_cloud_logging_v2::client::MetricsServiceV2::builder(),
+            "init LoggingMetrics"
+        )
+    }
     // Cloud Monitoring
-    // PHASE2:     pub(crate) async fn monitoring(&self) -> Result<&google_cloud_monitoring_v3::client::AlertPolicyService, ProviderError> {
-    // PHASE2:         gcp_client!(self.monitoring_client, google_cloud_monitoring_v3::client::AlertPolicyService::builder(), "init Monitoring")
-    // PHASE2:     }
-    // PHASE2:     pub(crate) async fn notification_channels(&self) -> Result<&google_cloud_monitoring_v3::client::NotificationChannelService, ProviderError> {
-    // PHASE2:         gcp_client!(self.notification_channels_client, google_cloud_monitoring_v3::client::NotificationChannelService::builder(), "init NotificationChannels")
-    // PHASE2:     }
-    // PHASE2:     pub(crate) async fn uptime_checks(&self) -> Result<&google_cloud_monitoring_v3::client::UptimeCheckService, ProviderError> {
-    // PHASE2:         gcp_client!(self.uptime_checks_client, google_cloud_monitoring_v3::client::UptimeCheckService::builder(), "init UptimeChecks")
-    // PHASE2:     }
-    // PHASE2:     pub(crate) async fn monitoring_groups(&self) -> Result<&google_cloud_monitoring_v3::client::GroupService, ProviderError> {
-    // PHASE2:         gcp_client!(self.monitoring_groups_client, google_cloud_monitoring_v3::client::GroupService::builder(), "init MonitoringGroups")
-    // PHASE2:     }
+    pub(crate) async fn monitoring(
+        &self,
+    ) -> Result<&google_cloud_monitoring_v3::client::AlertPolicyService, ProviderError> {
+        gcp_client!(
+            self.monitoring_client,
+            google_cloud_monitoring_v3::client::AlertPolicyService::builder(),
+            "init Monitoring"
+        )
+    }
+    pub(crate) async fn notification_channels(
+        &self,
+    ) -> Result<&google_cloud_monitoring_v3::client::NotificationChannelService, ProviderError>
+    {
+        gcp_client!(
+            self.notification_channels_client,
+            google_cloud_monitoring_v3::client::NotificationChannelService::builder(),
+            "init NotificationChannels"
+        )
+    }
+    pub(crate) async fn uptime_checks(
+        &self,
+    ) -> Result<&google_cloud_monitoring_v3::client::UptimeCheckService, ProviderError> {
+        gcp_client!(
+            self.uptime_checks_client,
+            google_cloud_monitoring_v3::client::UptimeCheckService::builder(),
+            "init UptimeChecks"
+        )
+    }
+    pub(crate) async fn monitoring_groups(
+        &self,
+    ) -> Result<&google_cloud_monitoring_v3::client::GroupService, ProviderError> {
+        gcp_client!(
+            self.monitoring_groups_client,
+            google_cloud_monitoring_v3::client::GroupService::builder(),
+            "init MonitoringGroups"
+        )
+    }
 }
 
 /// Parse a zonal provider_id like "us-central1-a/my-instance" into (zone, name).
@@ -721,8 +824,28 @@ impl Provider for GcpProvider {
             Self::kms_cryptokey_schema(),
             // Secret Manager (1)
             Self::secretmanager_secret_schema(),
-            // Cloud Logging (1 — LogBucket; others deferred to Phase 2)
+            // Cloud Logging
             Self::logging_logbucket_schema(),
+            // Cloud SQL (3)
+            Self::sql_instance_schema(),
+            Self::sql_database_schema(),
+            Self::sql_user_schema(),
+            // IAM (3)
+            Self::iam_serviceaccount_schema(),
+            Self::iam_serviceaccountkey_schema(),
+            Self::iam_role_schema(),
+            // Cloud DNS (3)
+            Self::dns_managedzone_schema(),
+            Self::dns_recordset_schema(),
+            Self::dns_policy_schema(),
+            // GKE (2)
+            Self::container_cluster_schema(),
+            Self::container_nodepool_schema(),
+            // Cloud Monitoring (4)
+            Self::monitoring_alertpolicy_schema(),
+            Self::monitoring_notificationchannel_schema(),
+            Self::monitoring_uptimecheckconfig_schema(),
+            Self::monitoring_group_schema(),
         ]
     }
 
@@ -735,77 +858,73 @@ impl Provider for GcpProvider {
         let provider_id = provider_id.to_string();
         Box::pin(async move {
             gcp_dispatch_read!(self, resource_type.as_str(), provider_id, {
-                            // Compute Engine
-                            "compute.Network" => read_compute_network,
-                            "compute.Subnetwork" => read_compute_subnetwork,
-                            "compute.Firewall" => read_compute_firewall,
-                            "compute.Address" => read_compute_address,
-                            "compute.Disk" => read_compute_disk,
-                            "compute.Instance" => read_compute_instance,
-                            "compute.Route" => read_compute_route,
-                            "compute.Autoscaler" => read_compute_autoscaler,
-                            "compute.Image" => read_compute_image,
-                            "compute.InstanceTemplate" => read_compute_instancetemplate,
-                            "compute.InstanceGroup" => read_compute_instancegroup,
-                            "compute.Router" => read_compute_router,
-                            "compute.SecurityPolicy" => read_compute_securitypolicy,
-                            "compute.Snapshot" => read_compute_snapshot,
-                            "compute.SslCertificate" => read_compute_sslcertificate,
-                            "compute.UrlMap" => read_compute_urlmap,
-                            "compute.TargetHttpProxy" => read_compute_targethttpproxy,
-                            "compute.TargetHttpsProxy" => read_compute_targethttpsproxy,
-                            "compute.VpnGateway" => read_compute_vpngateway,
-                            "compute.VpnTunnel" => read_compute_vpntunnel,
-                            "compute.Reservation" => read_compute_reservation,
-                            "compute.InterconnectAttachment" => read_compute_interconnectattachment,
-            // PHASE2:                 "compute.FirewallPolicy" => read_compute_firewallpolicy,
-                            "compute.ResourcePolicy" => read_compute_resourcepolicy,
-                            // Load Balancing
-                            "loadbalancing.BackendService" => read_loadbalancing_backendservice,
-                            "loadbalancing.HealthCheck" => read_loadbalancing_healthcheck,
-                            "loadbalancing.ForwardingRule" => read_loadbalancing_forwardingrule,
-                            // Cloud Storage
-                            "storage.Bucket" => read_bucket,
-                            // Cloud SQL
-            // PHASE2:                 "sql.Instance" => read_sql_instance,
-            // PHASE2:                 "sql.Database" => read_sql_database,
-            // PHASE2:                 "sql.User" => read_sql_user,
-                            // IAM
-            // PHASE2:                 "iam.ServiceAccount" => read_iam_serviceaccount,
-            // PHASE2:                 "iam.Role" => read_iam_role,
-            // PHASE2:                 "iam.ServiceAccountKey" => read_iam_serviceaccountkey,
-                            // Cloud DNS
-            // PHASE2:                 "dns.ManagedZone" => read_dns_managedzone,
-            // PHASE2:                 "dns.RecordSet" => read_dns_recordset,
-            // PHASE2:                 "dns.Policy" => read_dns_policy,
-                            // GKE
-            // PHASE2:                 "container.Cluster" => read_container_cluster,
-            // PHASE2:                 "container.NodePool" => read_container_nodepool,
-                            // Cloud Run
-                            "run.Service" => read_run_service,
-                            "run.Job" => read_run_job,
-                            // Cloud Functions
-                            "functions.Function" => read_functions_function,
-                            // Pub/Sub
-                            "pubsub.Topic" => read_topic,
-                            "pubsub.Subscription" => read_subscription,
-                            // KMS
-                            "kms.KeyRing" => read_kms_keyring,
-                            "kms.CryptoKey" => read_kms_cryptokey,
-                            // Secret Manager
-                            "secretmanager.Secret" => read_secretmanager_secret,
-            // PHASE2:                 "secretmanager.SecretVersion" => read_secretmanager_secretversion,
-                            // Cloud Logging
-            // PHASE2:                 "logging.LogSink" => read_logging_logsink,
-                            "logging.LogBucket" => read_logging_logbucket,
-            // PHASE2:                 "logging.LogExclusion" => read_logging_logexclusion,
-            // PHASE2:                 "logging.LogMetric" => read_logging_logmetric,
-                            // Cloud Monitoring
-            // PHASE2:                 "monitoring.AlertPolicy" => read_monitoring_alertpolicy,
-            // PHASE2:                 "monitoring.NotificationChannel" => read_monitoring_notificationchannel,
-            // PHASE2:                 "monitoring.UptimeCheckConfig" => read_monitoring_uptimecheckconfig,
-            // PHASE2:                 "monitoring.Group" => read_monitoring_group,
-                        })
+                // Compute Engine
+                "compute.Network" => read_compute_network,
+                "compute.Subnetwork" => read_compute_subnetwork,
+                "compute.Firewall" => read_compute_firewall,
+                "compute.Address" => read_compute_address,
+                "compute.Disk" => read_compute_disk,
+                "compute.Instance" => read_compute_instance,
+                "compute.Route" => read_compute_route,
+                "compute.Autoscaler" => read_compute_autoscaler,
+                "compute.Image" => read_compute_image,
+                "compute.InstanceTemplate" => read_compute_instancetemplate,
+                "compute.InstanceGroup" => read_compute_instancegroup,
+                "compute.Router" => read_compute_router,
+                "compute.SecurityPolicy" => read_compute_securitypolicy,
+                "compute.Snapshot" => read_compute_snapshot,
+                "compute.SslCertificate" => read_compute_sslcertificate,
+                "compute.UrlMap" => read_compute_urlmap,
+                "compute.TargetHttpProxy" => read_compute_targethttpproxy,
+                "compute.TargetHttpsProxy" => read_compute_targethttpsproxy,
+                "compute.VpnGateway" => read_compute_vpngateway,
+                "compute.VpnTunnel" => read_compute_vpntunnel,
+                "compute.Reservation" => read_compute_reservation,
+                "compute.InterconnectAttachment" => read_compute_interconnectattachment,
+
+                "compute.ResourcePolicy" => read_compute_resourcepolicy,
+                // Load Balancing
+                "loadbalancing.BackendService" => read_loadbalancing_backendservice,
+                "loadbalancing.HealthCheck" => read_loadbalancing_healthcheck,
+                "loadbalancing.ForwardingRule" => read_loadbalancing_forwardingrule,
+                // Cloud Storage
+                "storage.Bucket" => read_bucket,
+                // Cloud SQL
+                "sql.Instance" => read_sql_instance,
+                "sql.Database" => read_sql_database,
+                "sql.User" => read_sql_user,
+                // IAM
+                "iam.ServiceAccount" => read_iam_serviceaccount,
+                "iam.Role" => read_iam_role,
+                "iam.ServiceAccountKey" => read_iam_serviceaccountkey,
+                // Cloud DNS
+                "dns.ManagedZone" => read_dns_managedzone,
+                "dns.RecordSet" => read_dns_recordset,
+                "dns.Policy" => read_dns_policy,
+                // GKE
+                "container.Cluster" => read_container_cluster,
+                "container.NodePool" => read_container_nodepool,
+                // Cloud Run
+                "run.Service" => read_run_service,
+                "run.Job" => read_run_job,
+                // Cloud Functions
+                "functions.Function" => read_functions_function,
+                // Pub/Sub
+                "pubsub.Topic" => read_topic,
+                "pubsub.Subscription" => read_subscription,
+                // KMS
+                "kms.KeyRing" => read_kms_keyring,
+                "kms.CryptoKey" => read_kms_cryptokey,
+                // Secret Manager
+                "secretmanager.Secret" => read_secretmanager_secret,
+                // Cloud Logging
+                "logging.LogBucket" => read_logging_logbucket,
+                // Cloud Monitoring
+                "monitoring.AlertPolicy" => read_monitoring_alertpolicy,
+                "monitoring.NotificationChannel" => read_monitoring_notificationchannel,
+                "monitoring.UptimeCheckConfig" => read_monitoring_uptimecheckconfig,
+                "monitoring.Group" => read_monitoring_group,
+            })
         })
     }
 
@@ -818,77 +937,73 @@ impl Provider for GcpProvider {
         let config = config.clone();
         Box::pin(async move {
             gcp_dispatch_create!(self, resource_type.as_str(), config, {
-                            // Compute Engine
-                            "compute.Network" => create_compute_network,
-                            "compute.Subnetwork" => create_compute_subnetwork,
-                            "compute.Firewall" => create_compute_firewall,
-                            "compute.Address" => create_compute_address,
-                            "compute.Disk" => create_compute_disk,
-                            "compute.Instance" => create_compute_instance,
-                            "compute.Route" => create_compute_route,
-                            "compute.Autoscaler" => create_compute_autoscaler,
-                            "compute.Image" => create_compute_image,
-                            "compute.InstanceTemplate" => create_compute_instancetemplate,
-                            "compute.InstanceGroup" => create_compute_instancegroup,
-                            "compute.Router" => create_compute_router,
-                            "compute.SecurityPolicy" => create_compute_securitypolicy,
-                            "compute.Snapshot" => create_compute_snapshot,
-                            "compute.SslCertificate" => create_compute_sslcertificate,
-                            "compute.UrlMap" => create_compute_urlmap,
-                            "compute.TargetHttpProxy" => create_compute_targethttpproxy,
-                            "compute.TargetHttpsProxy" => create_compute_targethttpsproxy,
-                            "compute.VpnGateway" => create_compute_vpngateway,
-                            "compute.VpnTunnel" => create_compute_vpntunnel,
-                            "compute.Reservation" => create_compute_reservation,
-                            "compute.InterconnectAttachment" => create_compute_interconnectattachment,
-            // PHASE2:                 "compute.FirewallPolicy" => create_compute_firewallpolicy,
-                            "compute.ResourcePolicy" => create_compute_resourcepolicy,
-                            // Load Balancing
-                            "loadbalancing.BackendService" => create_loadbalancing_backendservice,
-                            "loadbalancing.HealthCheck" => create_loadbalancing_healthcheck,
-                            "loadbalancing.ForwardingRule" => create_loadbalancing_forwardingrule,
-                            // Cloud Storage
-                            "storage.Bucket" => create_bucket,
-                            // Cloud SQL
-            // PHASE2:                 "sql.Instance" => create_sql_instance,
-            // PHASE2:                 "sql.Database" => create_sql_database,
-            // PHASE2:                 "sql.User" => create_sql_user,
-                            // IAM
-            // PHASE2:                 "iam.ServiceAccount" => create_iam_serviceaccount,
-            // PHASE2:                 "iam.Role" => create_iam_role,
-            // PHASE2:                 "iam.ServiceAccountKey" => create_iam_serviceaccountkey,
-                            // Cloud DNS
-            // PHASE2:                 "dns.ManagedZone" => create_dns_managedzone,
-            // PHASE2:                 "dns.RecordSet" => create_dns_recordset,
-            // PHASE2:                 "dns.Policy" => create_dns_policy,
-                            // GKE
-            // PHASE2:                 "container.Cluster" => create_container_cluster,
-            // PHASE2:                 "container.NodePool" => create_container_nodepool,
-                            // Cloud Run
-                            "run.Service" => create_run_service,
-                            "run.Job" => create_run_job,
-                            // Cloud Functions
-                            "functions.Function" => create_functions_function,
-                            // Pub/Sub
-                            "pubsub.Topic" => create_topic,
-                            "pubsub.Subscription" => create_subscription,
-                            // KMS
-                            "kms.KeyRing" => create_kms_keyring,
-                            "kms.CryptoKey" => create_kms_cryptokey,
-                            // Secret Manager
-                            "secretmanager.Secret" => create_secretmanager_secret,
-            // PHASE2:                 "secretmanager.SecretVersion" => create_secretmanager_secretversion,
-                            // Cloud Logging
-            // PHASE2:                 "logging.LogSink" => create_logging_logsink,
-                            "logging.LogBucket" => create_logging_logbucket,
-            // PHASE2:                 "logging.LogExclusion" => create_logging_logexclusion,
-            // PHASE2:                 "logging.LogMetric" => create_logging_logmetric,
-                            // Cloud Monitoring
-            // PHASE2:                 "monitoring.AlertPolicy" => create_monitoring_alertpolicy,
-            // PHASE2:                 "monitoring.NotificationChannel" => create_monitoring_notificationchannel,
-            // PHASE2:                 "monitoring.UptimeCheckConfig" => create_monitoring_uptimecheckconfig,
-            // PHASE2:                 "monitoring.Group" => create_monitoring_group,
-                        })
+                // Compute Engine
+                "compute.Network" => create_compute_network,
+                "compute.Subnetwork" => create_compute_subnetwork,
+                "compute.Firewall" => create_compute_firewall,
+                "compute.Address" => create_compute_address,
+                "compute.Disk" => create_compute_disk,
+                "compute.Instance" => create_compute_instance,
+                "compute.Route" => create_compute_route,
+                "compute.Autoscaler" => create_compute_autoscaler,
+                "compute.Image" => create_compute_image,
+                "compute.InstanceTemplate" => create_compute_instancetemplate,
+                "compute.InstanceGroup" => create_compute_instancegroup,
+                "compute.Router" => create_compute_router,
+                "compute.SecurityPolicy" => create_compute_securitypolicy,
+                "compute.Snapshot" => create_compute_snapshot,
+                "compute.SslCertificate" => create_compute_sslcertificate,
+                "compute.UrlMap" => create_compute_urlmap,
+                "compute.TargetHttpProxy" => create_compute_targethttpproxy,
+                "compute.TargetHttpsProxy" => create_compute_targethttpsproxy,
+                "compute.VpnGateway" => create_compute_vpngateway,
+                "compute.VpnTunnel" => create_compute_vpntunnel,
+                "compute.Reservation" => create_compute_reservation,
+                "compute.InterconnectAttachment" => create_compute_interconnectattachment,
+
+                "compute.ResourcePolicy" => create_compute_resourcepolicy,
+                // Load Balancing
+                "loadbalancing.BackendService" => create_loadbalancing_backendservice,
+                "loadbalancing.HealthCheck" => create_loadbalancing_healthcheck,
+                "loadbalancing.ForwardingRule" => create_loadbalancing_forwardingrule,
+                // Cloud Storage
+                "storage.Bucket" => create_bucket,
+                // Cloud SQL
+                "sql.Instance" => create_sql_instance,
+                "sql.Database" => create_sql_database,
+                "sql.User" => create_sql_user,
+                // IAM
+                "iam.ServiceAccount" => create_iam_serviceaccount,
+                "iam.Role" => create_iam_role,
+                "iam.ServiceAccountKey" => create_iam_serviceaccountkey,
+                // Cloud DNS
+                "dns.ManagedZone" => create_dns_managedzone,
+                "dns.RecordSet" => create_dns_recordset,
+                "dns.Policy" => create_dns_policy,
+                // GKE
+                "container.Cluster" => create_container_cluster,
+                "container.NodePool" => create_container_nodepool,
+                // Cloud Run
+                "run.Service" => create_run_service,
+                "run.Job" => create_run_job,
+                // Cloud Functions
+                "functions.Function" => create_functions_function,
+                // Pub/Sub
+                "pubsub.Topic" => create_topic,
+                "pubsub.Subscription" => create_subscription,
+                // KMS
+                "kms.KeyRing" => create_kms_keyring,
+                "kms.CryptoKey" => create_kms_cryptokey,
+                // Secret Manager
+                "secretmanager.Secret" => create_secretmanager_secret,
+                // Cloud Logging
+                "logging.LogBucket" => create_logging_logbucket,
+                // Cloud Monitoring
+                "monitoring.AlertPolicy" => create_monitoring_alertpolicy,
+                "monitoring.NotificationChannel" => create_monitoring_notificationchannel,
+                "monitoring.UptimeCheckConfig" => create_monitoring_uptimecheckconfig,
+                "monitoring.Group" => create_monitoring_group,
+            })
         })
     }
 
@@ -904,76 +1019,72 @@ impl Provider for GcpProvider {
         let new_config = new_config.clone();
         Box::pin(async move {
             gcp_dispatch_update!(self, resource_type.as_str(), provider_id, new_config, {
-                            // Compute Engine
-                            "compute.Network" => update_compute_network,
-                            "compute.Subnetwork" => update_compute_subnetwork,
-                            "compute.Firewall" => update_compute_firewall,
-                            "compute.Address" => update_compute_address,
-                            "compute.Disk" => update_compute_disk,
-                            "compute.Instance" => update_compute_instance,
-                            "compute.Route" => update_compute_route,
-                            "compute.Autoscaler" => update_compute_autoscaler,
-                            "compute.Image" => update_compute_image,
-                            "compute.InstanceTemplate" => update_compute_instancetemplate,
-                            "compute.InstanceGroup" => update_compute_instancegroup,
-                            "compute.Router" => update_compute_router,
-                            "compute.SecurityPolicy" => update_compute_securitypolicy,
-                            "compute.Snapshot" => update_compute_snapshot,
-                            "compute.SslCertificate" => update_compute_sslcertificate,
-                            "compute.UrlMap" => update_compute_urlmap,
-                            "compute.TargetHttpProxy" => update_compute_targethttpproxy,
-                            "compute.TargetHttpsProxy" => update_compute_targethttpsproxy,
-                            "compute.VpnGateway" => update_compute_vpngateway,
-                            "compute.VpnTunnel" => update_compute_vpntunnel,
-                            "compute.Reservation" => update_compute_reservation,
-                            "compute.InterconnectAttachment" => update_compute_interconnectattachment,
-            // PHASE2:                 "compute.FirewallPolicy" => update_compute_firewallpolicy,
-                            "compute.ResourcePolicy" => update_compute_resourcepolicy,
-                            // Load Balancing
-                            "loadbalancing.BackendService" => update_loadbalancing_backendservice,
-                            "loadbalancing.HealthCheck" => update_loadbalancing_healthcheck,
-                            "loadbalancing.ForwardingRule" => update_loadbalancing_forwardingrule,
-                            // Cloud Storage
-                            "storage.Bucket" => update_bucket,
-                            // Cloud SQL
-            // PHASE2:                 "sql.Instance" => update_sql_instance,
-            // PHASE2:                 "sql.Database" => update_sql_database,
-            // PHASE2:                 "sql.User" => update_sql_user,
-                            // IAM
-            // PHASE2:                 "iam.ServiceAccount" => update_iam_serviceaccount,
-            // PHASE2:                 "iam.Role" => update_iam_role,
-            // PHASE2:                 "iam.ServiceAccountKey" => update_iam_serviceaccountkey,
-                            // Cloud DNS
-            // PHASE2:                 "dns.ManagedZone" => update_dns_managedzone,
-            // PHASE2:                 "dns.RecordSet" => update_dns_recordset,
-            // PHASE2:                 "dns.Policy" => update_dns_policy,
-                            // GKE
-            // PHASE2:                 "container.Cluster" => update_container_cluster,
-            // PHASE2:                 "container.NodePool" => update_container_nodepool,
-                            // Cloud Run
-                            "run.Service" => update_run_service,
-                            "run.Job" => update_run_job,
-                            // Cloud Functions
-                            "functions.Function" => update_functions_function,
-                            // Pub/Sub
-                            "pubsub.Subscription" => update_subscription,
-                            // KMS
-                            "kms.KeyRing" => update_kms_keyring,
-                            "kms.CryptoKey" => update_kms_cryptokey,
-                            // Secret Manager
-                            "secretmanager.Secret" => update_secretmanager_secret,
-            // PHASE2:                 "secretmanager.SecretVersion" => update_secretmanager_secretversion,
-                            // Cloud Logging
-            // PHASE2:                 "logging.LogSink" => update_logging_logsink,
-                            "logging.LogBucket" => update_logging_logbucket,
-            // PHASE2:                 "logging.LogExclusion" => update_logging_logexclusion,
-            // PHASE2:                 "logging.LogMetric" => update_logging_logmetric,
-                            // Cloud Monitoring
-            // PHASE2:                 "monitoring.AlertPolicy" => update_monitoring_alertpolicy,
-            // PHASE2:                 "monitoring.NotificationChannel" => update_monitoring_notificationchannel,
-            // PHASE2:                 "monitoring.UptimeCheckConfig" => update_monitoring_uptimecheckconfig,
-            // PHASE2:                 "monitoring.Group" => update_monitoring_group,
-                        })
+                // Compute Engine
+                "compute.Network" => update_compute_network,
+                "compute.Subnetwork" => update_compute_subnetwork,
+                "compute.Firewall" => update_compute_firewall,
+                "compute.Address" => update_compute_address,
+                "compute.Disk" => update_compute_disk,
+                "compute.Instance" => update_compute_instance,
+                "compute.Route" => update_compute_route,
+                "compute.Autoscaler" => update_compute_autoscaler,
+                "compute.Image" => update_compute_image,
+                "compute.InstanceTemplate" => update_compute_instancetemplate,
+                "compute.InstanceGroup" => update_compute_instancegroup,
+                "compute.Router" => update_compute_router,
+                "compute.SecurityPolicy" => update_compute_securitypolicy,
+                "compute.Snapshot" => update_compute_snapshot,
+                "compute.SslCertificate" => update_compute_sslcertificate,
+                "compute.UrlMap" => update_compute_urlmap,
+                "compute.TargetHttpProxy" => update_compute_targethttpproxy,
+                "compute.TargetHttpsProxy" => update_compute_targethttpsproxy,
+                "compute.VpnGateway" => update_compute_vpngateway,
+                "compute.VpnTunnel" => update_compute_vpntunnel,
+                "compute.Reservation" => update_compute_reservation,
+                "compute.InterconnectAttachment" => update_compute_interconnectattachment,
+
+                "compute.ResourcePolicy" => update_compute_resourcepolicy,
+                // Load Balancing
+                "loadbalancing.BackendService" => update_loadbalancing_backendservice,
+                "loadbalancing.HealthCheck" => update_loadbalancing_healthcheck,
+                "loadbalancing.ForwardingRule" => update_loadbalancing_forwardingrule,
+                // Cloud Storage
+                "storage.Bucket" => update_bucket,
+                // Cloud SQL
+                "sql.Instance" => update_sql_instance,
+                "sql.Database" => update_sql_database,
+                "sql.User" => update_sql_user,
+                // IAM
+                "iam.ServiceAccount" => update_iam_serviceaccount,
+                "iam.Role" => update_iam_role,
+                "iam.ServiceAccountKey" => update_iam_serviceaccountkey,
+                // Cloud DNS
+                "dns.ManagedZone" => update_dns_managedzone,
+                "dns.RecordSet" => update_dns_recordset,
+                "dns.Policy" => update_dns_policy,
+                // GKE
+                "container.Cluster" => update_container_cluster,
+                "container.NodePool" => update_container_nodepool,
+                // Cloud Run
+                "run.Service" => update_run_service,
+                "run.Job" => update_run_job,
+                // Cloud Functions
+                "functions.Function" => update_functions_function,
+                // Pub/Sub
+                "pubsub.Subscription" => update_subscription,
+                // KMS
+                "kms.KeyRing" => update_kms_keyring,
+                "kms.CryptoKey" => update_kms_cryptokey,
+                // Secret Manager
+                "secretmanager.Secret" => update_secretmanager_secret,
+                // Cloud Logging
+                "logging.LogBucket" => update_logging_logbucket,
+                // Cloud Monitoring
+                "monitoring.AlertPolicy" => update_monitoring_alertpolicy,
+                "monitoring.NotificationChannel" => update_monitoring_notificationchannel,
+                "monitoring.UptimeCheckConfig" => update_monitoring_uptimecheckconfig,
+                "monitoring.Group" => update_monitoring_group,
+            })
         })
     }
 
@@ -986,77 +1097,73 @@ impl Provider for GcpProvider {
         let provider_id = provider_id.to_string();
         Box::pin(async move {
             gcp_dispatch_delete!(self, resource_type.as_str(), provider_id, {
-                            // Compute Engine
-                            "compute.Network" => delete_compute_network,
-                            "compute.Subnetwork" => delete_compute_subnetwork,
-                            "compute.Firewall" => delete_compute_firewall,
-                            "compute.Address" => delete_compute_address,
-                            "compute.Disk" => delete_compute_disk,
-                            "compute.Instance" => delete_compute_instance,
-                            "compute.Route" => delete_compute_route,
-                            "compute.Autoscaler" => delete_compute_autoscaler,
-                            "compute.Image" => delete_compute_image,
-                            "compute.InstanceTemplate" => delete_compute_instancetemplate,
-                            "compute.InstanceGroup" => delete_compute_instancegroup,
-                            "compute.Router" => delete_compute_router,
-                            "compute.SecurityPolicy" => delete_compute_securitypolicy,
-                            "compute.Snapshot" => delete_compute_snapshot,
-                            "compute.SslCertificate" => delete_compute_sslcertificate,
-                            "compute.UrlMap" => delete_compute_urlmap,
-                            "compute.TargetHttpProxy" => delete_compute_targethttpproxy,
-                            "compute.TargetHttpsProxy" => delete_compute_targethttpsproxy,
-                            "compute.VpnGateway" => delete_compute_vpngateway,
-                            "compute.VpnTunnel" => delete_compute_vpntunnel,
-                            "compute.Reservation" => delete_compute_reservation,
-                            "compute.InterconnectAttachment" => delete_compute_interconnectattachment,
-            // PHASE2:                 "compute.FirewallPolicy" => delete_compute_firewallpolicy,
-                            "compute.ResourcePolicy" => delete_compute_resourcepolicy,
-                            // Load Balancing
-                            "loadbalancing.BackendService" => delete_loadbalancing_backendservice,
-                            "loadbalancing.HealthCheck" => delete_loadbalancing_healthcheck,
-                            "loadbalancing.ForwardingRule" => delete_loadbalancing_forwardingrule,
-                            // Cloud Storage
-                            "storage.Bucket" => delete_bucket,
-                            // Cloud SQL
-            // PHASE2:                 "sql.Instance" => delete_sql_instance,
-            // PHASE2:                 "sql.Database" => delete_sql_database,
-            // PHASE2:                 "sql.User" => delete_sql_user,
-                            // IAM
-            // PHASE2:                 "iam.ServiceAccount" => delete_iam_serviceaccount,
-            // PHASE2:                 "iam.Role" => delete_iam_role,
-            // PHASE2:                 "iam.ServiceAccountKey" => delete_iam_serviceaccountkey,
-                            // Cloud DNS
-            // PHASE2:                 "dns.ManagedZone" => delete_dns_managedzone,
-            // PHASE2:                 "dns.RecordSet" => delete_dns_recordset,
-            // PHASE2:                 "dns.Policy" => delete_dns_policy,
-                            // GKE
-            // PHASE2:                 "container.Cluster" => delete_container_cluster,
-            // PHASE2:                 "container.NodePool" => delete_container_nodepool,
-                            // Cloud Run
-                            "run.Service" => delete_run_service,
-                            "run.Job" => delete_run_job,
-                            // Cloud Functions
-                            "functions.Function" => delete_functions_function,
-                            // Pub/Sub
-                            "pubsub.Topic" => delete_topic,
-                            "pubsub.Subscription" => delete_subscription,
-                            // KMS
-                            "kms.KeyRing" => delete_kms_keyring,
-                            "kms.CryptoKey" => delete_kms_cryptokey,
-                            // Secret Manager
-                            "secretmanager.Secret" => delete_secretmanager_secret,
-            // PHASE2:                 "secretmanager.SecretVersion" => delete_secretmanager_secretversion,
-                            // Cloud Logging
-            // PHASE2:                 "logging.LogSink" => delete_logging_logsink,
-                            "logging.LogBucket" => delete_logging_logbucket,
-            // PHASE2:                 "logging.LogExclusion" => delete_logging_logexclusion,
-            // PHASE2:                 "logging.LogMetric" => delete_logging_logmetric,
-                            // Cloud Monitoring
-            // PHASE2:                 "monitoring.AlertPolicy" => delete_monitoring_alertpolicy,
-            // PHASE2:                 "monitoring.NotificationChannel" => delete_monitoring_notificationchannel,
-            // PHASE2:                 "monitoring.UptimeCheckConfig" => delete_monitoring_uptimecheckconfig,
-            // PHASE2:                 "monitoring.Group" => delete_monitoring_group,
-                        })
+                // Compute Engine
+                "compute.Network" => delete_compute_network,
+                "compute.Subnetwork" => delete_compute_subnetwork,
+                "compute.Firewall" => delete_compute_firewall,
+                "compute.Address" => delete_compute_address,
+                "compute.Disk" => delete_compute_disk,
+                "compute.Instance" => delete_compute_instance,
+                "compute.Route" => delete_compute_route,
+                "compute.Autoscaler" => delete_compute_autoscaler,
+                "compute.Image" => delete_compute_image,
+                "compute.InstanceTemplate" => delete_compute_instancetemplate,
+                "compute.InstanceGroup" => delete_compute_instancegroup,
+                "compute.Router" => delete_compute_router,
+                "compute.SecurityPolicy" => delete_compute_securitypolicy,
+                "compute.Snapshot" => delete_compute_snapshot,
+                "compute.SslCertificate" => delete_compute_sslcertificate,
+                "compute.UrlMap" => delete_compute_urlmap,
+                "compute.TargetHttpProxy" => delete_compute_targethttpproxy,
+                "compute.TargetHttpsProxy" => delete_compute_targethttpsproxy,
+                "compute.VpnGateway" => delete_compute_vpngateway,
+                "compute.VpnTunnel" => delete_compute_vpntunnel,
+                "compute.Reservation" => delete_compute_reservation,
+                "compute.InterconnectAttachment" => delete_compute_interconnectattachment,
+
+                "compute.ResourcePolicy" => delete_compute_resourcepolicy,
+                // Load Balancing
+                "loadbalancing.BackendService" => delete_loadbalancing_backendservice,
+                "loadbalancing.HealthCheck" => delete_loadbalancing_healthcheck,
+                "loadbalancing.ForwardingRule" => delete_loadbalancing_forwardingrule,
+                // Cloud Storage
+                "storage.Bucket" => delete_bucket,
+                // Cloud SQL
+                "sql.Instance" => delete_sql_instance,
+                "sql.Database" => delete_sql_database,
+                "sql.User" => delete_sql_user,
+                // IAM
+                "iam.ServiceAccount" => delete_iam_serviceaccount,
+                "iam.Role" => delete_iam_role,
+                "iam.ServiceAccountKey" => delete_iam_serviceaccountkey,
+                // Cloud DNS
+                "dns.ManagedZone" => delete_dns_managedzone,
+                "dns.RecordSet" => delete_dns_recordset,
+                "dns.Policy" => delete_dns_policy,
+                // GKE
+                "container.Cluster" => delete_container_cluster,
+                "container.NodePool" => delete_container_nodepool,
+                // Cloud Run
+                "run.Service" => delete_run_service,
+                "run.Job" => delete_run_job,
+                // Cloud Functions
+                "functions.Function" => delete_functions_function,
+                // Pub/Sub
+                "pubsub.Topic" => delete_topic,
+                "pubsub.Subscription" => delete_subscription,
+                // KMS
+                "kms.KeyRing" => delete_kms_keyring,
+                "kms.CryptoKey" => delete_kms_cryptokey,
+                // Secret Manager
+                "secretmanager.Secret" => delete_secretmanager_secret,
+                // Cloud Logging
+                "logging.LogBucket" => delete_logging_logbucket,
+                // Cloud Monitoring
+                "monitoring.AlertPolicy" => delete_monitoring_alertpolicy,
+                "monitoring.NotificationChannel" => delete_monitoring_notificationchannel,
+                "monitoring.UptimeCheckConfig" => delete_monitoring_uptimecheckconfig,
+                "monitoring.Group" => delete_monitoring_group,
+            })
         })
     }
 
@@ -1117,7 +1224,7 @@ impl Provider for GcpProvider {
                 "compute.InterconnectAttachment" => {
                     compute::compute_interconnectattachment_forces_replacement(&change.path)
                 }
-                // PHASE2:                 "compute.FirewallPolicy" => compute::compute_firewallpolicy_forces_replacement(&change.path),
+
                 "compute.ResourcePolicy" => {
                     compute::compute_resourcepolicy_forces_replacement(&change.path)
                 }
@@ -1130,17 +1237,23 @@ impl Provider for GcpProvider {
                 "loadbalancing.ForwardingRule" => {
                     loadbalancing::loadbalancing_forwardingrule_forces_replacement(&change.path)
                 }
-                // PHASE2:                 "sql.Instance" => sql::sql_instance_forces_replacement(&change.path),
-                // PHASE2:                 "sql.Database" => sql::sql_database_forces_replacement(&change.path),
-                // PHASE2:                 "sql.User" => sql::sql_user_forces_replacement(&change.path),
-                // PHASE2:                 "iam.ServiceAccount" => iam::iam_serviceaccount_forces_replacement(&change.path),
-                // PHASE2:                 "iam.Role" => iam::iam_role_forces_replacement(&change.path),
-                // PHASE2:                 "iam.ServiceAccountKey" => iam::iam_serviceaccountkey_forces_replacement(&change.path),
-                // PHASE2:                 "dns.ManagedZone" => dns::dns_managedzone_forces_replacement(&change.path),
-                // PHASE2:                 "dns.RecordSet" => dns::dns_recordset_forces_replacement(&change.path),
-                // PHASE2:                 "dns.Policy" => dns::dns_policy_forces_replacement(&change.path),
-                // PHASE2:                 "container.Cluster" => container::container_cluster_forces_replacement(&change.path),
-                // PHASE2:                 "container.NodePool" => container::container_nodepool_forces_replacement(&change.path),
+                "sql.Instance" => sql::sql_instance_forces_replacement(&change.path),
+                "sql.Database" => sql::sql_database_forces_replacement(&change.path),
+                "sql.User" => sql::sql_user_forces_replacement(&change.path),
+                "iam.ServiceAccount" => iam::iam_serviceaccount_forces_replacement(&change.path),
+                "iam.Role" => iam::iam_role_forces_replacement(&change.path),
+                "iam.ServiceAccountKey" => {
+                    iam::iam_serviceaccountkey_forces_replacement(&change.path)
+                }
+                "dns.ManagedZone" => dns::dns_managedzone_forces_replacement(&change.path),
+                "dns.RecordSet" => dns::dns_recordset_forces_replacement(&change.path),
+                "dns.Policy" => dns::dns_policy_forces_replacement(&change.path),
+                "container.Cluster" => {
+                    container::container_cluster_forces_replacement(&change.path)
+                }
+                "container.NodePool" => {
+                    container::container_nodepool_forces_replacement(&change.path)
+                }
                 "run.Service" => run::run_service_forces_replacement(&change.path),
                 "run.Job" => run::run_job_forces_replacement(&change.path),
                 "functions.Function" => {
@@ -1151,15 +1264,17 @@ impl Provider for GcpProvider {
                 "secretmanager.Secret" => {
                     secretmanager::secretmanager_secret_forces_replacement(&change.path)
                 }
-                // PHASE2:                 "secretmanager.SecretVersion" => secretmanager::secretmanager_secretversion_forces_replacement(&change.path),
-                // PHASE2:                 "logging.LogSink" => logging::logging_logsink_forces_replacement(&change.path),
                 "logging.LogBucket" => logging::logging_logbucket_forces_replacement(&change.path),
-                // PHASE2:                 "logging.LogExclusion" => logging::logging_logexclusion_forces_replacement(&change.path),
-                // PHASE2:                 "logging.LogMetric" => logging::logging_logmetric_forces_replacement(&change.path),
-                // PHASE2:                 "monitoring.AlertPolicy" => monitoring::monitoring_alertpolicy_forces_replacement(&change.path),
-                // PHASE2:                 "monitoring.NotificationChannel" => monitoring::monitoring_notificationchannel_forces_replacement(&change.path),
-                // PHASE2:                 "monitoring.UptimeCheckConfig" => monitoring::monitoring_uptimecheckconfig_forces_replacement(&change.path),
-                // PHASE2:                 "monitoring.Group" => monitoring::monitoring_group_forces_replacement(&change.path),
+                "monitoring.AlertPolicy" => {
+                    monitoring::monitoring_alertpolicy_forces_replacement(&change.path)
+                }
+                "monitoring.NotificationChannel" => {
+                    monitoring::monitoring_notificationchannel_forces_replacement(&change.path)
+                }
+                "monitoring.UptimeCheckConfig" => {
+                    monitoring::monitoring_uptimecheckconfig_forces_replacement(&change.path)
+                }
+                "monitoring.Group" => monitoring::monitoring_group_forces_replacement(&change.path),
                 // Handwritten resources
                 "storage.Bucket" => change.path == "identity.name",
                 "pubsub.Topic" => true,
@@ -1179,7 +1294,6 @@ mod tests {
     #[test]
     fn gcp_provider_schema_count() {
         // Verify we can call all schema functions and they return valid data.
-        // 53 generated + 2 pubsub + 1 storage = 56 total
         let provider = GcpProvider {
             project_id: "test".into(),
             region: "us-central1".into(),
@@ -1210,6 +1324,14 @@ mod tests {
             health_checks_client: tokio::sync::OnceCell::new(),
             forwarding_rules_client: tokio::sync::OnceCell::new(),
             storage_client: tokio::sync::OnceCell::new(),
+            sql_instances_client: tokio::sync::OnceCell::new(),
+            sql_databases_client: tokio::sync::OnceCell::new(),
+            sql_users_client: tokio::sync::OnceCell::new(),
+            iam_client: tokio::sync::OnceCell::new(),
+            managed_zones_client: tokio::sync::OnceCell::new(),
+            resource_record_sets_client: tokio::sync::OnceCell::new(),
+            policies_client: tokio::sync::OnceCell::new(),
+            cluster_manager_client: tokio::sync::OnceCell::new(),
             run_services_client: tokio::sync::OnceCell::new(),
             run_jobs_client: tokio::sync::OnceCell::new(),
             functions_client: tokio::sync::OnceCell::new(),
@@ -1218,10 +1340,16 @@ mod tests {
             kms_client: tokio::sync::OnceCell::new(),
             secretmanager_client: tokio::sync::OnceCell::new(),
             logging_client: tokio::sync::OnceCell::new(),
+            logging_metrics_client: tokio::sync::OnceCell::new(),
+            monitoring_client: tokio::sync::OnceCell::new(),
+            notification_channels_client: tokio::sync::OnceCell::new(),
+            uptime_checks_client: tokio::sync::OnceCell::new(),
+            monitoring_groups_client: tokio::sync::OnceCell::new(),
         };
-        // 23 compute + 3 LB + 1 storage + 2 run + 1 functions + 2 pubsub + 2 kms + 1 secret + 1 logging = 36
+        // 23 compute + 3 LB + 1 storage + 3 SQL + 3 IAM + 3 DNS + 2 GKE
+        // + 2 run + 1 functions + 2 pubsub + 2 kms + 1 secret + 1 logging + 4 monitoring = 51
         let schemas = provider.resource_types();
-        assert_eq!(schemas.len(), 36);
+        assert_eq!(schemas.len(), 51);
     }
 
     #[test]

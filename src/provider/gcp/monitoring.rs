@@ -144,7 +144,9 @@ impl GcpProvider {
         // TODO: extract combiner (Enum(ConditionCombinerType)) from config["/config/combiner"]
         // TODO: extract conditions (Array(Enum(Condition))) from config["/config/conditions"]
         // TODO: extract creation_record (Nested(MutationRecord)) from config["/config/creation_record"]
-        let display_name = config.optional_str("/identity/display_name").map(String::from);
+        let display_name = config
+            .optional_str("/identity/display_name")
+            .map(String::from);
         // TODO: extract documentation (Enum(Documentation)) from config["/config/documentation"]
         // TODO: extract enabled (Enum(BoolValue)) from config["/config/enabled"]
         // TODO: extract mutation_record (Nested(MutationRecord)) from config["/config/mutation_record"]
@@ -174,10 +176,10 @@ impl GcpProvider {
 
         // Make API call
         let parent = format!("projects/{}", self.project_id);
-        self.monitoring().await?
+        self.monitoring()
+            .await?
             .create_alert_policy()
-            .set_parent(&parent)
-            .set_alert_policy_id(&name)
+            .set_name(&parent)
             .set_alert_policy(model)
             .send()
             .await
@@ -191,9 +193,14 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
         let alert_policy = self
-            .monitoring().await?
+            .monitoring()
+            .await?
             .get_alert_policy()
             .set_name(provider_id)
             .send()
@@ -235,13 +242,19 @@ impl GcpProvider {
         provider_id: &str,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
         // Extract fields from config
         // TODO: extract alert_strategy (Enum(AlertStrategy)) from config["/config/alert_strategy"]
         // TODO: extract combiner (Enum(ConditionCombinerType)) from config["/config/combiner"]
         // TODO: extract conditions (Array(Enum(Condition))) from config["/config/conditions"]
         // TODO: extract creation_record (Nested(MutationRecord)) from config["/config/creation_record"]
-        let display_name = config.optional_str("/identity/display_name").map(String::from);
+        let display_name = config
+            .optional_str("/identity/display_name")
+            .map(String::from);
         // TODO: extract documentation (Enum(Documentation)) from config["/config/documentation"]
         // TODO: extract enabled (Enum(BoolValue)) from config["/config/enabled"]
         // TODO: extract mutation_record (Nested(MutationRecord)) from config["/config/mutation_record"]
@@ -267,7 +280,8 @@ impl GcpProvider {
         // TODO: set user_labels on model via .set_user_labels()
         // TODO: set validity on model via .set_validity()
 
-        self.monitoring().await?
+        self.monitoring()
+            .await?
             .update_alert_policy()
             .set_alert_policy(model)
             .set_update_mask(google_cloud_wkt::FieldMask::default())
@@ -282,8 +296,13 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<(), ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
-        self.monitoring().await?
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
+        self.monitoring()
+            .await?
             .delete_alert_policy()
             .set_name(provider_id)
             .send()
@@ -291,7 +310,6 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("DeleteAlertPolicy", e))?;
         Ok(())
     }
-
 
     pub(super) fn monitoring_notificationchannel_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
@@ -400,8 +418,12 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
         // TODO: extract creation_record (Nested(MutationRecord)) from config["/config/creation_record"]
-        let description = config.optional_str("/identity/description").map(String::from);
-        let display_name = config.optional_str("/identity/display_name").map(String::from);
+        let description = config
+            .optional_str("/identity/description")
+            .map(String::from);
+        let display_name = config
+            .optional_str("/identity/display_name")
+            .map(String::from);
         // TODO: extract enabled (Enum(BoolValue)) from config["/config/enabled"]
         // TODO: extract labels (Record) from config["/identity/labels"]
         // TODO: extract mutation_records (Array(Nested(MutationRecord))) from config["/config/mutation_records"]
@@ -428,16 +450,21 @@ impl GcpProvider {
 
         // Make API call
         let parent = format!("projects/{}", self.project_id);
-        self.notification_channels().await?
+        self.notification_channels()
+            .await?
             .create_notification_channel()
-            .set_parent(&parent)
-            .set_notification_channel_id(&name)
+            .set_name(&parent)
             .set_notification_channel(model)
             .send()
             .await
-            .map_err(|e| super::classify_gcp_error("Create_notification_channel NotificationChannel", e))?;
+            .map_err(|e| {
+                super::classify_gcp_error("Create_notification_channel NotificationChannel", e)
+            })?;
 
-        let provider_id = format!("projects/{}/notification_channels/{}", self.project_id, name);
+        let provider_id = format!(
+            "projects/{}/notification_channels/{}",
+            self.project_id, name
+        );
         self.read_monitoring_notificationchannel(&provider_id).await
     }
 
@@ -445,16 +472,22 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
         let notification_channel = self
-            .notification_channels().await?
+            .notification_channels()
+            .await?
             .get_notification_channel()
             .set_name(provider_id)
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("GetNotificationChannel", e))?;
 
-        let user_labels: serde_json::Map<String, serde_json::Value> = notification_channel.labels
+        let user_labels: serde_json::Map<String, serde_json::Value> = notification_channel
+            .labels
             .iter()
             .filter(|(k, _)| k.as_str() != "managed_by")
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
@@ -493,11 +526,19 @@ impl GcpProvider {
         provider_id: &str,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
         // Extract fields from config
         // TODO: extract creation_record (Nested(MutationRecord)) from config["/config/creation_record"]
-        let description = config.optional_str("/identity/description").map(String::from);
-        let display_name = config.optional_str("/identity/display_name").map(String::from);
+        let description = config
+            .optional_str("/identity/description")
+            .map(String::from);
+        let display_name = config
+            .optional_str("/identity/display_name")
+            .map(String::from);
         // TODO: extract enabled (Enum(BoolValue)) from config["/config/enabled"]
         // TODO: extract mutation_records (Array(Nested(MutationRecord))) from config["/config/mutation_records"]
         // TODO: extract user_labels (Record) from config["/config/user_labels"]
@@ -519,13 +560,16 @@ impl GcpProvider {
         // TODO: set verification_status on model via .set_verification_status()
         model = model.set_labels(labels);
 
-        self.notification_channels().await?
+        self.notification_channels()
+            .await?
             .update_notification_channel()
             .set_notification_channel(model)
             .set_update_mask(google_cloud_wkt::FieldMask::default())
             .send()
             .await
-            .map_err(|e| super::classify_gcp_error("update_notification_channel NotificationChannel", e))?;
+            .map_err(|e| {
+                super::classify_gcp_error("update_notification_channel NotificationChannel", e)
+            })?;
 
         self.read_monitoring_notificationchannel(provider_id).await
     }
@@ -534,8 +578,13 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<(), ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
-        self.notification_channels().await?
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
+        self.notification_channels()
+            .await?
             .delete_notification_channel()
             .set_name(provider_id)
             .send()
@@ -543,7 +592,6 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("DeleteNotificationChannel", e))?;
         Ok(())
     }
-
 
     pub(super) fn monitoring_uptimecheckconfig_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
@@ -647,7 +695,9 @@ impl GcpProvider {
         // Extract fields from config
         // TODO: extract checker_type (Enum(CheckerType)) from config["/config/checker_type"]
         // TODO: extract content_matchers (Array(Enum(ContentMatcher))) from config["/config/content_matchers"]
-        let display_name = config.optional_str("/identity/display_name").map(String::from);
+        let display_name = config
+            .optional_str("/identity/display_name")
+            .map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
         // TODO: extract period (Duration) from config["/config/period"]
         // TODO: extract resource (Enum(Resource)) from config["/config/resource"]
@@ -671,14 +721,16 @@ impl GcpProvider {
 
         // Make API call
         let parent = format!("projects/{}", self.project_id);
-        self.uptime_checks().await?
+        self.uptime_checks()
+            .await?
             .create_uptime_check_config()
             .set_parent(&parent)
-            .set_uptime_check_config_id(&name)
             .set_uptime_check_config(model)
             .send()
             .await
-            .map_err(|e| super::classify_gcp_error("Create_uptime_check_config UptimeCheckConfig", e))?;
+            .map_err(|e| {
+                super::classify_gcp_error("Create_uptime_check_config UptimeCheckConfig", e)
+            })?;
 
         let provider_id = format!("projects/{}/uptime_check_configs/{}", self.project_id, name);
         self.read_monitoring_uptimecheckconfig(&provider_id).await
@@ -688,9 +740,14 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
         let uptime_check_config = self
-            .uptime_checks().await?
+            .uptime_checks()
+            .await?
             .get_uptime_check_config()
             .set_name(provider_id)
             .send()
@@ -706,7 +763,7 @@ impl GcpProvider {
                 "checker_type": serde_json::json!(uptime_check_config.checker_type) /* TODO: complex type */,
                 "content_matchers": serde_json::json!(uptime_check_config.content_matchers) /* TODO: complex type */,
                 "period": serde_json::json!(uptime_check_config.period) /* TODO: complex type */,
-                "resource": serde_json::json!(uptime_check_config.resource) /* TODO: complex type */,
+                "resource": serde_json::Value::Null /* TODO: resource is complex type */,
                 "selected_regions": serde_json::json!(uptime_check_config.selected_regions) /* TODO: complex type */,
                 "timeout": serde_json::json!(uptime_check_config.timeout) /* TODO: complex type */,
                 "user_labels": serde_json::json!(uptime_check_config.user_labels) /* TODO: complex type */,
@@ -728,11 +785,17 @@ impl GcpProvider {
         provider_id: &str,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
         // Extract fields from config
         // TODO: extract checker_type (Enum(CheckerType)) from config["/config/checker_type"]
         // TODO: extract content_matchers (Array(Enum(ContentMatcher))) from config["/config/content_matchers"]
-        let display_name = config.optional_str("/identity/display_name").map(String::from);
+        let display_name = config
+            .optional_str("/identity/display_name")
+            .map(String::from);
         // TODO: extract period (Duration) from config["/config/period"]
         // TODO: extract resource (Enum(Resource)) from config["/config/resource"]
         // TODO: extract selected_regions (Array(Enum(UptimeCheckRegion))) from config["/config/selected_regions"]
@@ -752,13 +815,16 @@ impl GcpProvider {
         // TODO: set timeout on model via .set_timeout()
         // TODO: set user_labels on model via .set_user_labels()
 
-        self.uptime_checks().await?
+        self.uptime_checks()
+            .await?
             .update_uptime_check_config()
             .set_uptime_check_config(model)
             .set_update_mask(google_cloud_wkt::FieldMask::default())
             .send()
             .await
-            .map_err(|e| super::classify_gcp_error("update_uptime_check_config UptimeCheckConfig", e))?;
+            .map_err(|e| {
+                super::classify_gcp_error("update_uptime_check_config UptimeCheckConfig", e)
+            })?;
 
         self.read_monitoring_uptimecheckconfig(provider_id).await
     }
@@ -767,8 +833,13 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<(), ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
-        self.uptime_checks().await?
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
+        self.uptime_checks()
+            .await?
             .delete_uptime_check_config()
             .set_name(provider_id)
             .send()
@@ -776,7 +847,6 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("DeleteUptimeCheckConfig", e))?;
         Ok(())
     }
-
 
     pub(super) fn monitoring_group_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
@@ -846,7 +916,9 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        let display_name = config.optional_str("/identity/display_name").map(String::from);
+        let display_name = config
+            .optional_str("/identity/display_name")
+            .map(String::from);
         let filter = config.optional_str("/config/filter").map(String::from);
         let is_cluster = config.optional_bool("/config/is_cluster");
         let name = config.require_str("/identity/name")?.to_string();
@@ -870,10 +942,10 @@ impl GcpProvider {
 
         // Make API call
         let parent = format!("projects/{}", self.project_id);
-        self.monitoring_groups().await?
+        self.monitoring_groups()
+            .await?
             .create_group()
-            .set_parent(&parent)
-            .set_group_id(&name)
+            .set_name(&parent)
             .set_group(model)
             .send()
             .await
@@ -887,9 +959,14 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
         let group = self
-            .monitoring_groups().await?
+            .monitoring_groups()
+            .await?
             .get_group()
             .set_name(provider_id)
             .send()
@@ -923,9 +1000,15 @@ impl GcpProvider {
         provider_id: &str,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
         // Extract fields from config
-        let display_name = config.optional_str("/identity/display_name").map(String::from);
+        let display_name = config
+            .optional_str("/identity/display_name")
+            .map(String::from);
         let filter = config.optional_str("/config/filter").map(String::from);
         let is_cluster = config.optional_bool("/config/is_cluster");
         let parent_name = config.optional_str("/config/parent_name").map(String::from);
@@ -945,10 +1028,10 @@ impl GcpProvider {
             model = model.set_parent_name(v);
         }
 
-        self.monitoring_groups().await?
+        self.monitoring_groups()
+            .await?
             .update_group()
             .set_group(model)
-            .set_update_mask(google_cloud_wkt::FieldMask::default())
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("update_group Group", e))?;
@@ -960,8 +1043,13 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<(), ProviderError> {
-        let name = provider_id.rsplit('/').next().unwrap_or(provider_id).to_string();
-        self.monitoring_groups().await?
+        let _name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
+        self.monitoring_groups()
+            .await?
             .delete_group()
             .set_name(provider_id)
             .send()
@@ -969,34 +1057,24 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("DeleteGroup", e))?;
         Ok(())
     }
-
-
 }
 
 // Diff: fields that force replacement
 pub(super) fn monitoring_alertpolicy_forces_replacement(path: &str) -> bool {
-    matches!(path,
-        "identity.name"
-    )
+    matches!(path, "identity.name")
 }
 
 // Diff: fields that force replacement
 pub(super) fn monitoring_notificationchannel_forces_replacement(path: &str) -> bool {
-    matches!(path,
-        "identity.name"
-    )
+    matches!(path, "identity.name")
 }
 
 // Diff: fields that force replacement
 pub(super) fn monitoring_uptimecheckconfig_forces_replacement(path: &str) -> bool {
-    matches!(path,
-        "identity.name"
-    )
+    matches!(path, "identity.name")
 }
 
 // Diff: fields that force replacement
 pub(super) fn monitoring_group_forces_replacement(path: &str) -> bool {
-    matches!(path,
-        "identity.name"
-    )
+    matches!(path, "identity.name")
 }

@@ -131,13 +131,17 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
         // TODO: extract cloud_logging_config (Nested(ManagedZoneCloudLoggingConfig)) from config["/config/cloud_logging_config"]
-        let description = config.optional_str("/identity/description").map(String::from);
+        let description = config
+            .optional_str("/identity/description")
+            .map(String::from);
         let dns_name = config.optional_str("/dns/dns_name").map(String::from);
         // TODO: extract dnssec_config (Nested(ManagedZoneDnsSecConfig)) from config["/config/dnssec_config"]
         // TODO: extract forwarding_config (Nested(ManagedZoneForwardingConfig)) from config["/config/forwarding_config"]
         // TODO: extract labels (Record) from config["/identity/labels"]
         let name = config.require_str("/identity/name")?.to_string();
-        let name_server_set = config.optional_str("/config/name_server_set").map(String::from);
+        let name_server_set = config
+            .optional_str("/config/name_server_set")
+            .map(String::from);
         // TODO: extract peering_config (Nested(ManagedZonePeeringConfig)) from config["/config/peering_config"]
         // TODO: extract reverse_lookup_config (Nested(ManagedZoneReverseLookupConfig)) from config["/config/reverse_lookup_config"]
         // TODO: extract visibility (Enum(Visibility)) from config["/config/visibility"]
@@ -164,7 +168,8 @@ impl GcpProvider {
         model = model.set_labels(labels);
 
         // Make API call
-        self.managed_zones().await?
+        self.managed_zones()
+            .await?
             .create()
             .set_project(&self.project_id)
             .set_body(model)
@@ -182,7 +187,8 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let name = provider_id.to_string();
         let managed_zone = self
-            .managed_zones().await?
+            .managed_zones()
+            .await?
             .get()
             .set_project(&self.project_id)
             .set_managed_zone(&name)
@@ -190,7 +196,8 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetManagedZone", e))?;
 
-        let user_labels: serde_json::Map<String, serde_json::Value> = managed_zone.labels
+        let user_labels: serde_json::Map<String, serde_json::Value> = managed_zone
+            .labels
             .iter()
             .filter(|(k, _)| k.as_str() != "managed_by")
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
@@ -217,7 +224,10 @@ impl GcpProvider {
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert("self_link".into(), serde_json::json!(managed_zone.self_link.as_deref().unwrap_or("")));
+        outputs.insert(
+            "name".into(),
+            serde_json::json!(managed_zone.name.as_deref().unwrap_or("")),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -234,11 +244,15 @@ impl GcpProvider {
         let name = provider_id.to_string();
         // Extract fields from config
         // TODO: extract cloud_logging_config (Nested(ManagedZoneCloudLoggingConfig)) from config["/config/cloud_logging_config"]
-        let description = config.optional_str("/identity/description").map(String::from);
+        let description = config
+            .optional_str("/identity/description")
+            .map(String::from);
         let dns_name = config.optional_str("/dns/dns_name").map(String::from);
         // TODO: extract dnssec_config (Nested(ManagedZoneDnsSecConfig)) from config["/config/dnssec_config"]
         // TODO: extract forwarding_config (Nested(ManagedZoneForwardingConfig)) from config["/config/forwarding_config"]
-        let name_server_set = config.optional_str("/config/name_server_set").map(String::from);
+        let name_server_set = config
+            .optional_str("/config/name_server_set")
+            .map(String::from);
         // TODO: extract peering_config (Nested(ManagedZonePeeringConfig)) from config["/config/peering_config"]
         // TODO: extract reverse_lookup_config (Nested(ManagedZoneReverseLookupConfig)) from config["/config/reverse_lookup_config"]
         // TODO: extract visibility (Enum(Visibility)) from config["/config/visibility"]
@@ -262,7 +276,8 @@ impl GcpProvider {
         // TODO: set visibility on model via .set_visibility()
         model = model.set_labels(labels);
 
-        self.managed_zones().await?
+        self.managed_zones()
+            .await?
             .patch()
             .set_project(&self.project_id)
             .set_managed_zone(&name)
@@ -279,7 +294,8 @@ impl GcpProvider {
         provider_id: &str,
     ) -> Result<(), ProviderError> {
         let name = provider_id.to_string();
-        self.managed_zones().await?
+        self.managed_zones()
+            .await?
             .delete()
             .set_project(&self.project_id)
             .set_managed_zone(&name)
@@ -288,7 +304,6 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("DeleteManagedZone", e))?;
         Ok(())
     }
-
 
     pub(super) fn dns_recordset_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
@@ -377,11 +392,12 @@ impl GcpProvider {
         // TODO: set rrdatas on model via .set_rrdatas()
         // TODO: set signature_rrdatas on model via .set_signature_rrdatas()
         if let Some(v) = ttl {
-            model = model.set_ttl(v as _);
+            model = model.set_ttl(v as i32);
         }
 
         // Make API call
-        self.resource_record_sets().await?
+        self.resource_record_sets()
+            .await?
             .create()
             .set_project(&self.project_id)
             .set_body(model)
@@ -399,10 +415,11 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let name = provider_id.to_string();
         let resource_record_set = self
-            .resource_record_sets().await?
+            .resource_record_sets()
+            .await?
             .get()
             .set_project(&self.project_id)
-            .set_resource_record_set(&name)
+            .set_name(&name)
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("GetResourceRecordSet", e))?;
@@ -422,7 +439,10 @@ impl GcpProvider {
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert("self_link".into(), serde_json::json!(resource_record_set.self_link.as_deref().unwrap_or("")));
+        outputs.insert(
+            "name".into(),
+            serde_json::json!(resource_record_set.name.as_deref().unwrap_or("")),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -433,34 +453,12 @@ impl GcpProvider {
 
     pub(super) async fn update_dns_recordset(
         &self,
-        provider_id: &str,
-        config: &serde_json::Value,
+        _provider_id: &str,
+        _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.to_string();
-        // Extract fields from config
-        // TODO: extract routing_policy (Nested(RRSetRoutingPolicy)) from config["/config/routing_policy"]
-        // TODO: extract rrdatas (Array(String)) from config["/dns/rrdatas"]
-        // TODO: extract signature_rrdatas (Array(String)) from config["/config/signature_rrdatas"]
-        let ttl = config.optional_i64("/dns/ttl");
-
-        let mut model = google_cloud_dns_v1::model::ResourceRecordSet::default();
-        // TODO: set routing_policy on model via .set_routing_policy()
-        // TODO: set rrdatas on model via .set_rrdatas()
-        // TODO: set signature_rrdatas on model via .set_signature_rrdatas()
-        if let Some(v) = ttl {
-            model = model.set_ttl(v as _);
-        }
-
-        self.resource_record_sets().await?
-            .patch()
-            .set_project(&self.project_id)
-            .set_resource_record_set(&name)
-            .set_body(model)
-            .send()
-            .await
-            .map_err(|e| super::classify_gcp_error("patch ResourceRecordSet", e))?;
-
-        self.read_dns_recordset(provider_id).await
+        Err(ProviderError::RequiresReplacement(
+            "DNS RecordSet update not supported - requires replacement".into(),
+        ))
     }
 
     pub(super) async fn delete_dns_recordset(
@@ -468,16 +466,16 @@ impl GcpProvider {
         provider_id: &str,
     ) -> Result<(), ProviderError> {
         let name = provider_id.to_string();
-        self.resource_record_sets().await?
+        self.resource_record_sets()
+            .await?
             .delete()
             .set_project(&self.project_id)
-            .set_resource_record_set(&name)
+            .set_name(&name)
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("DeleteResourceRecordSet", e))?;
         Ok(())
     }
-
 
     pub(super) fn dns_policy_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
@@ -555,7 +553,9 @@ impl GcpProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        let description = config.optional_str("/identity/description").map(String::from);
+        let description = config
+            .optional_str("/identity/description")
+            .map(String::from);
         // TODO: extract dns_64_config (Nested(PolicyDns64Config)) from config["/config/dns_64_config"]
         let enable_inbound_forwarding = config.optional_bool("/config/enable_inbound_forwarding");
         let enable_logging = config.optional_bool("/config/enable_logging");
@@ -578,7 +578,8 @@ impl GcpProvider {
         // TODO: set networks on model via .set_networks()
 
         // Make API call
-        self.policies().await?
+        self.policies()
+            .await?
             .create()
             .set_project(&self.project_id)
             .set_body(model)
@@ -596,7 +597,8 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let name = provider_id.to_string();
         let policy = self
-            .policies().await?
+            .policies()
+            .await?
             .get()
             .set_project(&self.project_id)
             .set_policy(&name)
@@ -618,7 +620,10 @@ impl GcpProvider {
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert("self_link".into(), serde_json::json!(policy.self_link.as_deref().unwrap_or("")));
+        outputs.insert(
+            "name".into(),
+            serde_json::json!(policy.name.as_deref().unwrap_or("")),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -634,7 +639,9 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let name = provider_id.to_string();
         // Extract fields from config
-        let description = config.optional_str("/identity/description").map(String::from);
+        let description = config
+            .optional_str("/identity/description")
+            .map(String::from);
         // TODO: extract dns_64_config (Nested(PolicyDns64Config)) from config["/config/dns_64_config"]
         let enable_inbound_forwarding = config.optional_bool("/config/enable_inbound_forwarding");
         let enable_logging = config.optional_bool("/config/enable_logging");
@@ -653,7 +660,8 @@ impl GcpProvider {
         }
         // TODO: set networks on model via .set_networks()
 
-        self.policies().await?
+        self.policies()
+            .await?
             .patch()
             .set_project(&self.project_id)
             .set_policy(&name)
@@ -665,12 +673,10 @@ impl GcpProvider {
         self.read_dns_policy(provider_id).await
     }
 
-    pub(super) async fn delete_dns_policy(
-        &self,
-        provider_id: &str,
-    ) -> Result<(), ProviderError> {
+    pub(super) async fn delete_dns_policy(&self, provider_id: &str) -> Result<(), ProviderError> {
         let name = provider_id.to_string();
-        self.policies().await?
+        self.policies()
+            .await?
             .delete()
             .set_project(&self.project_id)
             .set_policy(&name)
@@ -679,27 +685,19 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("DeletePolicy", e))?;
         Ok(())
     }
-
-
 }
 
 // Diff: fields that force replacement
 pub(super) fn dns_managedzone_forces_replacement(path: &str) -> bool {
-    matches!(path,
-        "identity.name"
-    )
+    matches!(path, "identity.name")
 }
 
 // Diff: fields that force replacement
 pub(super) fn dns_recordset_forces_replacement(path: &str) -> bool {
-    matches!(path,
-        "identity.name"
-    )
+    matches!(path, "identity.name")
 }
 
 // Diff: fields that force replacement
 pub(super) fn dns_policy_forces_replacement(path: &str) -> bool {
-    matches!(path,
-        "identity.name"
-    )
+    matches!(path, "identity.name")
 }

@@ -297,7 +297,9 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
         // TODO: extract backend_type (Enum(SqlBackendType)) from config["/config/backend_type"]
-        let connection_name = config.optional_str("/config/connection_name").map(String::from);
+        let connection_name = config
+            .optional_str("/config/connection_name")
+            .map(String::from);
         // TODO: extract database_version (Enum(SqlDatabaseVersion)) from config["/config/database_version"]
         // TODO: extract disk_encryption_status (Nested(DiskEncryptionStatus)) from config["/output/disk_encryption_status"]
         let etag = config.optional_str("/config/etag").map(String::from);
@@ -307,8 +309,12 @@ impl GcpProvider {
         // TODO: extract include_replicas_for_major_version_upgrade (Enum(BoolValue)) from config["/config/include_replicas_for_major_version_upgrade"]
         // TODO: extract instance_type (Enum(SqlInstanceType)) from config["/sizing/instance_type"]
         // TODO: extract ip_addresses (Array(Nested(IpMapping))) from config["/config/ip_addresses"]
-        let maintenance_version = config.optional_str("/config/maintenance_version").map(String::from);
-        let master_instance_name = config.optional_str("/config/master_instance_name").map(String::from);
+        let maintenance_version = config
+            .optional_str("/config/maintenance_version")
+            .map(String::from);
+        let master_instance_name = config
+            .optional_str("/config/master_instance_name")
+            .map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
         let node_count = config.optional_i64("/config/node_count");
         // TODO: extract on_premises_configuration (Nested(OnPremisesConfiguration)) from config["/config/on_premises_configuration"]
@@ -317,11 +323,17 @@ impl GcpProvider {
         // TODO: extract replica_configuration (Nested(ReplicaConfiguration)) from config["/config/replica_configuration"]
         // TODO: extract replica_names (Array(String)) from config["/config/replica_names"]
         // TODO: extract replication_cluster (Nested(ReplicationCluster)) from config["/config/replication_cluster"]
-        let root_password = config.optional_str("/config/root_password").map(String::from);
+        let root_password = config
+            .optional_str("/config/root_password")
+            .map(String::from);
         // TODO: extract satisfies_pzs (Enum(BoolValue)) from config["/config/satisfies_pzs"]
-        let secondary_gce_zone = config.optional_str("/config/secondary_gce_zone").map(String::from);
+        let secondary_gce_zone = config
+            .optional_str("/config/secondary_gce_zone")
+            .map(String::from);
         // TODO: extract server_ca_cert (Nested(SslCert)) from config["/config/server_ca_cert"]
-        let service_account_email_address = config.optional_str("/config/service_account_email_address").map(String::from);
+        let service_account_email_address = config
+            .optional_str("/config/service_account_email_address")
+            .map(String::from);
         // TODO: extract settings (Nested(Settings)) from config["/config/settings"]
         // TODO: extract state (Enum(SqlInstanceState)) from config["/config/state"]
         // TODO: extract suspension_reason (Array(Enum(SqlSuspensionReason))) from config["/config/suspension_reason"]
@@ -355,7 +367,7 @@ impl GcpProvider {
         }
         model = model.set_name(name.clone());
         if let Some(v) = node_count {
-            model = model.set_node_count(v as _);
+            model = model.set_node_count(v as i32);
         }
         // TODO: set on_premises_configuration on model via .set_on_premises_configuration()
         if let Some(v) = project {
@@ -385,7 +397,8 @@ impl GcpProvider {
         // TODO: set tags on model via .set_tags()
 
         // Make API call
-        self.sql_instances().await?
+        self.sql_instances()
+            .await?
             .insert()
             .set_project(&self.project_id)
             .set_body(model)
@@ -403,10 +416,11 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let name = provider_id.to_string();
         let database_instance = self
-            .sql_instances().await?
+            .sql_instances()
+            .await?
             .get()
             .set_project(&self.project_id)
-            .set_database_instance(&name)
+            .set_instance(&name)
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("GetDatabaseInstance", e))?;
@@ -454,7 +468,10 @@ impl GcpProvider {
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert("self_link".into(), serde_json::json!(database_instance.self_link.as_deref().unwrap_or("")));
+        outputs.insert(
+            "self_link".into(),
+            serde_json::json!(&database_instance.self_link),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -471,7 +488,9 @@ impl GcpProvider {
         let name = provider_id.to_string();
         // Extract fields from config
         // TODO: extract backend_type (Enum(SqlBackendType)) from config["/config/backend_type"]
-        let connection_name = config.optional_str("/config/connection_name").map(String::from);
+        let connection_name = config
+            .optional_str("/config/connection_name")
+            .map(String::from);
         // TODO: extract database_version (Enum(SqlDatabaseVersion)) from config["/config/database_version"]
         // TODO: extract disk_encryption_status (Nested(DiskEncryptionStatus)) from config["/output/disk_encryption_status"]
         let etag = config.optional_str("/config/etag").map(String::from);
@@ -481,19 +500,29 @@ impl GcpProvider {
         // TODO: extract include_replicas_for_major_version_upgrade (Enum(BoolValue)) from config["/config/include_replicas_for_major_version_upgrade"]
         // TODO: extract instance_type (Enum(SqlInstanceType)) from config["/sizing/instance_type"]
         // TODO: extract ip_addresses (Array(Nested(IpMapping))) from config["/config/ip_addresses"]
-        let maintenance_version = config.optional_str("/config/maintenance_version").map(String::from);
-        let master_instance_name = config.optional_str("/config/master_instance_name").map(String::from);
+        let maintenance_version = config
+            .optional_str("/config/maintenance_version")
+            .map(String::from);
+        let master_instance_name = config
+            .optional_str("/config/master_instance_name")
+            .map(String::from);
         let node_count = config.optional_i64("/config/node_count");
         // TODO: extract on_premises_configuration (Nested(OnPremisesConfiguration)) from config["/config/on_premises_configuration"]
         let project = config.optional_str("/config/project").map(String::from);
         // TODO: extract replica_configuration (Nested(ReplicaConfiguration)) from config["/config/replica_configuration"]
         // TODO: extract replica_names (Array(String)) from config["/config/replica_names"]
         // TODO: extract replication_cluster (Nested(ReplicationCluster)) from config["/config/replication_cluster"]
-        let root_password = config.optional_str("/config/root_password").map(String::from);
+        let root_password = config
+            .optional_str("/config/root_password")
+            .map(String::from);
         // TODO: extract satisfies_pzs (Enum(BoolValue)) from config["/config/satisfies_pzs"]
-        let secondary_gce_zone = config.optional_str("/config/secondary_gce_zone").map(String::from);
+        let secondary_gce_zone = config
+            .optional_str("/config/secondary_gce_zone")
+            .map(String::from);
         // TODO: extract server_ca_cert (Nested(SslCert)) from config["/config/server_ca_cert"]
-        let service_account_email_address = config.optional_str("/config/service_account_email_address").map(String::from);
+        let service_account_email_address = config
+            .optional_str("/config/service_account_email_address")
+            .map(String::from);
         // TODO: extract settings (Nested(Settings)) from config["/config/settings"]
         // TODO: extract state (Enum(SqlInstanceState)) from config["/config/state"]
         // TODO: extract suspension_reason (Array(Enum(SqlSuspensionReason))) from config["/config/suspension_reason"]
@@ -525,7 +554,7 @@ impl GcpProvider {
             model = model.set_master_instance_name(v);
         }
         if let Some(v) = node_count {
-            model = model.set_node_count(v as _);
+            model = model.set_node_count(v as i32);
         }
         // TODO: set on_premises_configuration on model via .set_on_premises_configuration()
         if let Some(v) = project {
@@ -551,10 +580,11 @@ impl GcpProvider {
         // TODO: set switch_transaction_logs_to_cloud_storage_enabled on model via .set_switch_transaction_logs_to_cloud_storage_enabled()
         // TODO: set tags on model via .set_tags()
 
-        self.sql_instances().await?
+        self.sql_instances()
+            .await?
             .patch()
             .set_project(&self.project_id)
-            .set_database_instance(&name)
+            .set_instance(&name)
             .set_body(model)
             .send()
             .await
@@ -563,21 +593,18 @@ impl GcpProvider {
         self.read_sql_instance(provider_id).await
     }
 
-    pub(super) async fn delete_sql_instance(
-        &self,
-        provider_id: &str,
-    ) -> Result<(), ProviderError> {
+    pub(super) async fn delete_sql_instance(&self, provider_id: &str) -> Result<(), ProviderError> {
         let name = provider_id.to_string();
-        self.sql_instances().await?
+        self.sql_instances()
+            .await?
             .delete()
             .set_project(&self.project_id)
-            .set_database_instance(&name)
+            .set_instance(&name)
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("DeleteDatabaseInstance", e))?;
         Ok(())
     }
-
 
     pub(super) fn sql_database_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
@@ -692,7 +719,8 @@ impl GcpProvider {
         }
 
         // Make API call
-        self.sql_databases().await?
+        self.sql_databases()
+            .await?
             .insert()
             .set_project(&self.project_id)
             .set_body(model)
@@ -710,7 +738,8 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let name = provider_id.to_string();
         let database = self
-            .sql_databases().await?
+            .sql_databases()
+            .await?
             .get()
             .set_project(&self.project_id)
             .set_database(&name)
@@ -725,7 +754,7 @@ impl GcpProvider {
             "config": {
                 "charset": database.charset.as_str(),
                 "collation": database.collation.as_str(),
-                "database_details": serde_json::json!(database.database_details) /* TODO: complex type */,
+                "database_details": serde_json::Value::Null /* TODO: database_details is complex type */,
                 "etag": database.etag.as_str(),
                 "instance": database.instance.as_str(),
                 "project": database.project.as_str(),
@@ -733,7 +762,7 @@ impl GcpProvider {
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert("self_link".into(), serde_json::json!(database.self_link.as_deref().unwrap_or("")));
+        outputs.insert("self_link".into(), serde_json::json!(&database.self_link));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -774,7 +803,8 @@ impl GcpProvider {
             model = model.set_project(v);
         }
 
-        self.sql_databases().await?
+        self.sql_databases()
+            .await?
             .patch()
             .set_project(&self.project_id)
             .set_database(&name)
@@ -786,12 +816,10 @@ impl GcpProvider {
         self.read_sql_database(provider_id).await
     }
 
-    pub(super) async fn delete_sql_database(
-        &self,
-        provider_id: &str,
-    ) -> Result<(), ProviderError> {
+    pub(super) async fn delete_sql_database(&self, provider_id: &str) -> Result<(), ProviderError> {
         let name = provider_id.to_string();
-        self.sql_databases().await?
+        self.sql_databases()
+            .await?
             .delete()
             .set_project(&self.project_id)
             .set_database(&name)
@@ -800,7 +828,6 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("DeleteDatabase", e))?;
         Ok(())
     }
-
 
     pub(super) fn sql_user_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
@@ -973,7 +1000,8 @@ impl GcpProvider {
         // TODO: set user_details on model via .set_user_details()
 
         // Make API call
-        self.sql_users().await?
+        self.sql_users()
+            .await?
             .insert()
             .set_project(&self.project_id)
             .set_body(model)
@@ -991,10 +1019,11 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let name = provider_id.to_string();
         let user = self
-            .sql_users().await?
+            .sql_users()
+            .await?
             .get()
             .set_project(&self.project_id)
-            .set_user(&name)
+            .set_name(&name)
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("GetUser", e))?;
@@ -1013,7 +1042,7 @@ impl GcpProvider {
                 "password": user.password.as_str(),
                 "password_policy": serde_json::json!(user.password_policy) /* TODO: complex type */,
                 "project": user.project.as_str(),
-                "user_details": serde_json::json!(user.user_details) /* TODO: complex type */,
+                "user_details": serde_json::Value::Null /* TODO: user_details is complex type */,
             },
             "output": {
                 "iam_status": serde_json::json!(user.iam_status) /* TODO: complex type */,
@@ -1021,7 +1050,7 @@ impl GcpProvider {
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert("self_link".into(), serde_json::json!(user.self_link.as_deref().unwrap_or("")));
+        outputs.insert("name".into(), serde_json::json!(&user.name));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -1074,10 +1103,11 @@ impl GcpProvider {
         }
         // TODO: set user_details on model via .set_user_details()
 
-        self.sql_users().await?
+        self.sql_users()
+            .await?
             .update()
             .set_project(&self.project_id)
-            .set_user(&name)
+            .set_name(&name)
             .set_body(model)
             .send()
             .await
@@ -1086,41 +1116,31 @@ impl GcpProvider {
         self.read_sql_user(provider_id).await
     }
 
-    pub(super) async fn delete_sql_user(
-        &self,
-        provider_id: &str,
-    ) -> Result<(), ProviderError> {
+    pub(super) async fn delete_sql_user(&self, provider_id: &str) -> Result<(), ProviderError> {
         let name = provider_id.to_string();
-        self.sql_users().await?
+        self.sql_users()
+            .await?
             .delete()
             .set_project(&self.project_id)
-            .set_user(&name)
+            .set_name(&name)
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("DeleteUser", e))?;
         Ok(())
     }
-
-
 }
 
 // Diff: fields that force replacement
 pub(super) fn sql_instance_forces_replacement(path: &str) -> bool {
-    matches!(path,
-        "identity.name"
-    )
+    matches!(path, "identity.name")
 }
 
 // Diff: fields that force replacement
 pub(super) fn sql_database_forces_replacement(path: &str) -> bool {
-    matches!(path,
-        "identity.name"
-    )
+    matches!(path, "identity.name")
 }
 
 // Diff: fields that force replacement
 pub(super) fn sql_user_forces_replacement(path: &str) -> bool {
-    matches!(path,
-        "identity.name"
-    )
+    matches!(path, "identity.name")
 }
