@@ -30,3 +30,28 @@ resource sub "events-worker" : gcp.pubsub.Subscription {
     ack_deadline_seconds = 30
   }
 }
+
+resource job "heartbeat" : gcp.scheduler.Job {
+  @intent "Periodic heartbeat — free tier (3 jobs/month)"
+  @lifecycle "ephemeral"
+
+  config {
+    description = "Smelt live test - heartbeat every hour"
+    http_target = { http_method = 1, uri = "https://httpbin.org/post" }
+    schedule = "0 * * * *"
+    time_zone = "UTC"
+  }
+
+  identity {
+    name = "smelt-test-heartbeat"
+  }
+}
+
+resource queue "work" : gcp.tasks.Queue {
+  @intent "Task queue — free tier (1M ops/month)"
+  @lifecycle "ephemeral"
+
+  identity {
+    name = "smelt-test-work"
+  }
+}

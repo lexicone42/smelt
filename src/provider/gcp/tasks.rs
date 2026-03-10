@@ -101,7 +101,10 @@ impl GcpProvider {
         if let Some(v) = app_engine_routing_override {
             model = model.set_app_engine_routing_override(v);
         }
-        model = model.set_name(name.clone());
+        // Set full resource name (required when no separate resource_id_setter)
+        let parent = format!("projects/{}/locations/{}", self.project_id, self.region);
+        let full_name = format!("{parent}/queues/{name}");
+        model = model.set_name(full_name);
         if let Some(v) = rate_limits {
             model = model.set_rate_limits(v);
         }
@@ -113,7 +116,6 @@ impl GcpProvider {
         }
 
         // Make API call
-        let parent = format!("projects/{}/locations/{}", self.project_id, self.region);
         self.cloud_tasks()
             .await?
             .create_queue()
