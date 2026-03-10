@@ -43,6 +43,10 @@ pub struct CatalogEntry {
     #[serde(default)]
     pub resource_name_param: Option<String>,
     #[serde(default)]
+    pub has_update_mask: Option<bool>,
+    #[serde(default)]
+    pub output_field: Option<String>,
+    #[serde(default)]
     pub crud_create: Option<String>,
     #[serde(default)]
     pub crud_read: Option<String>,
@@ -206,6 +210,12 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
         }
         if let Some(ref rnp) = entry.resource_name_param {
             manifest.resource.resource_name_param = Some(rnp.clone());
+        }
+        if let Some(hum) = entry.has_update_mask {
+            manifest.resource.has_update_mask = hum;
+        }
+        if let Some(ref of_) = entry.output_field {
+            manifest.resource.output_field = Some(of_.clone());
         }
 
         // Override CRUD methods from catalog

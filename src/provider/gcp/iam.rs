@@ -223,14 +223,6 @@ impl GcpProvider {
                                 sensitive: false,
                             },
                             crate::provider::FieldSchema {
-                                name: "etag".into(),
-                                description: "Used to perform a consistent read-modify-write.".into(),
-                                field_type: crate::provider::FieldType::Record(vec![]),
-                                required: false,
-                                default: None,
-                                sensitive: false,
-                            },
-                            crate::provider::FieldSchema {
                                 name: "included_permissions".into(),
                                 description: "The names of the permissions this role grants when bound in an IAM policy.".into(),
                                 field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String)),
@@ -270,7 +262,6 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract etag (Nested(Bytes)) from config["/config/etag"] — type path unknown
         let included_permissions = config
             .pointer("/config/included_permissions")
             .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
@@ -286,7 +277,6 @@ impl GcpProvider {
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set etag on model via .set_etag() — type path unknown
         if let Some(v) = included_permissions {
             model = model.set_included_permissions(v);
         }
@@ -341,7 +331,6 @@ impl GcpProvider {
             },
             "config": {
                 "deleted": role.deleted,
-                "etag": serde_json::Value::Null,
                 "included_permissions": &role.included_permissions,
                 "stage": &role.stage,
                 "title": role.title.as_str(),
@@ -373,7 +362,6 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract etag (Nested(Bytes)) from config["/config/etag"] — type path unknown
         let included_permissions = config
             .pointer("/config/included_permissions")
             .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
@@ -388,7 +376,6 @@ impl GcpProvider {
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set etag on model via .set_etag() — type path unknown
         if let Some(v) = included_permissions {
             model = model.set_included_permissions(v);
         }

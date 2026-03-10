@@ -369,7 +369,13 @@ fn write_gcp_read_body(out: &mut String, m: &ResourceManifest) {
 
     // Build outputs
     let _ = writeln!(out, "    let mut outputs = HashMap::new();");
-    if is_resource_name {
+    if let Some(ref output_field) = m.resource.output_field {
+        // Custom output field specified
+        let _ = writeln!(
+            out,
+            "    outputs.insert(\"{output_field}\".into(), serde_json::json!(&{model_var}.{output_field}));"
+        );
+    } else if is_resource_name {
         let _ = writeln!(
             out,
             "    outputs.insert(\"name\".into(), serde_json::json!(&{model_var}.name));"
@@ -502,8 +508,9 @@ fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
         // Resource-name style: set the model body (which contains the name)
         let body_setter = m.resource.resource_body_setter.as_deref().unwrap_or("set_body");
         let _ = writeln!(out, "        .{body_setter}(model)");
-        // Most resource_name APIs require an update_mask
-        let _ = writeln!(out, "        .set_update_mask(google_cloud_wkt::FieldMask::default())");
+        if m.resource.has_update_mask {
+            let _ = writeln!(out, "        .set_update_mask(google_cloud_wkt::FieldMask::default())");
+        }
     } else {
         // Compute style: set_project + scope + resource name + body
         let _ = writeln!(out, "        .set_project(&self.project_id)");

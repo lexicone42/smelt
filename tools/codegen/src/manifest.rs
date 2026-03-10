@@ -75,6 +75,17 @@ pub struct ResourceMeta {
     /// Some APIs use resource-specific names like "set_sink_name" (Logging).
     #[serde(default)]
     pub resource_name_param: Option<String>,
+    /// Whether resource_name style updates require an update_mask parameter.
+    /// Defaults to true. Set to false for APIs that don't support update_mask
+    /// (e.g. UpdateLogMetric, UpdateGroup).
+    #[serde(default = "default_true")]
+    pub has_update_mask: bool,
+    /// Field name to use for the output in read responses.
+    /// For compute-style: defaults to "self_link" (with as_deref().unwrap_or("")).
+    /// For resource_name-style: defaults to "name".
+    /// Set to "name" for compute-style resources that lack self_link (DNS, SQL).
+    #[serde(default)]
+    pub output_field: Option<String>,
 }
 
 fn default_scope() -> String {
@@ -300,6 +311,8 @@ impl ResourceManifest {
                 resource_id_param: None,
                 parent_setter: None,
                 resource_name_param: None,
+                has_update_mask: true,
+                output_field: None,
             },
             crud,
             fields: field_defs,
@@ -468,6 +481,7 @@ fn is_output_only(field_name: &str, doc: &str) -> bool {
         || field_name.contains("fingerprint")
         || field_name == "kind"
         || field_name == "status"
+        || field_name == "etag"
 }
 
 fn snake_case_simple(s: &str) -> String {

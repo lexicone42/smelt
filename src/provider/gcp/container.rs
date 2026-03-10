@@ -161,14 +161,6 @@ impl GcpProvider {
                                 sensitive: false,
                             },
                             crate::provider::FieldSchema {
-                                name: "etag".into(),
-                                description: "This checksum is computed by the server based on the value of cluster".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: false,
-                                default: None,
-                                sensitive: false,
-                            },
-                            crate::provider::FieldSchema {
                                 name: "fleet".into(),
                                 description: "Fleet information for the cluster.".into(),
                                 field_type: crate::provider::FieldType::Record(vec![]),
@@ -552,7 +544,6 @@ impl GcpProvider {
                 .ok()
             });
         let enable_kubernetes_alpha = config.optional_bool("/config/enable_kubernetes_alpha");
-        let etag = config.optional_str("/config/etag").map(String::from);
         let fleet = config.pointer("/config/fleet").and_then(|v| {
             serde_json::from_value::<google_cloud_container_v1::model::Fleet>(v.clone()).ok()
         });
@@ -781,9 +772,6 @@ impl GcpProvider {
         if let Some(v) = enable_kubernetes_alpha {
             model = model.set_enable_kubernetes_alpha(v);
         }
-        if let Some(v) = etag {
-            model = model.set_etag(v);
-        }
         if let Some(v) = fleet {
             model = model.set_fleet(v);
         }
@@ -948,7 +936,6 @@ impl GcpProvider {
                 "default_max_pods_constraint": &cluster.default_max_pods_constraint,
                 "enable_k8s_beta_apis": &cluster.enable_k8s_beta_apis,
                 "enable_kubernetes_alpha": cluster.enable_kubernetes_alpha,
-                "etag": cluster.etag.as_str(),
                 "fleet": &cluster.fleet,
                 "gke_auto_upgrade_config": &cluster.gke_auto_upgrade_config,
                 "identity_service_config": &cluster.identity_service_config,

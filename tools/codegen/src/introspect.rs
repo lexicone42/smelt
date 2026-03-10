@@ -481,11 +481,23 @@ fn classify_type_inner(t: &str) -> (SimplifiedType, bool) {
         // Qualified type: crate::model::X or crate::types::X or module::EnumName
         s if s.contains("::") => {
             let type_name = s.rsplit("::").next().unwrap_or(s);
-            // Heuristic: if the path contains "model" or "types" it's an SDK type.
-            // Distinguish enums (short PascalCase names) from nested structs (also PascalCase).
-            // We can't perfectly tell from syntax alone, so the manifest lets users override.
-            // Default: treat as Enum (most common case for qualified types in SDK fields).
-            (SimplifiedType::Enum(type_name.to_string()), false)
+            // WKT wrapper types are just type aliases for primitives in google-cloud-wkt.
+            // e.g. `pub type BoolValue = bool;` — the SDK setter takes the primitive directly.
+            match type_name {
+                "BoolValue" => (SimplifiedType::Bool, false),
+                "Int32Value" => (SimplifiedType::I32, false),
+                "Int64Value" => (SimplifiedType::I64, false),
+                "UInt32Value" => (SimplifiedType::U32, false),
+                "UInt64Value" => (SimplifiedType::U64, false),
+                "FloatValue" | "DoubleValue" => (SimplifiedType::F64, false),
+                "StringValue" => (SimplifiedType::String, false),
+                "BytesValue" => (SimplifiedType::Bytes, false),
+                _ => {
+                    // Heuristic: if the path contains "model" or "types" it's an SDK type.
+                    // Default: treat as Enum (most common case for qualified types in SDK fields).
+                    (SimplifiedType::Enum(type_name.to_string()), false)
+                }
+            }
         }
         // Assume unknown PascalCase types are nested structs
         s if s.chars().next().is_some_and(|c| c.is_uppercase()) => {

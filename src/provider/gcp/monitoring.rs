@@ -83,7 +83,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "enabled".into(),
                                 description: "Whether or not the policy is enabled. On write, the default interpretation".into(),
-                                field_type: crate::provider::FieldType::Record(vec![]),
+                                field_type: crate::provider::FieldType::Bool,
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -166,7 +166,7 @@ impl GcpProvider {
                 >(v.clone())
                 .ok()
         });
-        // TODO: extract enabled (Nested(BoolValue)) from config["/config/enabled"] — type path unknown
+        let enabled = config.optional_bool("/config/enabled");
         let mutation_record = config.pointer("/config/mutation_record").and_then(|v| {
             serde_json::from_value::<google_cloud_monitoring_v3::model::MutationRecord>(v.clone())
                 .ok()
@@ -205,7 +205,9 @@ impl GcpProvider {
         if let Some(v) = documentation {
             model = model.set_documentation(v);
         }
-        // TODO: set enabled on model via .set_enabled() — type path unknown
+        if let Some(v) = enabled {
+            model = model.set_enabled(v);
+        }
         if let Some(v) = mutation_record {
             model = model.set_mutation_record(v);
         }
@@ -267,7 +269,7 @@ impl GcpProvider {
                 "conditions": &alert_policy.conditions,
                 "creation_record": &alert_policy.creation_record,
                 "documentation": &alert_policy.documentation,
-                "enabled": serde_json::Value::Null,
+                "enabled": alert_policy.enabled.unwrap_or(false),
                 "mutation_record": &alert_policy.mutation_record,
                 "notification_channels": &alert_policy.notification_channels,
                 "severity": &alert_policy.severity,
@@ -323,7 +325,7 @@ impl GcpProvider {
                 >(v.clone())
                 .ok()
         });
-        // TODO: extract enabled (Nested(BoolValue)) from config["/config/enabled"] — type path unknown
+        let enabled = config.optional_bool("/config/enabled");
         let mutation_record = config.pointer("/config/mutation_record").and_then(|v| {
             serde_json::from_value::<google_cloud_monitoring_v3::model::MutationRecord>(v.clone())
                 .ok()
@@ -361,7 +363,9 @@ impl GcpProvider {
         if let Some(v) = documentation {
             model = model.set_documentation(v);
         }
-        // TODO: set enabled on model via .set_enabled() — type path unknown
+        if let Some(v) = enabled {
+            model = model.set_enabled(v);
+        }
         if let Some(v) = mutation_record {
             model = model.set_mutation_record(v);
         }
@@ -468,7 +472,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "enabled".into(),
                                 description: "Whether notifications are forwarded to the described channel. This makes".into(),
-                                field_type: crate::provider::FieldType::Record(vec![]),
+                                field_type: crate::provider::FieldType::Bool,
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -525,7 +529,7 @@ impl GcpProvider {
         let display_name = config
             .optional_str("/identity/display_name")
             .map(String::from);
-        // TODO: extract enabled (Nested(BoolValue)) from config["/config/enabled"] — type path unknown
+        let enabled = config.optional_bool("/config/enabled");
         let _labels = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
@@ -555,7 +559,9 @@ impl GcpProvider {
         if let Some(v) = display_name {
             model = model.set_display_name(v);
         }
-        // TODO: set enabled on model via .set_enabled() — type path unknown
+        if let Some(v) = enabled {
+            model = model.set_enabled(v);
+        }
         if let Some(v) = mutation_records {
             model = model.set_mutation_records(v);
         }
@@ -626,7 +632,7 @@ impl GcpProvider {
             },
             "config": {
                 "creation_record": &notification_channel.creation_record,
-                "enabled": serde_json::Value::Null,
+                "enabled": notification_channel.enabled.unwrap_or(false),
                 "mutation_records": &notification_channel.mutation_records,
                 "user_labels": &notification_channel.user_labels,
             },
@@ -666,7 +672,7 @@ impl GcpProvider {
         let display_name = config
             .optional_str("/identity/display_name")
             .map(String::from);
-        // TODO: extract enabled (Nested(BoolValue)) from config["/config/enabled"] — type path unknown
+        let enabled = config.optional_bool("/config/enabled");
         let mutation_records = config.pointer("/config/mutation_records").and_then(|v| {
             serde_json::from_value::<Vec<google_cloud_monitoring_v3::model::MutationRecord>>(
                 v.clone(),
@@ -692,7 +698,9 @@ impl GcpProvider {
         if let Some(v) = display_name {
             model = model.set_display_name(v);
         }
-        // TODO: set enabled on model via .set_enabled() — type path unknown
+        if let Some(v) = enabled {
+            model = model.set_enabled(v);
+        }
         if let Some(v) = mutation_records {
             model = model.set_mutation_records(v);
         }

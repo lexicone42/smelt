@@ -105,14 +105,6 @@ impl GcpProvider {
                                 sensitive: false,
                             },
                             crate::provider::FieldSchema {
-                                name: "etag".into(),
-                                description: "Optional. A system-generated fingerprint for this version of the".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: false,
-                                default: None,
-                                sensitive: false,
-                            },
-                            crate::provider::FieldSchema {
                                 name: "iap_enabled".into(),
                                 description: "Optional. IAP settings on the Service.".into(),
                                 field_type: crate::provider::FieldType::Bool,
@@ -211,7 +203,6 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        let etag = config.optional_str("/config/etag").map(String::from);
         let iap_enabled = config.optional_bool("/config/iap_enabled");
         let ingress = config.optional_str("/config/ingress").map(String::from);
         let invoker_iam_disabled = config.optional_bool("/config/invoker_iam_disabled");
@@ -264,9 +255,6 @@ impl GcpProvider {
         }
         if let Some(v) = description {
             model = model.set_description(v);
-        }
-        if let Some(v) = etag {
-            model = model.set_etag(v);
         }
         if let Some(v) = iap_enabled {
             model = model.set_iap_enabled(v);
@@ -351,7 +339,6 @@ impl GcpProvider {
                 "client_version": service.client_version.as_str(),
                 "custom_audiences": &service.custom_audiences,
                 "default_uri_disabled": service.default_uri_disabled,
-                "etag": service.etag.as_str(),
                 "iap_enabled": service.iap_enabled,
                 "ingress": &service.ingress,
                 "invoker_iam_disabled": service.invoker_iam_disabled,
@@ -472,14 +459,6 @@ impl GcpProvider {
                                 sensitive: false,
                             },
                             crate::provider::FieldSchema {
-                                name: "etag".into(),
-                                description: "Optional. A system-generated fingerprint for this version of the".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: false,
-                                default: None,
-                                sensitive: false,
-                            },
-                            crate::provider::FieldSchema {
                                 name: "launch_stage".into(),
                                 description: "The launch stage as defined by [Google Cloud Platform".into(),
                                 field_type: crate::provider::FieldType::Record(vec![]),
@@ -521,7 +500,6 @@ impl GcpProvider {
             .optional_str("/config/client_version")
             .map(String::from);
         // TODO: extract create_execution (Nested(CreateExecution)) from config["/config/create_execution"] — type path unknown
-        let etag = config.optional_str("/config/etag").map(String::from);
         let _labels = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
@@ -547,9 +525,6 @@ impl GcpProvider {
             model = model.set_client_version(v);
         }
         // TODO: set create_execution on model via .set_create_execution() — type path unknown
-        if let Some(v) = etag {
-            model = model.set_etag(v);
-        }
         // TODO: set launch_stage on model via .set_launch_stage() — type path unknown
         model = model.set_name(name.clone());
         if let Some(v) = template {
@@ -612,7 +587,6 @@ impl GcpProvider {
                 "client": job.client.as_str(),
                 "client_version": job.client_version.as_str(),
                 "create_execution": serde_json::Value::Null,
-                "etag": job.etag.as_str(),
                 "launch_stage": serde_json::Value::Null,
                 "template": &job.template,
             },

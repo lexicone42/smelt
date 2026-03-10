@@ -65,14 +65,6 @@ impl GcpProvider {
                                 sensitive: false,
                             },
                             crate::provider::FieldSchema {
-                                name: "etag".into(),
-                                description: "Optional. Etag of the currently stored".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: false,
-                                default: None,
-                                sensitive: false,
-                            },
-                            crate::provider::FieldSchema {
                                 name: "expiration".into(),
                                 description: "Expiration policy attached to the".into(),
                                 field_type: crate::provider::FieldType::Record(vec![]),
@@ -149,7 +141,6 @@ impl GcpProvider {
                 >(v.clone())
                 .ok()
             });
-        let etag = config.optional_str("/config/etag").map(String::from);
         // TODO: extract expiration (Nested(Expiration)) from config["/config/expiration"] — type path unknown
         let _labels = config
             .pointer("/identity/labels")
@@ -184,9 +175,6 @@ impl GcpProvider {
         }
         if let Some(v) = customer_managed_encryption {
             model = model.set_customer_managed_encryption(v);
-        }
-        if let Some(v) = etag {
-            model = model.set_etag(v);
         }
         // TODO: set expiration on model via .set_expiration() — type path unknown
         model = model.set_name(name.clone());
@@ -260,7 +248,6 @@ impl GcpProvider {
             "config": {
                 "annotations": &secret.annotations,
                 "customer_managed_encryption": &secret.customer_managed_encryption,
-                "etag": secret.etag.as_str(),
                 "expiration": serde_json::Value::Null,
                 "rotation": &secret.rotation,
                 "topics": &secret.topics,
@@ -304,7 +291,6 @@ impl GcpProvider {
                 >(v.clone())
                 .ok()
             });
-        let etag = config.optional_str("/config/etag").map(String::from);
         // TODO: extract expiration (Nested(Expiration)) from config["/config/expiration"] — type path unknown
         let replication = config.pointer("/reliability/replication").and_then(|v| {
             serde_json::from_value::<google_cloud_secretmanager_v1::model::Replication>(v.clone())
@@ -335,9 +321,6 @@ impl GcpProvider {
         }
         if let Some(v) = customer_managed_encryption {
             model = model.set_customer_managed_encryption(v);
-        }
-        if let Some(v) = etag {
-            model = model.set_etag(v);
         }
         // TODO: set expiration on model via .set_expiration() — type path unknown
         if let Some(v) = replication {
