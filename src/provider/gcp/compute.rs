@@ -152,7 +152,9 @@ impl GcpProvider {
             model = model.set_internal_ipv_6_range(v);
         }
         if let Some(v) = mtu {
-            model = model.set_mtu(v as i32);
+            model = model.set_mtu(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!("mtu: value {v} out of range for i32"))
+            })?);
         }
         model = model.set_name(name.clone());
         if let Some(v) = network_profile {
@@ -268,7 +270,9 @@ impl GcpProvider {
             model = model.set_internal_ipv_6_range(v);
         }
         if let Some(v) = mtu {
-            model = model.set_mtu(v as i32);
+            model = model.set_mtu(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!("mtu: value {v} out of range for i32"))
+            })?);
         }
         if let Some(v) = network_profile {
             model = model.set_network_profile(v);
@@ -1103,7 +1107,9 @@ impl GcpProvider {
             model = model.set_params(v);
         }
         if let Some(v) = priority {
-            model = model.set_priority(v as i32);
+            model = model.set_priority(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!("priority: value {v} out of range for i32"))
+            })?);
         }
         if let Some(v) = source_ranges {
             model = model.set_source_ranges(v);
@@ -1273,7 +1279,9 @@ impl GcpProvider {
             model = model.set_params(v);
         }
         if let Some(v) = priority {
-            model = model.set_priority(v as i32);
+            model = model.set_priority(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!("priority: value {v} out of range for i32"))
+            })?);
         }
         if let Some(v) = source_ranges {
             model = model.set_source_ranges(v);
@@ -1521,7 +1529,11 @@ impl GcpProvider {
             );
         }
         if let Some(v) = prefix_length {
-            model = model.set_prefix_length(v as i32);
+            model = model.set_prefix_length(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "prefix_length: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(ref s) = purpose {
             model = model.set_purpose(google_cloud_compute_v1::model::address::Purpose::from(
@@ -2022,13 +2034,25 @@ impl GcpProvider {
             model = model.set_params(v);
         }
         if let Some(v) = physical_block_size_bytes {
-            model = model.set_physical_block_size_bytes(v as i32);
+            model = model.set_physical_block_size_bytes(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "physical_block_size_bytes: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = provisioned_iops {
-            model = model.set_provisioned_iops(v as i32);
+            model = model.set_provisioned_iops(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "provisioned_iops: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = provisioned_throughput {
-            model = model.set_provisioned_throughput(v as i32);
+            model = model.set_provisioned_throughput(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "provisioned_throughput: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = replica_zones {
             model = model.set_replica_zones(v);
@@ -2037,7 +2061,9 @@ impl GcpProvider {
             model = model.set_resource_policies(v);
         }
         if let Some(v) = size_gb {
-            model = model.set_size_gb(v as i32);
+            model = model.set_size_gb(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!("size_gb: value {v} out of range for i32"))
+            })?);
         }
         if let Some(v) = source_disk {
             model = model.set_source_disk(v);
@@ -2287,13 +2313,25 @@ impl GcpProvider {
             model = model.set_params(v);
         }
         if let Some(v) = physical_block_size_bytes {
-            model = model.set_physical_block_size_bytes(v as i32);
+            model = model.set_physical_block_size_bytes(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "physical_block_size_bytes: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = provisioned_iops {
-            model = model.set_provisioned_iops(v as i32);
+            model = model.set_provisioned_iops(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "provisioned_iops: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = provisioned_throughput {
-            model = model.set_provisioned_throughput(v as i32);
+            model = model.set_provisioned_throughput(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "provisioned_throughput: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = replica_zones {
             model = model.set_replica_zones(v);
@@ -2302,7 +2340,9 @@ impl GcpProvider {
             model = model.set_resource_policies(v);
         }
         if let Some(v) = size_gb {
-            model = model.set_size_gb(v as i32);
+            model = model.set_size_gb(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!("size_gb: value {v} out of range for i32"))
+            })?);
         }
         if let Some(v) = source_disk {
             model = model.set_source_disk(v);
@@ -3331,7 +3371,9 @@ impl GcpProvider {
             model = model.set_params(v);
         }
         if let Some(v) = priority {
-            model = model.set_priority(v as u32);
+            model = model.set_priority(u32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!("priority: value {v} out of range for u32"))
+            })?);
         }
         if let Some(v) = tags {
             model = model.set_tags(v);
@@ -3934,13 +3976,21 @@ impl GcpProvider {
             );
         }
         if let Some(v) = archive_size_bytes {
-            model = model.set_archive_size_bytes(v as i32);
+            model = model.set_archive_size_bytes(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "archive_size_bytes: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = description {
             model = model.set_description(v);
         }
         if let Some(v) = disk_size_gb {
-            model = model.set_disk_size_gb(v as i32);
+            model = model.set_disk_size_gb(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "disk_size_gb: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = family {
             model = model.set_family(v);
@@ -4169,13 +4219,21 @@ impl GcpProvider {
             );
         }
         if let Some(v) = archive_size_bytes {
-            model = model.set_archive_size_bytes(v as i32);
+            model = model.set_archive_size_bytes(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "archive_size_bytes: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = description {
             model = model.set_description(v);
         }
         if let Some(v) = disk_size_gb {
-            model = model.set_disk_size_gb(v as i32);
+            model = model.set_disk_size_gb(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "disk_size_gb: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = family {
             model = model.set_family(v);
@@ -6142,7 +6200,11 @@ impl GcpProvider {
             model = model.set_description(v);
         }
         if let Some(v) = http_keep_alive_timeout_sec {
-            model = model.set_http_keep_alive_timeout_sec(v as i32);
+            model = model.set_http_keep_alive_timeout_sec(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "http_keep_alive_timeout_sec: value {v} out of range for i32"
+                ))
+            })?);
         }
         model = model.set_name(name.clone());
         if let Some(v) = proxy_bind {
@@ -6226,7 +6288,11 @@ impl GcpProvider {
             model = model.set_description(v);
         }
         if let Some(v) = http_keep_alive_timeout_sec {
-            model = model.set_http_keep_alive_timeout_sec(v as i32);
+            model = model.set_http_keep_alive_timeout_sec(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "http_keep_alive_timeout_sec: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = proxy_bind {
             model = model.set_proxy_bind(v);
@@ -6428,7 +6494,11 @@ impl GcpProvider {
             model = model.set_description(v);
         }
         if let Some(v) = http_keep_alive_timeout_sec {
-            model = model.set_http_keep_alive_timeout_sec(v as i32);
+            model = model.set_http_keep_alive_timeout_sec(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "http_keep_alive_timeout_sec: value {v} out of range for i32"
+                ))
+            })?);
         }
         model = model.set_name(name.clone());
         if let Some(v) = proxy_bind {
@@ -6563,7 +6633,11 @@ impl GcpProvider {
             model = model.set_description(v);
         }
         if let Some(v) = http_keep_alive_timeout_sec {
-            model = model.set_http_keep_alive_timeout_sec(v as i32);
+            model = model.set_http_keep_alive_timeout_sec(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "http_keep_alive_timeout_sec: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = proxy_bind {
             model = model.set_proxy_bind(v);
@@ -7073,7 +7147,9 @@ impl GcpProvider {
             model = model.set_description(v);
         }
         if let Some(v) = ike_version {
-            model = model.set_ike_version(v as i32);
+            model = model.set_ike_version(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!("ike_version: value {v} out of range for i32"))
+            })?);
         }
         if let Some(v) = local_traffic_selector {
             model = model.set_local_traffic_selector(v);
@@ -7083,7 +7159,11 @@ impl GcpProvider {
             model = model.set_peer_external_gateway(v);
         }
         if let Some(v) = peer_external_gateway_interface {
-            model = model.set_peer_external_gateway_interface(v as i32);
+            model = model.set_peer_external_gateway_interface(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "peer_external_gateway_interface: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = peer_gcp_gateway {
             model = model.set_peer_gcp_gateway(v);
@@ -7110,7 +7190,11 @@ impl GcpProvider {
             model = model.set_vpn_gateway(v);
         }
         if let Some(v) = vpn_gateway_interface {
-            model = model.set_vpn_gateway_interface(v as i32);
+            model = model.set_vpn_gateway_interface(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "vpn_gateway_interface: value {v} out of range for i32"
+                ))
+            })?);
         }
         model = model.set_labels(labels);
 
@@ -8024,14 +8108,18 @@ impl GcpProvider {
             model = model.set_l_2_forwarding(v);
         }
         if let Some(v) = mtu {
-            model = model.set_mtu(v as i32);
+            model = model.set_mtu(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!("mtu: value {v} out of range for i32"))
+            })?);
         }
         model = model.set_name(name.clone());
         if let Some(v) = params {
             model = model.set_params(v);
         }
         if let Some(v) = partner_asn {
-            model = model.set_partner_asn(v as i32);
+            model = model.set_partner_asn(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!("partner_asn: value {v} out of range for i32"))
+            })?);
         }
         if let Some(v) = partner_metadata {
             model = model.set_partner_metadata(v);
@@ -8047,10 +8135,18 @@ impl GcpProvider {
             );
         }
         if let Some(v) = subnet_length {
-            model = model.set_subnet_length(v as i32);
+            model = model.set_subnet_length(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "subnet_length: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = vlan_tag_8021_q {
-            model = model.set_vlan_tag_8021_q(v as i32);
+            model = model.set_vlan_tag_8021_q(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "vlan_tag_8021_q: value {v} out of range for i32"
+                ))
+            })?);
         }
         model = model.set_labels(labels);
 
@@ -8268,13 +8364,17 @@ impl GcpProvider {
             model = model.set_l_2_forwarding(v);
         }
         if let Some(v) = mtu {
-            model = model.set_mtu(v as i32);
+            model = model.set_mtu(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!("mtu: value {v} out of range for i32"))
+            })?);
         }
         if let Some(v) = params {
             model = model.set_params(v);
         }
         if let Some(v) = partner_asn {
-            model = model.set_partner_asn(v as i32);
+            model = model.set_partner_asn(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!("partner_asn: value {v} out of range for i32"))
+            })?);
         }
         if let Some(v) = partner_metadata {
             model = model.set_partner_metadata(v);
@@ -8290,10 +8390,18 @@ impl GcpProvider {
             );
         }
         if let Some(v) = subnet_length {
-            model = model.set_subnet_length(v as i32);
+            model = model.set_subnet_length(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "subnet_length: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = vlan_tag_8021_q {
-            model = model.set_vlan_tag_8021_q(v as i32);
+            model = model.set_vlan_tag_8021_q(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "vlan_tag_8021_q: value {v} out of range for i32"
+                ))
+            })?);
         }
         model = model.set_labels(labels);
 

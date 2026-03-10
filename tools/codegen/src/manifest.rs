@@ -40,13 +40,13 @@ pub struct ResourceMeta {
     pub sdk_client: String,
     /// Provider-ID format string, e.g. "{name}" or "{zone}/{name}"
     pub provider_id_format: String,
-    /// Scope: "global", "regional", or "zonal"
-    #[serde(default = "default_scope")]
-    pub scope: String,
-    /// API style: "compute" (set_project/set_zone/set_body) or "resource_name"
+    /// Scope: global, regional, or zonal
+    #[serde(default)]
+    pub scope: Scope,
+    /// API style: compute (set_project/set_zone/set_body) or resource_name
     /// (set_parent/set_name with hierarchical resource paths)
-    #[serde(default = "default_api_style")]
-    pub api_style: String,
+    #[serde(default)]
+    pub api_style: ApiStyle,
     /// For resource_name style: parent format, e.g. "projects/{project}" or
     /// "projects/{project}/locations/{location}"
     #[serde(default)]
@@ -89,12 +89,49 @@ pub struct ResourceMeta {
     pub output_field: Option<String>,
 }
 
-fn default_scope() -> String {
-    "global".into()
+/// Resource scope — determines how provider_id is constructed and which
+/// location parameters are passed to the SDK client.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Scope {
+    Global,
+    Regional,
+    Zonal,
 }
 
-fn default_api_style() -> String {
-    "compute".into()
+impl Default for Scope {
+    fn default() -> Self {
+        Self::Global
+    }
+}
+
+impl Scope {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Global => "global",
+            Self::Regional => "regional",
+            Self::Zonal => "zonal",
+        }
+    }
+}
+
+/// API style — determines the shape of SDK client calls.
+/// - `Compute`: Flat parameters (set_project, set_zone, set_body)
+/// - `ResourceName`: Hierarchical paths (set_parent, set_name, set_body)
+/// - `DirectModel`: Model IS the request (set_name/set_field directly on request builder).
+///   Used by Pub/Sub, Storage, and newer-generation GCP Rust SDKs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApiStyle {
+    Compute,
+    ResourceName,
+    DirectModel,
+}
+
+impl Default for ApiStyle {
+    fn default() -> Self {
+        Self::Compute
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -176,16 +213,16 @@ impl ResourceManifest {
             .unwrap_or_else(|| format!("{struct_name}s"));
 
         let scope = infer_scope(fields);
-        let provider_id_format = match scope.as_str() {
-            "zonal" => "{zone}/{name}".into(),
-            "regional" => "{region}/{name}".into(),
-            _ => "{name}".into(),
+        let provider_id_format = match scope {
+            Scope::Zonal => "{zone}/{name}".into(),
+            Scope::Regional => "{region}/{name}".into(),
+            Scope::Global => "{name}".into(),
         };
 
         // Detect API style: compute SDK uses insert/get/patch/delete,
         // other GCP SDKs use create_noun/get_noun/update_noun/delete_noun
         let is_compute = sdk_crate.contains("compute");
-        let api_style = if is_compute { "compute" } else { "resource_name" };
+        let api_style = if is_compute { ApiStyle::Compute } else { ApiStyle::ResourceName };
 
         let crud = if provider == "gcp" {
             if is_compute {
@@ -214,7 +251,7 @@ impl ResourceManifest {
         };
 
         let parent_format = if !is_compute {
-            if scope == "regional" || scope == "zonal" {
+            if scope == Scope::Regional || scope == Scope::Zonal {
                 Some("projects/{project}/locations/{location}".into())
             } else {
                 Some("projects/{project}".into())
@@ -309,7 +346,7 @@ impl ResourceManifest {
                 sdk_client: client_name,
                 provider_id_format,
                 scope,
-                api_style: api_style.into(),
+                api_style,
                 parent_format,
                 resource_id_setter,
                 resource_body_setter,
@@ -480,14 +517,14 @@ fn infer_type_path(sdk_crate: &str, struct_name: &str) -> String {
     }
 }
 
-fn infer_scope(fields: &[SdkField]) -> String {
+fn infer_scope(fields: &[SdkField]) -> Scope {
     let names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
     if names.contains(&"zone") {
-        "zonal".into()
+        Scope::Zonal
     } else if names.contains(&"region") {
-        "regional".into()
+        Scope::Regional
     } else {
-        "global".into()
+        Scope::Global
     }
 }
 

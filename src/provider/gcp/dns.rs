@@ -485,7 +485,9 @@ impl GcpProvider {
             model = model.set_signature_rrdatas(v);
         }
         if let Some(v) = ttl {
-            model = model.set_ttl(v as i32);
+            model = model.set_ttl(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!("ttl: value {v} out of range for i32"))
+            })?);
         }
 
         // Make API call

@@ -14,3 +14,21 @@ pub fn snake_case(s: &str) -> String {
     }
     result
 }
+
+/// Rust keywords that cannot be used as identifiers.
+const RUST_KEYWORDS: &[&str] = &[
+    "as", "async", "await", "break", "const", "continue", "crate", "dyn",
+    "else", "enum", "extern", "false", "fn", "for", "if", "impl", "in",
+    "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
+    "self", "static", "struct", "super", "trait", "true", "type", "unsafe",
+    "use", "where", "while", "yield",
+];
+
+/// Escape a snake_case name if it's a Rust keyword by appending `_val`.
+pub fn safe_ident(s: &str) -> String {
+    if RUST_KEYWORDS.contains(&s) {
+        format!("{s}_val")
+    } else {
+        s.to_string()
+    }
+}

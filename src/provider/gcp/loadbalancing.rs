@@ -451,7 +451,11 @@ impl GcpProvider {
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::BackendService::default();
         if let Some(v) = affinity_cookie_ttl_sec {
-            model = model.set_affinity_cookie_ttl_sec(v as i32);
+            model = model.set_affinity_cookie_ttl_sec(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "affinity_cookie_ttl_sec: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = backends {
             model = model.set_backends(v);
@@ -556,7 +560,9 @@ impl GcpProvider {
             model = model.set_subsetting(v);
         }
         if let Some(v) = timeout_sec {
-            model = model.set_timeout_sec(v as i32);
+            model = model.set_timeout_sec(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!("timeout_sec: value {v} out of range for i32"))
+            })?);
         }
         if let Some(v) = tls_settings {
             model = model.set_tls_settings(v);
@@ -782,7 +788,11 @@ impl GcpProvider {
 
         let mut model = google_cloud_compute_v1::model::BackendService::default();
         if let Some(v) = affinity_cookie_ttl_sec {
-            model = model.set_affinity_cookie_ttl_sec(v as i32);
+            model = model.set_affinity_cookie_ttl_sec(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "affinity_cookie_ttl_sec: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = backends {
             model = model.set_backends(v);
@@ -886,7 +896,9 @@ impl GcpProvider {
             model = model.set_subsetting(v);
         }
         if let Some(v) = timeout_sec {
-            model = model.set_timeout_sec(v as i32);
+            model = model.set_timeout_sec(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!("timeout_sec: value {v} out of range for i32"))
+            })?);
         }
         if let Some(v) = tls_settings {
             model = model.set_tls_settings(v);
@@ -1120,7 +1132,11 @@ impl GcpProvider {
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::HealthCheck::default();
         if let Some(v) = check_interval_sec {
-            model = model.set_check_interval_sec(v as i32);
+            model = model.set_check_interval_sec(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "check_interval_sec: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = description {
             model = model.set_description(v);
@@ -1132,7 +1148,11 @@ impl GcpProvider {
             model = model.set_grpc_tls_health_check(v);
         }
         if let Some(v) = healthy_threshold {
-            model = model.set_healthy_threshold(v as i32);
+            model = model.set_healthy_threshold(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "healthy_threshold: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = http_2_health_check {
             model = model.set_http_2_health_check(v);
@@ -1157,10 +1177,16 @@ impl GcpProvider {
             model = model.set_tcp_health_check(v);
         }
         if let Some(v) = timeout_sec {
-            model = model.set_timeout_sec(v as i32);
+            model = model.set_timeout_sec(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!("timeout_sec: value {v} out of range for i32"))
+            })?);
         }
         if let Some(v) = unhealthy_threshold {
-            model = model.set_unhealthy_threshold(v as i32);
+            model = model.set_unhealthy_threshold(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "unhealthy_threshold: value {v} out of range for i32"
+                ))
+            })?);
         }
 
         // Make API call
@@ -1283,7 +1309,11 @@ impl GcpProvider {
 
         let mut model = google_cloud_compute_v1::model::HealthCheck::default();
         if let Some(v) = check_interval_sec {
-            model = model.set_check_interval_sec(v as i32);
+            model = model.set_check_interval_sec(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "check_interval_sec: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = description {
             model = model.set_description(v);
@@ -1295,7 +1325,11 @@ impl GcpProvider {
             model = model.set_grpc_tls_health_check(v);
         }
         if let Some(v) = healthy_threshold {
-            model = model.set_healthy_threshold(v as i32);
+            model = model.set_healthy_threshold(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "healthy_threshold: value {v} out of range for i32"
+                ))
+            })?);
         }
         if let Some(v) = http_2_health_check {
             model = model.set_http_2_health_check(v);
@@ -1319,10 +1353,16 @@ impl GcpProvider {
             model = model.set_tcp_health_check(v);
         }
         if let Some(v) = timeout_sec {
-            model = model.set_timeout_sec(v as i32);
+            model = model.set_timeout_sec(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!("timeout_sec: value {v} out of range for i32"))
+            })?);
         }
         if let Some(v) = unhealthy_threshold {
-            model = model.set_unhealthy_threshold(v as i32);
+            model = model.set_unhealthy_threshold(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "unhealthy_threshold: value {v} out of range for i32"
+                ))
+            })?);
         }
 
         self.health_checks()

@@ -140,7 +140,11 @@ impl GcpProvider {
             model = model.set_restricted_fields(v);
         }
         if let Some(v) = retention_days {
-            model = model.set_retention_days(v as i32);
+            model = model.set_retention_days(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "retention_days: value {v} out of range for i32"
+                ))
+            })?);
         }
 
         // Make API call
@@ -254,7 +258,11 @@ impl GcpProvider {
             model = model.set_restricted_fields(v);
         }
         if let Some(v) = retention_days {
-            model = model.set_retention_days(v as i32);
+            model = model.set_retention_days(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!(
+                    "retention_days: value {v} out of range for i32"
+                ))
+            })?);
         }
 
         self.logging()

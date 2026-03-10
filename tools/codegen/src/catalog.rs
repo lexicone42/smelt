@@ -10,7 +10,7 @@ use serde::Deserialize;
 
 use crate::generate;
 use crate::introspect;
-use crate::manifest::ResourceManifest;
+use crate::manifest::{ApiStyle, ResourceManifest, Scope};
 use crate::snake_case;
 
 #[derive(Debug, Deserialize)]
@@ -25,10 +25,10 @@ pub struct CatalogEntry {
     pub sdk_client: String,
     #[serde(default)]
     pub type_path: Option<String>,
-    #[serde(default = "default_api_style")]
-    pub api_style: String,
-    #[serde(default = "default_scope")]
-    pub scope: String,
+    #[serde(default)]
+    pub api_style: ApiStyle,
+    #[serde(default)]
+    pub scope: Scope,
     #[serde(default)]
     pub parent_format: Option<String>,
     #[serde(default)]
@@ -57,13 +57,6 @@ pub struct CatalogEntry {
     pub crud_delete: Option<String>,
 }
 
-fn default_api_style() -> String {
-    "compute".into()
-}
-
-fn default_scope() -> String {
-    "global".into()
-}
 
 /// Apply a catalog Option override: if Some(""), clear the field; if Some(val), set it; if None, keep existing.
 fn apply_optional(target: &mut Option<String>, source: &Option<String>) {
@@ -225,7 +218,7 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
         apply_optional(&mut manifest.crud.delete, &entry.crud_delete);
 
         // Fix provider_id_format for resource_name style
-        if entry.api_style == "resource_name" {
+        if entry.api_style == ApiStyle::ResourceName {
             let noun = snake_case(&entry.struct_name);
             let noun_plural = format!("{noun}s");
             if let Some(ref pf) = entry.parent_format {
@@ -238,10 +231,10 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
                     format!("{base}/{noun_plural}/{{name}}");
             }
         } else {
-            manifest.resource.provider_id_format = match entry.scope.as_str() {
-                "zonal" => "{zone}/{name}".into(),
-                "regional" => "{region}/{name}".into(),
-                _ => "{name}".into(),
+            manifest.resource.provider_id_format = match entry.scope {
+                Scope::Zonal => "{zone}/{name}".into(),
+                Scope::Regional => "{region}/{name}".into(),
+                Scope::Global => "{name}".into(),
             };
         }
 

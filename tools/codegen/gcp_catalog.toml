@@ -606,6 +606,61 @@ crud_read = "get_log_metric"
 crud_update = "update_log_metric"
 crud_delete = "delete_log_metric"
 
+# ─── Pub/Sub ─────────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Topic"
+sdk_crate = "google-cloud-pubsub"
+sdk_client = "TopicAdmin"
+client_accessor = "topic_admin"
+type_path = "pubsub.Topic"
+api_style = "direct_model"
+scope = "global"
+parent_format = "projects/{project}"
+# get_topic/delete_topic use set_topic, not set_name
+resource_name_param = "set_topic"
+# update_topic().set_topic(model) — body setter is "set_topic"
+resource_body_setter = "set_topic"
+crud_create = "create_topic"
+crud_read = "get_topic"
+crud_update = "update_topic"
+crud_delete = "delete_topic"
+
+[[resource]]
+struct_name = "Subscription"
+sdk_crate = "google-cloud-pubsub"
+sdk_client = "SubscriptionAdmin"
+client_accessor = "subscription_admin"
+type_path = "pubsub.Subscription"
+api_style = "direct_model"
+scope = "global"
+parent_format = "projects/{project}"
+# get/delete use set_subscription, update uses set_subscription(model)
+resource_name_param = "set_subscription"
+resource_body_setter = "set_subscription"
+crud_create = "create_subscription"
+crud_read = "get_subscription"
+crud_update = "update_subscription"
+crud_delete = "delete_subscription"
+
+# ─── Storage ─────────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Bucket"
+sdk_crate = "google-cloud-storage"
+sdk_client = "StorageControl"
+client_accessor = "storage"
+type_path = "storage.Bucket"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+resource_id_setter = "set_bucket_id"
+resource_body_setter = "set_bucket"
+crud_create = "create_bucket"
+crud_read = "get_bucket"
+crud_update = "update_bucket"
+crud_delete = "delete_bucket"
+
 # ─── Skipped resources (require non-standard patterns) ──────────────────────
 # - FirewallPolicy — org-level, no set_project (different scope model)
 # - Container NodePool — parent includes cluster name from config

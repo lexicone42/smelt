@@ -431,7 +431,9 @@ impl GcpProvider {
         }
         model = model.set_name(name.clone());
         if let Some(v) = node_count {
-            model = model.set_node_count(v as i32);
+            model = model.set_node_count(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!("node_count: value {v} out of range for i32"))
+            })?);
         }
         if let Some(v) = on_premises_configuration {
             model = model.set_on_premises_configuration(v);
@@ -710,7 +712,9 @@ impl GcpProvider {
             model = model.set_master_instance_name(v);
         }
         if let Some(v) = node_count {
-            model = model.set_node_count(v as i32);
+            model = model.set_node_count(i32::try_from(v).map_err(|_| {
+                ProviderError::InvalidConfig(format!("node_count: value {v} out of range for i32"))
+            })?);
         }
         if let Some(v) = on_premises_configuration {
             model = model.set_on_premises_configuration(v);
