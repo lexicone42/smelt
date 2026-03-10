@@ -87,6 +87,16 @@ pub struct ResourceMeta {
     /// Set to "name" for compute-style resources that lack self_link (DNS, SQL).
     #[serde(default)]
     pub output_field: Option<String>,
+    /// Whether create is a Long Running Operation (LRO).
+    /// When true, codegen emits `.poller().until_done().await` instead of `.send().await`.
+    #[serde(default)]
+    pub lro_create: bool,
+    /// Whether update is a Long Running Operation (LRO).
+    #[serde(default)]
+    pub lro_update: bool,
+    /// Whether delete is a Long Running Operation (LRO).
+    #[serde(default)]
+    pub lro_delete: bool,
 }
 
 /// Resource scope — determines how provider_id is constructed and which
@@ -356,6 +366,9 @@ impl ResourceManifest {
                 resource_name_param: None,
                 has_update_mask: true,
                 output_field: None,
+                lro_create: false,
+                lro_update: false,
+                lro_delete: false,
             },
             crud,
             fields: field_defs,

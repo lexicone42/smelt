@@ -47,6 +47,16 @@ pub struct CatalogEntry {
     pub has_update_mask: Option<bool>,
     #[serde(default)]
     pub output_field: Option<String>,
+    /// Shorthand: set all three lro_create/lro_update/lro_delete at once
+    #[serde(default)]
+    pub lro: Option<bool>,
+    /// Per-operation LRO overrides (take precedence over `lro`)
+    #[serde(default)]
+    pub lro_create: Option<bool>,
+    #[serde(default)]
+    pub lro_update: Option<bool>,
+    #[serde(default)]
+    pub lro_delete: Option<bool>,
     #[serde(default)]
     pub crud_create: Option<String>,
     #[serde(default)]
@@ -206,6 +216,21 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
             manifest.resource.has_update_mask = hum;
         }
         apply_optional_set(&mut manifest.resource.output_field, &entry.output_field);
+        // LRO: `lro = true` sets all three; per-operation overrides take precedence
+        if let Some(lro) = entry.lro {
+            manifest.resource.lro_create = lro;
+            manifest.resource.lro_update = lro;
+            manifest.resource.lro_delete = lro;
+        }
+        if let Some(v) = entry.lro_create {
+            manifest.resource.lro_create = v;
+        }
+        if let Some(v) = entry.lro_update {
+            manifest.resource.lro_update = v;
+        }
+        if let Some(v) = entry.lro_delete {
+            manifest.resource.lro_delete = v;
+        }
 
         // Override CRUD methods from catalog
         if let Some(ref c) = entry.crud_create {
@@ -298,7 +323,19 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
         combined.push_str(&format!("// Resources: {}\n\n", entries.len()));
         combined.push_str("use crate::provider::*;\n");
         combined.push_str("use std::collections::HashMap;\n\n");
-        combined.push_str("use super::GcpProvider;\n\n");
+        combined.push_str("use super::GcpProvider;\n");
+
+        // Check if any entry in this service uses LRO
+        let has_lro = entries.iter().any(|(_, entry)| {
+            entry.lro.unwrap_or(false)
+                || entry.lro_create.unwrap_or(false)
+                || entry.lro_update.unwrap_or(false)
+                || entry.lro_delete.unwrap_or(false)
+        });
+        if has_lro {
+            combined.push_str("use google_cloud_lro::Poller;\n");
+        }
+        combined.push('\n');
 
         // Collect methods (inside impl block) and standalone functions separately
         let mut methods = String::new();

@@ -1,3 +1,5 @@
+mod artifactregistry;
+mod certificatemanager;
 mod compute;
 mod container;
 mod dns;
@@ -6,6 +8,7 @@ mod iam;
 mod kms;
 mod loadbalancing;
 mod logging;
+mod memorystore;
 mod monitoring;
 mod pubsub;
 mod run;
@@ -57,9 +60,10 @@ macro_rules! gcp_dispatch_delete {
 
 /// Google Cloud Platform provider backed by official Google Cloud Rust SDK.
 ///
-/// Covers 55 resource types across Compute Engine, Cloud Storage, Cloud SQL,
+/// Covers 57 resource types across Compute Engine, Cloud Storage, Cloud SQL,
 /// IAM, Cloud DNS, GKE, Cloud Run, Cloud Functions, Pub/Sub, KMS,
-/// Secret Manager, Cloud Logging, Cloud Monitoring, and Load Balancing.
+/// Secret Manager, Cloud Logging, Cloud Monitoring, Load Balancing,
+/// Artifact Registry, Certificate Manager, and Memorystore.
 ///
 /// Clients are lazily initialized on first use — only the services you
 /// actually touch pay the cost of credential negotiation and connection setup.
@@ -151,6 +155,15 @@ pub struct GcpProvider {
         tokio::sync::OnceCell<google_cloud_logging_v2::client::ConfigServiceV2>,
     pub(crate) logging_metrics_client:
         tokio::sync::OnceCell<google_cloud_logging_v2::client::MetricsServiceV2>,
+    // Artifact Registry
+    pub(crate) artifact_registry_client:
+        tokio::sync::OnceCell<google_cloud_artifactregistry_v1::client::ArtifactRegistry>,
+    // Certificate Manager
+    pub(crate) certificate_manager_client:
+        tokio::sync::OnceCell<google_cloud_certificatemanager_v1::client::CertificateManager>,
+    // Memorystore
+    pub(crate) memorystore_client:
+        tokio::sync::OnceCell<google_cloud_memorystore_v1::client::Memorystore>,
     // Cloud Monitoring
     pub(crate) monitoring_client:
         tokio::sync::OnceCell<google_cloud_monitoring_v3::client::AlertPolicyService>,
@@ -232,6 +245,9 @@ impl GcpProvider {
             secretmanager_client: tokio::sync::OnceCell::new(),
             logging_client: tokio::sync::OnceCell::new(),
             logging_metrics_client: tokio::sync::OnceCell::new(),
+            artifact_registry_client: tokio::sync::OnceCell::new(),
+            certificate_manager_client: tokio::sync::OnceCell::new(),
+            memorystore_client: tokio::sync::OnceCell::new(),
             monitoring_client: tokio::sync::OnceCell::new(),
             notification_channels_client: tokio::sync::OnceCell::new(),
             uptime_checks_client: tokio::sync::OnceCell::new(),
@@ -696,6 +712,40 @@ impl GcpProvider {
             "init MonitoringGroups"
         )
     }
+
+    // Artifact Registry
+    pub(crate) async fn artifact_registry(
+        &self,
+    ) -> Result<&google_cloud_artifactregistry_v1::client::ArtifactRegistry, ProviderError> {
+        gcp_client!(
+            self.artifact_registry_client,
+            google_cloud_artifactregistry_v1::client::ArtifactRegistry::builder(),
+            "init ArtifactRegistry"
+        )
+    }
+
+    // Certificate Manager
+    pub(crate) async fn certificate_manager(
+        &self,
+    ) -> Result<&google_cloud_certificatemanager_v1::client::CertificateManager, ProviderError>
+    {
+        gcp_client!(
+            self.certificate_manager_client,
+            google_cloud_certificatemanager_v1::client::CertificateManager::builder(),
+            "init CertificateManager"
+        )
+    }
+
+    // Memorystore
+    pub(crate) async fn memorystore(
+        &self,
+    ) -> Result<&google_cloud_memorystore_v1::client::Memorystore, ProviderError> {
+        gcp_client!(
+            self.memorystore_client,
+            google_cloud_memorystore_v1::client::Memorystore::builder(),
+            "init Memorystore"
+        )
+    }
 }
 
 /// Parse a zonal provider_id like "us-central1-a/my-instance" into (zone, name).
@@ -856,6 +906,14 @@ impl Provider for GcpProvider {
             Self::monitoring_notificationchannel_schema(),
             Self::monitoring_uptimecheckconfig_schema(),
             Self::monitoring_group_schema(),
+            // Artifact Registry (1)
+            Self::artifactregistry_repository_schema(),
+            // Certificate Manager (3)
+            Self::certificatemanager_certificate_schema(),
+            Self::certificatemanager_certificatemap_schema(),
+            Self::certificatemanager_dnsauthorization_schema(),
+            // Memorystore (1)
+            Self::memorystore_instance_schema(),
         ]
     }
 
@@ -935,6 +993,14 @@ impl Provider for GcpProvider {
                 "monitoring.NotificationChannel" => read_monitoring_notificationchannel,
                 "monitoring.UptimeCheckConfig" => read_monitoring_uptimecheckconfig,
                 "monitoring.Group" => read_monitoring_group,
+                // Artifact Registry
+                "artifactregistry.Repository" => read_artifactregistry_repository,
+                // Certificate Manager
+                "certificatemanager.Certificate" => read_certificatemanager_certificate,
+                "certificatemanager.CertificateMap" => read_certificatemanager_certificatemap,
+                "certificatemanager.DnsAuthorization" => read_certificatemanager_dnsauthorization,
+                // Memorystore
+                "memorystore.Instance" => read_memorystore_instance,
             })
         })
     }
@@ -1015,6 +1081,14 @@ impl Provider for GcpProvider {
                 "monitoring.NotificationChannel" => create_monitoring_notificationchannel,
                 "monitoring.UptimeCheckConfig" => create_monitoring_uptimecheckconfig,
                 "monitoring.Group" => create_monitoring_group,
+                // Artifact Registry
+                "artifactregistry.Repository" => create_artifactregistry_repository,
+                // Certificate Manager
+                "certificatemanager.Certificate" => create_certificatemanager_certificate,
+                "certificatemanager.CertificateMap" => create_certificatemanager_certificatemap,
+                "certificatemanager.DnsAuthorization" => create_certificatemanager_dnsauthorization,
+                // Memorystore
+                "memorystore.Instance" => create_memorystore_instance,
             })
         })
     }
@@ -1097,6 +1171,14 @@ impl Provider for GcpProvider {
                 "monitoring.NotificationChannel" => update_monitoring_notificationchannel,
                 "monitoring.UptimeCheckConfig" => update_monitoring_uptimecheckconfig,
                 "monitoring.Group" => update_monitoring_group,
+                // Artifact Registry
+                "artifactregistry.Repository" => update_artifactregistry_repository,
+                // Certificate Manager
+                "certificatemanager.Certificate" => update_certificatemanager_certificate,
+                "certificatemanager.CertificateMap" => update_certificatemanager_certificatemap,
+                "certificatemanager.DnsAuthorization" => update_certificatemanager_dnsauthorization,
+                // Memorystore
+                "memorystore.Instance" => update_memorystore_instance,
             })
         })
     }
@@ -1177,6 +1259,14 @@ impl Provider for GcpProvider {
                 "monitoring.NotificationChannel" => delete_monitoring_notificationchannel,
                 "monitoring.UptimeCheckConfig" => delete_monitoring_uptimecheckconfig,
                 "monitoring.Group" => delete_monitoring_group,
+                // Artifact Registry
+                "artifactregistry.Repository" => delete_artifactregistry_repository,
+                // Certificate Manager
+                "certificatemanager.Certificate" => delete_certificatemanager_certificate,
+                "certificatemanager.CertificateMap" => delete_certificatemanager_certificatemap,
+                "certificatemanager.DnsAuthorization" => delete_certificatemanager_dnsauthorization,
+                // Memorystore
+                "memorystore.Instance" => delete_memorystore_instance,
             })
         })
     }
@@ -1291,6 +1381,27 @@ impl Provider for GcpProvider {
                 "storage.Bucket" => storage::storage_bucket_forces_replacement(&change.path),
                 "pubsub.Topic" => true,
                 "pubsub.Subscription" => change.path == "identity.name",
+                "artifactregistry.Repository" => {
+                    artifactregistry::artifactregistry_repository_forces_replacement(&change.path)
+                }
+                "certificatemanager.Certificate" => {
+                    certificatemanager::certificatemanager_certificate_forces_replacement(
+                        &change.path,
+                    )
+                }
+                "certificatemanager.CertificateMap" => {
+                    certificatemanager::certificatemanager_certificatemap_forces_replacement(
+                        &change.path,
+                    )
+                }
+                "certificatemanager.DnsAuthorization" => {
+                    certificatemanager::certificatemanager_dnsauthorization_forces_replacement(
+                        &change.path,
+                    )
+                }
+                "memorystore.Instance" => {
+                    memorystore::memorystore_instance_forces_replacement(&change.path)
+                }
                 _ => false,
             };
         }
@@ -1354,15 +1465,19 @@ mod tests {
             secretmanager_client: tokio::sync::OnceCell::new(),
             logging_client: tokio::sync::OnceCell::new(),
             logging_metrics_client: tokio::sync::OnceCell::new(),
+            artifact_registry_client: tokio::sync::OnceCell::new(),
+            certificate_manager_client: tokio::sync::OnceCell::new(),
+            memorystore_client: tokio::sync::OnceCell::new(),
             monitoring_client: tokio::sync::OnceCell::new(),
             notification_channels_client: tokio::sync::OnceCell::new(),
             uptime_checks_client: tokio::sync::OnceCell::new(),
             monitoring_groups_client: tokio::sync::OnceCell::new(),
         };
         // 23 compute + 3 LB + 1 storage + 3 SQL + 2 IAM + 3 DNS + 1 GKE
-        // + 2 run + 1 functions + 2 pubsub + 2 kms + 1 secret + 4 logging + 4 monitoring = 52
+        // + 2 run + 1 functions + 2 pubsub + 2 kms + 1 secret + 4 logging + 4 monitoring
+        // + 1 artifact registry + 3 certificate manager + 1 memorystore = 57
         let schemas = provider.resource_types();
-        assert_eq!(schemas.len(), 52);
+        assert_eq!(schemas.len(), 57);
     }
 
     #[test]

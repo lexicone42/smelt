@@ -281,8 +281,14 @@ fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
         }
     }
 
-    let _ = writeln!(out, "        .send()");
-    let _ = writeln!(out, "        .await");
+    if m.resource.lro_create {
+        let _ = writeln!(out, "        .poller()");
+        let _ = writeln!(out, "        .until_done()");
+        let _ = writeln!(out, "        .await");
+    } else {
+        let _ = writeln!(out, "        .send()");
+        let _ = writeln!(out, "        .await");
+    }
     let _ = writeln!(
         out,
         "        .map_err(|e| super::classify_gcp_error(\"{} {}\", e))?;",
@@ -569,8 +575,14 @@ fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
         }
     }
 
-    let _ = writeln!(out, "        .send()");
-    let _ = writeln!(out, "        .await");
+    if m.resource.lro_update {
+        let _ = writeln!(out, "        .poller()");
+        let _ = writeln!(out, "        .until_done()");
+        let _ = writeln!(out, "        .await");
+    } else {
+        let _ = writeln!(out, "        .send()");
+        let _ = writeln!(out, "        .await");
+    }
     let _ = writeln!(
         out,
         "        .map_err(|e| super::classify_gcp_error(\"{update_method} {model_name}\", e))?;"
@@ -647,8 +659,14 @@ fn write_delete_fn(out: &mut String, m: &ResourceManifest) {
             let _ = writeln!(out, "        .{resource_setter}(&name)");
         }
 
-        let _ = writeln!(out, "        .send()");
-        let _ = writeln!(out, "        .await");
+        if m.resource.lro_delete {
+            let _ = writeln!(out, "        .poller()");
+            let _ = writeln!(out, "        .until_done()");
+            let _ = writeln!(out, "        .await");
+        } else {
+            let _ = writeln!(out, "        .send()");
+            let _ = writeln!(out, "        .await");
+        }
         let _ = writeln!(
             out,
             "        .map_err(|e| super::classify_gcp_error(\"Delete{model_name}\", e))?;"

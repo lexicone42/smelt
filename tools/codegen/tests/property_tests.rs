@@ -111,8 +111,11 @@ fn arb_manifest() -> impl Strategy<Value = ResourceManifest> {
         arb_scope(),
         arb_api_style(),
         prop::collection::btree_map(arb_identifier(), arb_field_def(), 1..8),
+        any::<bool>(),       // lro_create
+        any::<bool>(),       // lro_update
+        any::<bool>(),       // lro_delete
     )
-        .prop_map(|(service, model, scope, api_style, mut fields)| {
+        .prop_map(|(service, model, scope, api_style, mut fields, lro_create, lro_update, lro_delete)| {
             // Ensure a "name" field always exists (required for codegen)
             fields.insert("name".into(), FieldDef {
                 section: "identity".into(),
@@ -162,6 +165,9 @@ fn arb_manifest() -> impl Strategy<Value = ResourceManifest> {
                     resource_name_param: None,
                     has_update_mask: true,
                     output_field: None,
+                    lro_create,
+                    lro_update,
+                    lro_delete,
                 },
                 crud: CrudMethods {
                     create: "insert".into(),
@@ -409,6 +415,9 @@ fn integer_codegen_uses_try_from() {
             resource_name_param: None,
             has_update_mask: true,
             output_field: None,
+            lro_create: false,
+            lro_update: false,
+            lro_delete: false,
         },
         crud: CrudMethods {
             create: "insert".into(),
@@ -503,6 +512,9 @@ fn oneof_uses_field_section_not_config() {
             resource_name_param: None,
             has_update_mask: true,
             output_field: None,
+            lro_create: false,
+            lro_update: false,
+            lro_delete: false,
         },
         crud: CrudMethods {
             create: "create_secret".into(),

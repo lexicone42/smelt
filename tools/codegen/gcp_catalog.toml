@@ -661,6 +661,99 @@ crud_read = "get_bucket"
 crud_update = "update_bucket"
 crud_delete = "delete_bucket"
 
+# ─── Artifact Registry ───────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Repository"
+sdk_crate = "google-cloud-artifactregistry-v1"
+sdk_client = "ArtifactRegistry"
+client_accessor = "artifact_registry"
+type_path = "artifactregistry.Repository"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_repository_id"
+resource_body_setter = "set_repository"
+crud_create = "create_repository"
+crud_read = "get_repository"
+crud_update = "update_repository"
+crud_delete = "delete_repository"
+lro_create = true
+lro_update = false
+lro_delete = true
+
+# ─── Certificate Manager ────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Certificate"
+sdk_crate = "google-cloud-certificatemanager-v1"
+sdk_client = "CertificateManager"
+client_accessor = "certificate_manager"
+type_path = "certificatemanager.Certificate"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_certificate_id"
+resource_body_setter = "set_certificate"
+crud_create = "create_certificate"
+crud_read = "get_certificate"
+crud_update = "update_certificate"
+crud_delete = "delete_certificate"
+lro = true
+
+[[resource]]
+struct_name = "CertificateMap"
+sdk_crate = "google-cloud-certificatemanager-v1"
+sdk_client = "CertificateManager"
+client_accessor = "certificate_manager"
+type_path = "certificatemanager.CertificateMap"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_certificate_map_id"
+resource_body_setter = "set_certificate_map"
+crud_create = "create_certificate_map"
+crud_read = "get_certificate_map"
+crud_update = "update_certificate_map"
+crud_delete = "delete_certificate_map"
+lro = true
+
+[[resource]]
+struct_name = "DnsAuthorization"
+sdk_crate = "google-cloud-certificatemanager-v1"
+sdk_client = "CertificateManager"
+client_accessor = "certificate_manager"
+type_path = "certificatemanager.DnsAuthorization"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_dns_authorization_id"
+resource_body_setter = "set_dns_authorization"
+crud_create = "create_dns_authorization"
+crud_read = "get_dns_authorization"
+crud_update = "update_dns_authorization"
+crud_delete = "delete_dns_authorization"
+lro = true
+
+# ─── Memorystore ────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Instance"
+sdk_crate = "google-cloud-memorystore-v1"
+sdk_client = "Memorystore"
+client_accessor = "memorystore"
+type_path = "memorystore.Instance"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_instance_id"
+resource_body_setter = "set_instance"
+crud_create = "create_instance"
+crud_read = "get_instance"
+crud_update = "update_instance"
+crud_delete = "delete_instance"
+lro = true
+
 # ─── Skipped resources (require non-standard patterns) ──────────────────────
 # - FirewallPolicy — org-level, no set_project (different scope model)
 # - Container NodePool — parent includes cluster name from config
