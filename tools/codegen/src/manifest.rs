@@ -348,11 +348,21 @@ impl ResourceManifest {
                 if let Some(variants) = enum_lookup.get(enum_name.as_str()) {
                     field_def.variants = variants.iter().cloned().collect();
                 } else {
-                    // Proto oneof: no Serialize/Deserialize, no From<&str>.
-                    // Clear sdk_type_path so codegen falls back to TODO comments.
+                    // Unresolved type: could be a proto oneof or a cross-crate type.
+                    // Proto oneofs (crate::model::submod::Type) don't implement serde.
+                    // Cross-crate types (google_cloud_api::model::Type) usually do.
+                    // Keep sdk_type_path only for cross-crate types that are likely
+                    // serde-compatible; clear it for same-crate nested types (oneofs).
                     field_def.field_type = format!("Nested({enum_name})");
                     field_def.variants.clear();
-                    field_def.sdk_type_path = None;
+                    if let Some(ref path) = field_def.sdk_type_path {
+                        let is_same_crate_oneof = path.starts_with("crate::model::")
+                            && path.matches("::").count() > 2;
+                        let is_unknown_crate = path.contains("_rpc::");
+                        if is_same_crate_oneof || is_unknown_crate {
+                            field_def.sdk_type_path = None;
+                        }
+                    }
                 }
             }
         }

@@ -209,7 +209,9 @@ impl GcpProvider {
         let _labels = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
-        // TODO: extract launch_stage (Nested(LaunchStage)) from config["/config/launch_stage"] — type path unknown
+        let launch_stage = config.pointer("/config/launch_stage").and_then(|v| {
+            serde_json::from_value::<google_cloud_api::model::LaunchStage>(v.clone()).ok()
+        });
         let multi_region_settings = config
             .pointer("/config/multi_region_settings")
             .and_then(|v| {
@@ -265,7 +267,9 @@ impl GcpProvider {
         if let Some(v) = invoker_iam_disabled {
             model = model.set_invoker_iam_disabled(v);
         }
-        // TODO: set launch_stage on model via .set_launch_stage() — type path unknown
+        if let Some(v) = launch_stage {
+            model = model.set_launch_stage(v);
+        }
         if let Some(v) = multi_region_settings {
             model = model.set_multi_region_settings(v);
         }
@@ -342,7 +346,7 @@ impl GcpProvider {
                 "iap_enabled": service.iap_enabled,
                 "ingress": &service.ingress,
                 "invoker_iam_disabled": service.invoker_iam_disabled,
-                "launch_stage": serde_json::Value::Null,
+                "launch_stage": &service.launch_stage,
                 "multi_region_settings": &service.multi_region_settings,
                 "scaling": &service.scaling,
                 "template": &service.template,
@@ -503,7 +507,9 @@ impl GcpProvider {
         let _labels = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
-        // TODO: extract launch_stage (Nested(LaunchStage)) from config["/config/launch_stage"] — type path unknown
+        let launch_stage = config.pointer("/config/launch_stage").and_then(|v| {
+            serde_json::from_value::<google_cloud_api::model::LaunchStage>(v.clone()).ok()
+        });
         let name = config.require_str("/identity/name")?.to_string();
         let template = config.pointer("/config/template").and_then(|v| {
             serde_json::from_value::<google_cloud_run_v2::model::ExecutionTemplate>(v.clone()).ok()
@@ -525,7 +531,9 @@ impl GcpProvider {
             model = model.set_client_version(v);
         }
         // TODO: set create_execution on model via .set_create_execution() — type path unknown
-        // TODO: set launch_stage on model via .set_launch_stage() — type path unknown
+        if let Some(v) = launch_stage {
+            model = model.set_launch_stage(v);
+        }
         model = model.set_name(name.clone());
         if let Some(v) = template {
             model = model.set_template(v);
@@ -587,7 +595,7 @@ impl GcpProvider {
                 "client": job.client.as_str(),
                 "client_version": job.client_version.as_str(),
                 "create_execution": serde_json::Value::Null,
-                "launch_stage": serde_json::Value::Null,
+                "launch_stage": &job.launch_stage,
                 "template": &job.template,
             },
         });

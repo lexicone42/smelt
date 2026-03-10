@@ -847,7 +847,12 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
         let bucket_name = config.optional_str("/config/bucket_name").map(String::from);
-        // TODO: extract bucket_options (Nested(BucketOptions)) from config["/config/bucket_options"] — type path unknown
+        let bucket_options = config.pointer("/config/bucket_options").and_then(|v| {
+            serde_json::from_value::<google_cloud_api::model::distribution::BucketOptions>(
+                v.clone(),
+            )
+            .ok()
+        });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
@@ -856,7 +861,9 @@ impl GcpProvider {
         let label_extractors = config
             .pointer("/config/label_extractors")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
-        // TODO: extract metric_descriptor (Nested(MetricDescriptor)) from config["/config/metric_descriptor"] — type path unknown
+        let metric_descriptor = config.pointer("/config/metric_descriptor").and_then(|v| {
+            serde_json::from_value::<google_cloud_api::model::MetricDescriptor>(v.clone()).ok()
+        });
         let name = config.require_str("/identity/name")?.to_string();
         let value_extractor = config
             .optional_str("/config/value_extractor")
@@ -867,7 +874,9 @@ impl GcpProvider {
         if let Some(v) = bucket_name {
             model = model.set_bucket_name(v);
         }
-        // TODO: set bucket_options on model via .set_bucket_options() — type path unknown
+        if let Some(v) = bucket_options {
+            model = model.set_bucket_options(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
@@ -880,7 +889,9 @@ impl GcpProvider {
         if let Some(v) = label_extractors {
             model = model.set_label_extractors(v);
         }
-        // TODO: set metric_descriptor on model via .set_metric_descriptor() — type path unknown
+        if let Some(v) = metric_descriptor {
+            model = model.set_metric_descriptor(v);
+        }
         model = model.set_name(name.clone());
         if let Some(v) = value_extractor {
             model = model.set_value_extractor(v);
@@ -926,11 +937,11 @@ impl GcpProvider {
             },
             "config": {
                 "bucket_name": log_metric.bucket_name.as_str(),
-                "bucket_options": serde_json::Value::Null,
+                "bucket_options": &log_metric.bucket_options,
                 "disabled": log_metric.disabled,
                 "filter": log_metric.filter.as_str(),
                 "label_extractors": &log_metric.label_extractors,
-                "metric_descriptor": serde_json::Value::Null,
+                "metric_descriptor": &log_metric.metric_descriptor,
                 "value_extractor": log_metric.value_extractor.as_str(),
             },
         });
@@ -957,7 +968,12 @@ impl GcpProvider {
             .to_string();
         // Extract fields from config
         let bucket_name = config.optional_str("/config/bucket_name").map(String::from);
-        // TODO: extract bucket_options (Nested(BucketOptions)) from config["/config/bucket_options"] — type path unknown
+        let bucket_options = config.pointer("/config/bucket_options").and_then(|v| {
+            serde_json::from_value::<google_cloud_api::model::distribution::BucketOptions>(
+                v.clone(),
+            )
+            .ok()
+        });
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
@@ -966,7 +982,9 @@ impl GcpProvider {
         let label_extractors = config
             .pointer("/config/label_extractors")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
-        // TODO: extract metric_descriptor (Nested(MetricDescriptor)) from config["/config/metric_descriptor"] — type path unknown
+        let metric_descriptor = config.pointer("/config/metric_descriptor").and_then(|v| {
+            serde_json::from_value::<google_cloud_api::model::MetricDescriptor>(v.clone()).ok()
+        });
         let value_extractor = config
             .optional_str("/config/value_extractor")
             .map(String::from);
@@ -976,7 +994,9 @@ impl GcpProvider {
         if let Some(v) = bucket_name {
             model = model.set_bucket_name(v);
         }
-        // TODO: set bucket_options on model via .set_bucket_options() — type path unknown
+        if let Some(v) = bucket_options {
+            model = model.set_bucket_options(v);
+        }
         if let Some(v) = description {
             model = model.set_description(v);
         }
@@ -989,7 +1009,9 @@ impl GcpProvider {
         if let Some(v) = label_extractors {
             model = model.set_label_extractors(v);
         }
-        // TODO: set metric_descriptor on model via .set_metric_descriptor() — type path unknown
+        if let Some(v) = metric_descriptor {
+            model = model.set_metric_descriptor(v);
+        }
         if let Some(v) = value_extractor {
             model = model.set_value_extractor(v);
         }
