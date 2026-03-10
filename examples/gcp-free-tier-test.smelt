@@ -1,0 +1,32 @@
+resource ns "registry" : gcp.servicedirectory.Namespace {
+  @intent "Service Directory namespace — no billing required"
+  @lifecycle "ephemeral"
+
+  identity {
+    name = "smelt-test-registry"
+  }
+}
+
+resource topic "events" : gcp.pubsub.Topic {
+  @intent "Pub/Sub topic — 10 GB/month free"
+  @lifecycle "ephemeral"
+
+  identity {
+    name = "smelt-test-events"
+  }
+}
+
+resource sub "events-worker" : gcp.pubsub.Subscription {
+  @intent "Pub/Sub subscription consuming events topic"
+  @lifecycle "ephemeral"
+
+  needs topic.events -> topic
+
+  identity {
+    name = "smelt-test-events-worker"
+  }
+
+  reliability {
+    ack_deadline_seconds = 30
+  }
+}
