@@ -89,7 +89,7 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_policy Policy", e))?;
 
-        let provider_id = format!("projects/{}/policys/{}", self.project_id, name);
+        let provider_id = format!("projects/{}/policies/{}", self.project_id, name);
         self.read_orgpolicy_policy(&provider_id).await
     }
 

@@ -76,11 +76,13 @@ macro_rules! gcp_dispatch_delete {
 
 /// Google Cloud Platform provider backed by official Google Cloud Rust SDK.
 ///
-/// Covers 62 resource types across Compute Engine, Cloud Storage, Cloud SQL,
+/// Covers 89 resource types across Compute Engine, Cloud Storage, Cloud SQL,
 /// IAM, Cloud DNS, GKE, Cloud Run, Cloud Functions, Pub/Sub, KMS,
 /// Secret Manager, Cloud Logging, Cloud Monitoring, Load Balancing,
 /// Artifact Registry, Certificate Manager, Memorystore, Cloud Scheduler,
-/// Cloud Tasks, Service Directory, and Eventarc.
+/// Cloud Tasks, Service Directory, Eventarc, API Keys, AlloyDB, Filestore,
+/// Spanner, Private CA, Network Connectivity/Security/Services,
+/// Workstations, GKE Backup, Workflows, and Org Policy.
 ///
 /// Clients are lazily initialized on first use — only the services you
 /// actually touch pay the cost of credential negotiation and connection setup.
@@ -1159,6 +1161,7 @@ impl Provider for GcpProvider {
             Self::dns_policy_schema(),
             // GKE (2)
             Self::container_cluster_schema(),
+            Self::container_nodepool_schema(),
             // Cloud Monitoring (4)
             Self::monitoring_alertpolicy_schema(),
             Self::monitoring_notificationchannel_schema(),
@@ -1176,15 +1179,17 @@ impl Provider for GcpProvider {
             Self::scheduler_job_schema(),
             // Cloud Tasks (1)
             Self::tasks_queue_schema(),
-            // Service Directory (1)
+            // Service Directory (2)
             Self::servicedirectory_namespace_schema(),
+            Self::servicedirectory_service_schema(),
             // Eventarc (2)
             Self::eventarc_trigger_schema(),
             Self::eventarc_channel_schema(),
             // API Keys (1)
             Self::apikeys_key_schema(),
-            // AlloyDB (2)
+            // AlloyDB (3)
             Self::alloydb_cluster_schema(),
+            Self::alloydb_instance_schema(),
             Self::alloydb_backup_schema(),
             // Filestore (2)
             Self::filestore_instance_schema(),
@@ -1192,8 +1197,9 @@ impl Provider for GcpProvider {
             // Spanner (2)
             Self::spanner_instance_schema(),
             Self::spanner_instanceconfig_schema(),
-            // Private CA (1)
+            // Private CA (2)
             Self::privateca_capool_schema(),
+            Self::privateca_certificateauthority_schema(),
             // Network Connectivity (2)
             Self::networkconnectivity_hub_schema(),
             Self::networkconnectivity_spoke_schema(),
@@ -1206,8 +1212,9 @@ impl Provider for GcpProvider {
             Self::networkservices_mesh_schema(),
             Self::networkservices_httproute_schema(),
             Self::networkservices_grpcroute_schema(),
-            // Workstations (1)
+            // Workstations (2)
             Self::workstations_workstationcluster_schema(),
+            Self::workstations_workstationconfig_schema(),
             // GKE Backup (2)
             Self::gkebackup_backupplan_schema(),
             Self::gkebackup_restoreplan_schema(),
@@ -1271,6 +1278,7 @@ impl Provider for GcpProvider {
                 "dns.Policy" => read_dns_policy,
                 // GKE
                 "container.Cluster" => read_container_cluster,
+                "container.NodePool" => read_container_nodepool,
                 // Cloud Run
                 "run.Service" => read_run_service,
                 "run.Job" => read_run_job,
@@ -1308,6 +1316,7 @@ impl Provider for GcpProvider {
                 "tasks.Queue" => read_tasks_queue,
                 // Service Directory
                 "servicedirectory.Namespace" => read_servicedirectory_namespace,
+                "servicedirectory.Service" => read_servicedirectory_service,
                 // Eventarc
                 "eventarc.Trigger" => read_eventarc_trigger,
                 "eventarc.Channel" => read_eventarc_channel,
@@ -1315,6 +1324,7 @@ impl Provider for GcpProvider {
                 "apikeys.Key" => read_apikeys_key,
                 // AlloyDB
                 "alloydb.Cluster" => read_alloydb_cluster,
+                "alloydb.Instance" => read_alloydb_instance,
                 "alloydb.Backup" => read_alloydb_backup,
                 // Filestore
                 "filestore.Instance" => read_filestore_instance,
@@ -1324,6 +1334,7 @@ impl Provider for GcpProvider {
                 "spanner.InstanceConfig" => read_spanner_instanceconfig,
                 // Private CA
                 "privateca.CaPool" => read_privateca_capool,
+                "privateca.CertificateAuthority" => read_privateca_certificateauthority,
                 // Network Connectivity
                 "networkconnectivity.Hub" => read_networkconnectivity_hub,
                 "networkconnectivity.Spoke" => read_networkconnectivity_spoke,
@@ -1338,6 +1349,7 @@ impl Provider for GcpProvider {
                 "networkservices.GrpcRoute" => read_networkservices_grpcroute,
                 // Workstations
                 "workstations.WorkstationCluster" => read_workstations_workstationcluster,
+                "workstations.WorkstationConfig" => read_workstations_workstationconfig,
                 // GKE Backup
                 "gkebackup.BackupPlan" => read_gkebackup_backupplan,
                 "gkebackup.RestorePlan" => read_gkebackup_restoreplan,
@@ -1402,6 +1414,7 @@ impl Provider for GcpProvider {
                 "dns.Policy" => create_dns_policy,
                 // GKE
                 "container.Cluster" => create_container_cluster,
+                "container.NodePool" => create_container_nodepool,
                 // Cloud Run
                 "run.Service" => create_run_service,
                 "run.Job" => create_run_job,
@@ -1439,6 +1452,7 @@ impl Provider for GcpProvider {
                 "tasks.Queue" => create_tasks_queue,
                 // Service Directory
                 "servicedirectory.Namespace" => create_servicedirectory_namespace,
+                "servicedirectory.Service" => create_servicedirectory_service,
                 // Eventarc
                 "eventarc.Trigger" => create_eventarc_trigger,
                 "eventarc.Channel" => create_eventarc_channel,
@@ -1446,6 +1460,7 @@ impl Provider for GcpProvider {
                 "apikeys.Key" => create_apikeys_key,
                 // AlloyDB
                 "alloydb.Cluster" => create_alloydb_cluster,
+                "alloydb.Instance" => create_alloydb_instance,
                 "alloydb.Backup" => create_alloydb_backup,
                 // Filestore
                 "filestore.Instance" => create_filestore_instance,
@@ -1455,6 +1470,7 @@ impl Provider for GcpProvider {
                 "spanner.InstanceConfig" => create_spanner_instanceconfig,
                 // Private CA
                 "privateca.CaPool" => create_privateca_capool,
+                "privateca.CertificateAuthority" => create_privateca_certificateauthority,
                 // Network Connectivity
                 "networkconnectivity.Hub" => create_networkconnectivity_hub,
                 "networkconnectivity.Spoke" => create_networkconnectivity_spoke,
@@ -1469,6 +1485,7 @@ impl Provider for GcpProvider {
                 "networkservices.GrpcRoute" => create_networkservices_grpcroute,
                 // Workstations
                 "workstations.WorkstationCluster" => create_workstations_workstationcluster,
+                "workstations.WorkstationConfig" => create_workstations_workstationconfig,
                 // GKE Backup
                 "gkebackup.BackupPlan" => create_gkebackup_backupplan,
                 "gkebackup.RestorePlan" => create_gkebackup_restoreplan,
@@ -1536,6 +1553,7 @@ impl Provider for GcpProvider {
                 "dns.Policy" => update_dns_policy,
                 // GKE
                 "container.Cluster" => update_container_cluster,
+                "container.NodePool" => update_container_nodepool,
                 // Cloud Run
                 "run.Service" => update_run_service,
                 "run.Job" => update_run_job,
@@ -1572,6 +1590,7 @@ impl Provider for GcpProvider {
                 "tasks.Queue" => update_tasks_queue,
                 // Service Directory
                 "servicedirectory.Namespace" => update_servicedirectory_namespace,
+                "servicedirectory.Service" => update_servicedirectory_service,
                 // Eventarc
                 "eventarc.Trigger" => update_eventarc_trigger,
                 "eventarc.Channel" => update_eventarc_channel,
@@ -1579,6 +1598,7 @@ impl Provider for GcpProvider {
                 "apikeys.Key" => update_apikeys_key,
                 // AlloyDB
                 "alloydb.Cluster" => update_alloydb_cluster,
+                "alloydb.Instance" => update_alloydb_instance,
                 "alloydb.Backup" => update_alloydb_backup,
                 // Filestore
                 "filestore.Instance" => update_filestore_instance,
@@ -1588,6 +1608,7 @@ impl Provider for GcpProvider {
                 "spanner.InstanceConfig" => update_spanner_instanceconfig,
                 // Private CA
                 "privateca.CaPool" => update_privateca_capool,
+                "privateca.CertificateAuthority" => update_privateca_certificateauthority,
                 // Network Connectivity
                 "networkconnectivity.Hub" => update_networkconnectivity_hub,
                 "networkconnectivity.Spoke" => update_networkconnectivity_spoke,
@@ -1602,6 +1623,7 @@ impl Provider for GcpProvider {
                 "networkservices.GrpcRoute" => update_networkservices_grpcroute,
                 // Workstations
                 "workstations.WorkstationCluster" => update_workstations_workstationcluster,
+                "workstations.WorkstationConfig" => update_workstations_workstationconfig,
                 // GKE Backup
                 "gkebackup.BackupPlan" => update_gkebackup_backupplan,
                 "gkebackup.RestorePlan" => update_gkebackup_restoreplan,
@@ -1666,6 +1688,7 @@ impl Provider for GcpProvider {
                 "dns.Policy" => delete_dns_policy,
                 // GKE
                 "container.Cluster" => delete_container_cluster,
+                "container.NodePool" => delete_container_nodepool,
                 // Cloud Run
                 "run.Service" => delete_run_service,
                 "run.Job" => delete_run_job,
@@ -1703,6 +1726,7 @@ impl Provider for GcpProvider {
                 "tasks.Queue" => delete_tasks_queue,
                 // Service Directory
                 "servicedirectory.Namespace" => delete_servicedirectory_namespace,
+                "servicedirectory.Service" => delete_servicedirectory_service,
                 // Eventarc
                 "eventarc.Trigger" => delete_eventarc_trigger,
                 "eventarc.Channel" => delete_eventarc_channel,
@@ -1710,6 +1734,7 @@ impl Provider for GcpProvider {
                 "apikeys.Key" => delete_apikeys_key,
                 // AlloyDB
                 "alloydb.Cluster" => delete_alloydb_cluster,
+                "alloydb.Instance" => delete_alloydb_instance,
                 "alloydb.Backup" => delete_alloydb_backup,
                 // Filestore
                 "filestore.Instance" => delete_filestore_instance,
@@ -1719,6 +1744,7 @@ impl Provider for GcpProvider {
                 "spanner.InstanceConfig" => delete_spanner_instanceconfig,
                 // Private CA
                 "privateca.CaPool" => delete_privateca_capool,
+                "privateca.CertificateAuthority" => delete_privateca_certificateauthority,
                 // Network Connectivity
                 "networkconnectivity.Hub" => delete_networkconnectivity_hub,
                 "networkconnectivity.Spoke" => delete_networkconnectivity_spoke,
@@ -1733,6 +1759,7 @@ impl Provider for GcpProvider {
                 "networkservices.GrpcRoute" => delete_networkservices_grpcroute,
                 // Workstations
                 "workstations.WorkstationCluster" => delete_workstations_workstationcluster,
+                "workstations.WorkstationConfig" => delete_workstations_workstationconfig,
                 // GKE Backup
                 "gkebackup.BackupPlan" => delete_gkebackup_backupplan,
                 "gkebackup.RestorePlan" => delete_gkebackup_restoreplan,
@@ -1825,6 +1852,9 @@ impl Provider for GcpProvider {
                 "container.Cluster" => {
                     container::container_cluster_forces_replacement(&change.path)
                 }
+                "container.NodePool" => {
+                    container::container_nodepool_forces_replacement(&change.path)
+                }
                 "run.Service" => run::run_service_forces_replacement(&change.path),
                 "run.Job" => run::run_job_forces_replacement(&change.path),
                 "functions.Function" => {
@@ -1880,10 +1910,14 @@ impl Provider for GcpProvider {
                 "servicedirectory.Namespace" => {
                     servicedirectory::servicedirectory_namespace_forces_replacement(&change.path)
                 }
+                "servicedirectory.Service" => {
+                    servicedirectory::servicedirectory_service_forces_replacement(&change.path)
+                }
                 "eventarc.Trigger" => eventarc::eventarc_trigger_forces_replacement(&change.path),
                 "eventarc.Channel" => eventarc::eventarc_channel_forces_replacement(&change.path),
                 "apikeys.Key" => apikeys::apikeys_key_forces_replacement(&change.path),
                 "alloydb.Cluster" => alloydb::alloydb_cluster_forces_replacement(&change.path),
+                "alloydb.Instance" => alloydb::alloydb_instance_forces_replacement(&change.path),
                 "alloydb.Backup" => alloydb::alloydb_backup_forces_replacement(&change.path),
                 "filestore.Instance" => {
                     filestore::filestore_instance_forces_replacement(&change.path)
@@ -1894,6 +1928,9 @@ impl Provider for GcpProvider {
                     spanner::spanner_instanceconfig_forces_replacement(&change.path)
                 }
                 "privateca.CaPool" => privateca::privateca_capool_forces_replacement(&change.path),
+                "privateca.CertificateAuthority" => {
+                    privateca::privateca_certificateauthority_forces_replacement(&change.path)
+                }
                 "networkconnectivity.Hub" => {
                     networkconnectivity::networkconnectivity_hub_forces_replacement(&change.path)
                 }
@@ -1929,6 +1966,9 @@ impl Provider for GcpProvider {
                 }
                 "workstations.WorkstationCluster" => {
                     workstations::workstations_workstationcluster_forces_replacement(&change.path)
+                }
+                "workstations.WorkstationConfig" => {
+                    workstations::workstations_workstationconfig_forces_replacement(&change.path)
                 }
                 "gkebackup.BackupPlan" => {
                     gkebackup::gkebackup_backupplan_forces_replacement(&change.path)
@@ -2030,9 +2070,10 @@ mod tests {
         // 23 compute + 3 LB + 1 storage + 3 SQL + 2 IAM + 3 DNS + 1 GKE
         // + 2 run + 1 functions + 2 pubsub + 2 kms + 1 secret + 4 logging + 4 monitoring
         // + 1 artifact registry + 3 certificate manager + 1 memorystore
-        // + 1 scheduler + 1 tasks + 1 service directory + 2 eventarc = 62
+        // + 1 scheduler + 1 tasks + 2 service directory + 2 eventarc
+        // + 5 nested: NodePool, AlloyDB Instance, CertificateAuthority, SD Service, WorkstationConfig
         let schemas = provider.resource_types();
-        assert_eq!(schemas.len(), 84);
+        assert_eq!(schemas.len(), 89);
     }
 
     #[test]

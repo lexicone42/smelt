@@ -84,7 +84,7 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_service_account ServiceAccount", e))?;
 
-        let provider_id = format!("projects/{}/service_accounts/{}", self.project_id, name);
+        let provider_id = format!("projects/{}/serviceAccounts/{}", self.project_id, name);
         self.read_iam_serviceaccount(&provider_id).await
     }
 

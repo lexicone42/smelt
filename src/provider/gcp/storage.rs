@@ -298,7 +298,7 @@ impl GcpProvider {
         let ip_filter = config.pointer("/config/ip_filter").and_then(|v| {
             serde_json::from_value::<google_cloud_storage::model::bucket::IpFilter>(v.clone()).ok()
         });
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let lifecycle = config.pointer("/reliability/lifecycle").and_then(|v| {
@@ -315,11 +315,7 @@ impl GcpProvider {
             )
             .ok()
         });
-        let project = config
-            .optional_str("/config/project")
-            .map(String::from)
-            .unwrap_or_else(|| format!("projects/{}", self.project_id));
-        let project = Some(project);
+        let project = config.optional_str("/config/project").map(String::from);
         let retention_policy = config.pointer("/config/retention_policy").and_then(|v| {
             serde_json::from_value::<google_cloud_storage::model::bucket::RetentionPolicy>(
                 v.clone(),
@@ -390,7 +386,7 @@ impl GcpProvider {
         if let Some(v) = logging {
             model = model.set_logging(v);
         }
-        model = model.set_name(format!("projects/_/buckets/{name}"));
+        model = model.set_name(name.clone());
         if let Some(v) = object_retention {
             model = model.set_object_retention(v);
         }
@@ -421,7 +417,7 @@ impl GcpProvider {
         model = model.set_labels(labels);
 
         // Make API call
-        let parent = "projects/_".to_string();
+        let parent = format!("projects/{}", self.project_id);
         self.storage()
             .await?
             .create_bucket()
@@ -581,11 +577,7 @@ impl GcpProvider {
             )
             .ok()
         });
-        let project = config
-            .optional_str("/config/project")
-            .map(String::from)
-            .unwrap_or_else(|| format!("projects/{}", self.project_id));
-        let project = Some(project);
+        let project = config.optional_str("/config/project").map(String::from);
         let retention_policy = config.pointer("/config/retention_policy").and_then(|v| {
             serde_json::from_value::<google_cloud_storage::model::bucket::RetentionPolicy>(
                 v.clone(),

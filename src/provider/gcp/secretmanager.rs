@@ -141,7 +141,7 @@ impl GcpProvider {
                 >(v.clone())
                 .ok()
             });
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();

@@ -1642,7 +1642,7 @@ impl GcpProvider {
         let ip_protocol = config.optional_str("/config/ip_protocol").map(String::from);
         let ip_version = config.optional_str("/config/ip_version").map(String::from);
         let is_mirroring_collector = config.optional_bool("/config/is_mirroring_collector");
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let metadata_filters = config.pointer("/config/metadata_filters").and_then(|v| {

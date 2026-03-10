@@ -1480,7 +1480,7 @@ impl GcpProvider {
         let ipv_6_endpoint_type = config
             .optional_str("/config/ipv_6_endpoint_type")
             .map(String::from);
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
@@ -1929,7 +1929,7 @@ impl GcpProvider {
             serde_json::from_value::<Vec<google_cloud_compute_v1::model::GuestOsFeature>>(v.clone())
                 .ok()
         });
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let license_codes = config
@@ -2696,7 +2696,7 @@ impl GcpProvider {
                     )
                     .ok()
                 });
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let machine_type = config
@@ -3907,7 +3907,7 @@ impl GcpProvider {
                 )
                 .ok()
             });
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let license_codes = config
@@ -5095,7 +5095,7 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
@@ -5420,7 +5420,7 @@ impl GcpProvider {
             .optional_str("/identity/description")
             .map(String::from);
         let guest_flush = config.optional_bool("/config/guest_flush");
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let location_hint = config
@@ -6796,7 +6796,7 @@ impl GcpProvider {
         let gateway_ip_version = config
             .optional_str("/output/gateway_ip_version")
             .map(String::from);
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
@@ -7105,7 +7105,7 @@ impl GcpProvider {
             .optional_str("/identity/description")
             .map(String::from);
         let ike_version = config.optional_i64("/config/ike_version");
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let local_traffic_selector = config
@@ -8028,7 +8028,7 @@ impl GcpProvider {
             >(v.clone())
             .ok()
         });
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let mtu = config.optional_i64("/network/mtu");

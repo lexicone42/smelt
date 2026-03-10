@@ -177,7 +177,7 @@ impl GcpProvider {
             .optional_str("/output/gateway_security_policy")
             .map(String::from);
         let ip_version = config.optional_str("/config/ip_version").map(String::from);
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
@@ -517,7 +517,7 @@ impl GcpProvider {
             .optional_str("/config/envoy_headers")
             .map(String::from);
         let interception_port = config.optional_i64("/config/interception_port");
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
@@ -556,7 +556,7 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_mesh Mesh", e))?;
 
-        let provider_id = format!("projects/{}/meshs/{}", self.project_id, name);
+        let provider_id = format!("projects/{}/meshes/{}", self.project_id, name);
         self.read_networkservices_mesh(&provider_id).await
     }
 
@@ -778,7 +778,7 @@ impl GcpProvider {
         let hostnames = config
             .pointer("/config/hostnames")
             .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let meshes = config
@@ -826,7 +826,7 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_http_route HttpRoute", e))?;
 
-        let provider_id = format!("projects/{}/http_routes/{}", self.project_id, name);
+        let provider_id = format!("projects/{}/httpRoutes/{}", self.project_id, name);
         self.read_networkservices_httproute(&provider_id).await
     }
 
@@ -1063,7 +1063,7 @@ impl GcpProvider {
         let hostnames = config
             .pointer("/config/hostnames")
             .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let meshes = config
@@ -1111,7 +1111,7 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_grpc_route GrpcRoute", e))?;
 
-        let provider_id = format!("projects/{}/grpc_routes/{}", self.project_id, name);
+        let provider_id = format!("projects/{}/grpcRoutes/{}", self.project_id, name);
         self.read_networkservices_grpcroute(&provider_id).await
     }
 

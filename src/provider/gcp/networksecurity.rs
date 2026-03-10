@@ -82,7 +82,7 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
@@ -128,7 +128,7 @@ impl GcpProvider {
             })?;
 
         let provider_id = format!(
-            "projects/{}/locations/{}/authorization_policys/{}",
+            "projects/{}/locations/{}/authorizationPolicies/{}",
             self.project_id, self.region, name
         );
         self.read_networksecurity_authorizationpolicy(&provider_id)
@@ -338,7 +338,7 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let mtls_policy = config.pointer("/config/mtls_policy").and_then(|v| {
@@ -389,7 +389,7 @@ impl GcpProvider {
             })?;
 
         let provider_id = format!(
-            "projects/{}/locations/{}/server_tls_policys/{}",
+            "projects/{}/locations/{}/serverTlsPolicies/{}",
             self.project_id, self.region, name
         );
         self.read_networksecurity_servertlspolicy(&provider_id)
@@ -609,7 +609,7 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
@@ -657,7 +657,7 @@ impl GcpProvider {
             })?;
 
         let provider_id = format!(
-            "projects/{}/locations/{}/client_tls_policys/{}",
+            "projects/{}/locations/{}/clientTlsPolicies/{}",
             self.project_id, self.region, name
         );
         self.read_networksecurity_clienttlspolicy(&provider_id)

@@ -72,7 +72,7 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
@@ -269,7 +269,7 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
@@ -283,8 +283,8 @@ impl GcpProvider {
         model = model.set_name(name.clone());
         model = model.set_labels(labels);
 
-        // Make API call — CertificateMap is global-only
-        let parent = format!("projects/{}/locations/global", self.project_id);
+        // Make API call
+        let parent = format!("projects/{}", self.project_id);
         self.certificate_manager()
             .await?
             .create_certificate_map()
@@ -296,10 +296,7 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_certificate_map CertificateMap", e))?;
 
-        let provider_id = format!(
-            "projects/{}/locations/global/certificateMaps/{}",
-            self.project_id, name
-        );
+        let provider_id = format!("projects/{}/certificateMaps/{}", self.project_id, name);
         self.read_certificatemanager_certificatemap(&provider_id)
             .await
     }
@@ -469,7 +466,7 @@ impl GcpProvider {
             .optional_str("/identity/description")
             .map(String::from);
         let domain = config.optional_str("/config/domain").map(String::from);
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();

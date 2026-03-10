@@ -206,7 +206,7 @@ impl GcpProvider {
         let iap_enabled = config.optional_bool("/config/iap_enabled");
         let ingress = config.optional_str("/config/ingress").map(String::from);
         let invoker_iam_disabled = config.optional_bool("/config/invoker_iam_disabled");
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let launch_stage = config.pointer("/config/launch_stage").and_then(|v| {
@@ -503,7 +503,7 @@ impl GcpProvider {
         let client_version = config
             .optional_str("/config/client_version")
             .map(String::from);
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let launch_stage = config.pointer("/config/launch_stage").and_then(|v| {

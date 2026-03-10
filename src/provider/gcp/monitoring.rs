@@ -213,11 +213,7 @@ impl GcpProvider {
         if let Some(v) = mutation_record {
             model = model.set_mutation_record(v);
         }
-        // Don't set name on create — GCP auto-assigns the policy ID.
-        // The user-provided "name" is used as display_name if not explicitly set.
-        if model.display_name.is_empty() {
-            model = model.set_display_name(name.clone());
-        }
+        model = model.set_name(name.clone());
         if let Some(v) = notification_channels {
             model = model.set_notification_channels(v);
         }
@@ -235,8 +231,7 @@ impl GcpProvider {
 
         // Make API call
         let parent = format!("projects/{}", self.project_id);
-        let result = self
-            .monitoring()
+        self.monitoring()
             .await?
             .create_alert_policy()
             .set_name(&parent)
@@ -245,8 +240,7 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_alert_policy AlertPolicy", e))?;
 
-        // Use the server-assigned name as provider_id
-        let provider_id = result.name.clone();
+        let provider_id = format!("projects/{}/alertPolicies/{}", self.project_id, name);
         self.read_monitoring_alertpolicy(&provider_id).await
     }
 
@@ -544,7 +538,7 @@ impl GcpProvider {
             .optional_str("/identity/display_name")
             .map(String::from);
         let enabled = config.optional_bool("/config/enabled");
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let mutation_records = config.pointer("/config/mutation_records").and_then(|v| {
@@ -579,10 +573,7 @@ impl GcpProvider {
         if let Some(v) = mutation_records {
             model = model.set_mutation_records(v);
         }
-        // Don't set name on create — GCP auto-assigns the channel ID.
-        if model.display_name.is_empty() {
-            model = model.set_display_name(name.clone());
-        }
+        model = model.set_name(name.clone());
         if let Some(v) = user_labels {
             model = model.set_user_labels(v);
         }
@@ -597,8 +588,7 @@ impl GcpProvider {
 
         // Make API call
         let parent = format!("projects/{}", self.project_id);
-        let result = self
-            .notification_channels()
+        self.notification_channels()
             .await?
             .create_notification_channel()
             .set_name(&parent)
@@ -609,7 +599,7 @@ impl GcpProvider {
                 super::classify_gcp_error("Create_notification_channel NotificationChannel", e)
             })?;
 
-        let provider_id = result.name.clone();
+        let provider_id = format!("projects/{}/notificationChannels/{}", self.project_id, name);
         self.read_monitoring_notificationchannel(&provider_id).await
     }
 
@@ -908,10 +898,7 @@ impl GcpProvider {
         if let Some(v) = display_name {
             model = model.set_display_name(v);
         }
-        // Don't set name on create — GCP auto-assigns the check ID.
-        if model.display_name.is_empty() {
-            model = model.set_display_name(name.clone());
-        }
+        model = model.set_name(name.clone());
         if let Some(v) = period {
             model = model.set_period(v);
         }
@@ -944,8 +931,7 @@ impl GcpProvider {
 
         // Make API call
         let parent = format!("projects/{}", self.project_id);
-        let result = self
-            .uptime_checks()
+        self.uptime_checks()
             .await?
             .create_uptime_check_config()
             .set_parent(&parent)
@@ -956,7 +942,7 @@ impl GcpProvider {
                 super::classify_gcp_error("Create_uptime_check_config UptimeCheckConfig", e)
             })?;
 
-        let provider_id = result.name.clone();
+        let provider_id = format!("projects/{}/uptimeCheckConfigs/{}", self.project_id, name);
         self.read_monitoring_uptimecheckconfig(&provider_id).await
     }
 
@@ -1208,18 +1194,14 @@ impl GcpProvider {
         if let Some(v) = is_cluster {
             model = model.set_is_cluster(v);
         }
-        // Don't set name on create — GCP auto-assigns the group ID.
-        if model.display_name.is_empty() {
-            model = model.set_display_name(name.clone());
-        }
+        model = model.set_name(name.clone());
         if let Some(v) = parent_name {
             model = model.set_parent_name(v);
         }
 
         // Make API call
         let parent = format!("projects/{}", self.project_id);
-        let result = self
-            .monitoring_groups()
+        self.monitoring_groups()
             .await?
             .create_group()
             .set_name(&parent)
@@ -1228,7 +1210,7 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_group Group", e))?;
 
-        let provider_id = result.name.clone();
+        let provider_id = format!("projects/{}/groups/{}", self.project_id, name);
         self.read_monitoring_group(&provider_id).await
     }
 

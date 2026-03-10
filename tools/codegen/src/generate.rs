@@ -780,6 +780,7 @@ fn field_type_expr(type_str: &str, variants: &[String]) -> String {
                 field_type_expr(inner, variants)
             )
         }
+        "Ref" => "crate::provider::FieldType::Ref(\"*\".into())".into(),
         "Record" => "crate::provider::FieldType::Record(vec![])".into(),
         s if s.starts_with("Oneof(") || s.starts_with("Nested(") => "crate::provider::FieldType::Record(vec![])".into(),
         "Duration" | "Timestamp" | "Bytes" => "crate::provider::FieldType::String".into(),
@@ -828,24 +829,25 @@ fn group_fields_by_section(
 fn write_field_extraction(out: &mut String, name: &str, field: &FieldDef, sdk_crate_mod: &str) {
     let section = &field.section;
     let path = format!("/{section}/{name}");
+    let var = safe_ident(name);
 
     match field.field_type.as_str() {
         "String" => {
             if field.required {
                 let _ = writeln!(
                     out,
-                    "    let {name} = config.require_str(\"{path}\")?.to_string();"
+                    "    let {var} = config.require_str(\"{path}\")?.to_string();"
                 );
             } else if let Some(ref default) = field.default {
                 let _ = writeln!(
                     out,
-                    "    let {name} = config.str_or(\"{path}\", {}).to_string();",
+                    "    let {var} = config.str_or(\"{path}\", {}).to_string();",
                     toml_to_json_literal(default)
                 );
             } else {
                 let _ = writeln!(
                     out,
-                    "    let {name} = config.optional_str(\"{path}\").map(String::from);"
+                    "    let {var} = config.optional_str(\"{path}\").map(String::from);"
                 );
             }
         }
@@ -853,18 +855,18 @@ fn write_field_extraction(out: &mut String, name: &str, field: &FieldDef, sdk_cr
             if field.required {
                 let _ = writeln!(
                     out,
-                    "    let {name} = config.require_bool(\"{path}\")?;"
+                    "    let {var} = config.require_bool(\"{path}\")?;"
                 );
             } else if let Some(ref default) = field.default {
                 let _ = writeln!(
                     out,
-                    "    let {name} = config.bool_or(\"{path}\", {});",
+                    "    let {var} = config.bool_or(\"{path}\", {});",
                     toml_to_json_literal(default)
                 );
             } else {
                 let _ = writeln!(
                     out,
-                    "    let {name} = config.optional_bool(\"{path}\");"
+                    "    let {var} = config.optional_bool(\"{path}\");"
                 );
             }
         }
@@ -872,18 +874,18 @@ fn write_field_extraction(out: &mut String, name: &str, field: &FieldDef, sdk_cr
             if field.required {
                 let _ = writeln!(
                     out,
-                    "    let {name} = config.require_i64(\"{path}\")?;"
+                    "    let {var} = config.require_i64(\"{path}\")?;"
                 );
             } else if let Some(ref default) = field.default {
                 let _ = writeln!(
                     out,
-                    "    let {name} = config.i64_or(\"{path}\", {});",
+                    "    let {var} = config.i64_or(\"{path}\", {});",
                     toml_to_json_literal(default)
                 );
             } else {
                 let _ = writeln!(
                     out,
-                    "    let {name} = config.optional_i64(\"{path}\");"
+                    "    let {var} = config.optional_i64(\"{path}\");"
                 );
             }
         }
@@ -891,7 +893,7 @@ fn write_field_extraction(out: &mut String, name: &str, field: &FieldDef, sdk_cr
             // Float extraction — use pointer + as_f64
             let _ = writeln!(
                 out,
-                "    let {name} = config.pointer(\"{path}\").and_then(|v| v.as_f64());"
+                "    let {var} = config.pointer(\"{path}\").and_then(|v| v.as_f64());"
             );
         }
         s if s.starts_with("Enum(") => {
@@ -899,12 +901,12 @@ fn write_field_extraction(out: &mut String, name: &str, field: &FieldDef, sdk_cr
             if field.required {
                 let _ = writeln!(
                     out,
-                    "    let {name} = config.require_str(\"{path}\")?.to_string();"
+                    "    let {var} = config.require_str(\"{path}\")?.to_string();"
                 );
             } else {
                 let _ = writeln!(
                     out,
-                    "    let {name} = config.optional_str(\"{path}\").map(String::from);"
+                    "    let {var} = config.optional_str(\"{path}\").map(String::from);"
                 );
             }
         }
@@ -918,12 +920,12 @@ fn write_field_extraction(out: &mut String, name: &str, field: &FieldDef, sdk_cr
                 let full_type = type_path.replace("crate::", &format!("{sdk_crate_mod}::"));
                 let _ = writeln!(
                     out,
-                    "    let {name} = config.pointer(\"{path}\").and_then(|v| serde_json::from_value::<{full_type}>(v.clone()).ok());"
+                    "    let {var} = config.pointer(\"{path}\").and_then(|v| serde_json::from_value::<{full_type}>(v.clone()).ok());"
                 );
             } else {
                 let _ = writeln!(
                     out,
-                    "    // TODO: extract {name} ({}) from config[\"{path}\"] — type path unknown",
+                    "    // TODO: extract {var} ({}) from config[\"{path}\"] — type path unknown",
                     field.field_type
                 );
             }
@@ -932,21 +934,22 @@ fn write_field_extraction(out: &mut String, name: &str, field: &FieldDef, sdk_cr
 }
 
 fn write_model_setter(out: &mut String, name: &str, setter: &str, field: &FieldDef, sdk_crate_mod: &str) {
+    let var = safe_ident(name);
     match field.field_type.as_str() {
         "String" => {
             if field.required {
-                let _ = writeln!(out, "    model = model.{setter}({name}.clone());");
+                let _ = writeln!(out, "    model = model.{setter}({var}.clone());");
             } else {
-                let _ = writeln!(out, "    if let Some(v) = {name} {{");
+                let _ = writeln!(out, "    if let Some(v) = {var} {{");
                 let _ = writeln!(out, "        model = model.{setter}(v);");
                 let _ = writeln!(out, "    }}");
             }
         }
         "Bool" => {
             if field.required {
-                let _ = writeln!(out, "    model = model.{setter}({name});");
+                let _ = writeln!(out, "    model = model.{setter}({var});");
             } else {
-                let _ = writeln!(out, "    if let Some(v) = {name} {{");
+                let _ = writeln!(out, "    if let Some(v) = {var} {{");
                 let _ = writeln!(out, "        model = model.{setter}(v);");
                 let _ = writeln!(out, "    }}");
             }
@@ -959,9 +962,9 @@ fn write_model_setter(out: &mut String, name: &str, setter: &str, field: &FieldD
                 _ => "i32", // default: most SDK fields use i32
             };
             if field.required {
-                let _ = writeln!(out, "    model = model.{setter}({cast_type}::try_from({name}).map_err(|_| ProviderError::InvalidConfig(format!(\"{name}: value {{}} out of range for {cast_type}\", {name})))?);");
+                let _ = writeln!(out, "    model = model.{setter}({cast_type}::try_from({var}).map_err(|_| ProviderError::InvalidConfig(format!(\"{name}: value {{}} out of range for {cast_type}\", {var})))?);");
             } else {
-                let _ = writeln!(out, "    if let Some(v) = {name} {{");
+                let _ = writeln!(out, "    if let Some(v) = {var} {{");
                 let _ = writeln!(out, "        model = model.{setter}({cast_type}::try_from(v).map_err(|_| ProviderError::InvalidConfig(format!(\"{name}: value {{v}} out of range for {cast_type}\")))?);");
                 let _ = writeln!(out, "    }}");
             }
@@ -970,9 +973,9 @@ fn write_model_setter(out: &mut String, name: &str, setter: &str, field: &FieldD
             // f64→f32 is lossy but there's no TryFrom; `as f32` is acceptable
             // for the percentage/ratio values in GCP APIs
             if field.required {
-                let _ = writeln!(out, "    model = model.{setter}({name} as f32);");
+                let _ = writeln!(out, "    model = model.{setter}({var} as f32);");
             } else {
-                let _ = writeln!(out, "    if let Some(v) = {name} {{");
+                let _ = writeln!(out, "    if let Some(v) = {var} {{");
                 let _ = writeln!(out, "        model = model.{setter}(v as f32);");
                 let _ = writeln!(out, "    }}");
             }
@@ -982,11 +985,11 @@ fn write_model_setter(out: &mut String, name: &str, setter: &str, field: &FieldD
             if let Some(ref type_path) = field.sdk_type_path {
                 let full_path = type_path.replace("crate::", &format!("{sdk_crate_mod}::"));
                 if field.required {
-                    // required field: name was extracted as String
-                    let _ = writeln!(out, "    model = model.{setter}({full_path}::from({name}.as_str()));");
+                    // required field: var was extracted as String
+                    let _ = writeln!(out, "    model = model.{setter}({full_path}::from({var}.as_str()));");
                 } else {
-                    // optional field: name was extracted as Option<String>
-                    let _ = writeln!(out, "    if let Some(ref s) = {name} {{");
+                    // optional field: var was extracted as Option<String>
+                    let _ = writeln!(out, "    if let Some(ref s) = {var} {{");
                     let _ = writeln!(out, "        model = model.{setter}({full_path}::from(s.as_str()));");
                     let _ = writeln!(out, "    }}");
                 }
@@ -1005,7 +1008,7 @@ fn write_model_setter(out: &mut String, name: &str, setter: &str, field: &FieldD
         _ => {
             // Nested, Array, Record, Duration, Timestamp — already extracted as Option<T>
             if field.sdk_type_path.is_some() {
-                let _ = writeln!(out, "    if let Some(v) = {name} {{");
+                let _ = writeln!(out, "    if let Some(v) = {var} {{");
                 let _ = writeln!(out, "        model = model.{setter}(v);");
                 let _ = writeln!(out, "    }}");
             } else {
@@ -1018,17 +1021,19 @@ fn write_model_setter(out: &mut String, name: &str, setter: &str, field: &FieldD
 /// Write a setter call that chains on a request builder (for direct_model style).
 /// Used in create/update where setters are called on the builder, not on a model variable.
 fn write_request_setter(out: &mut String, name: &str, setter: &str, field: &FieldDef) {
+    let var = safe_ident(name);
     match field.field_type.as_str() {
         "String" => {
             if field.required {
-                let _ = writeln!(out, "        .{setter}({name}.clone())");
+                let _ = writeln!(out, "        .{setter}({var}.clone())");
             } else {
-                let _ = writeln!(out, "        .set_or_clear_{name}({name})", name = field.sdk_field.as_deref().unwrap_or(name));
+                // Optional strings: wrap in set_or_clear with Option
+                let _ = writeln!(out, "        .set_or_clear_{setter}({var})", setter = setter.strip_prefix("set_").unwrap_or(setter));
             }
         }
         "Bool" => {
             if field.required {
-                let _ = writeln!(out, "        .{setter}({name})");
+                let _ = writeln!(out, "        .{setter}({var})");
             } else {
                 let _ = writeln!(out, "        // TODO: set optional bool {name} via .{setter}()");
             }
@@ -1040,7 +1045,7 @@ fn write_request_setter(out: &mut String, name: &str, setter: &str, field: &Fiel
                 _ => "i32",
             };
             if field.required {
-                let _ = writeln!(out, "        .{setter}({name} as {cast_type})");
+                let _ = writeln!(out, "        .{setter}({var} as {cast_type})");
             } else {
                 let _ = writeln!(out, "        // TODO: set optional {cast_type} {name} via .{setter}()");
             }
@@ -1169,16 +1174,15 @@ fn write_provider_id_construction(out: &mut String, m: &ResourceManifest) {
     if m.resource.api_style == ApiStyle::ResourceName
         || m.resource.api_style == ApiStyle::DirectModel
     {
-        // Resource-name style: build full resource path
-        if let Some(ref parent_fmt) = m.resource.parent_format {
-            // Replace {project} and {location} placeholders
-            let _parent = parent_fmt
-                .replace("{project}", "{}")
-                .replace("{location}", "{}");
-            let noun = snake_case(&m.resource.sdk_model);
-            let noun_plural = format!("{noun}s");
+        let noun_plural = resource_noun_plural(m);
 
-            // Build the format string
+        if m.resource.parent_binding.is_some() {
+            // Nested resource: provider_id = {parent}/{noun_plural}/{name}
+            let _ = writeln!(
+                out,
+                "    let provider_id = format!(\"{{}}/{noun_plural}/{{}}\", parent, name);"
+            );
+        } else if let Some(ref parent_fmt) = m.resource.parent_format {
             let has_project = parent_fmt.contains("{project}");
             let has_location = parent_fmt.contains("{location}");
 
@@ -1219,9 +1223,30 @@ fn write_provider_id_construction(out: &mut String, m: &ResourceManifest) {
     }
 }
 
+/// Get the GCP resource path segment (e.g., "cryptoKeys", "nodePools").
+/// Uses `resource_noun` if set, otherwise falls back to snake_case(model) + "s".
+fn resource_noun_plural(m: &ResourceManifest) -> String {
+    if let Some(ref noun) = m.resource.resource_noun {
+        noun.clone()
+    } else {
+        let noun = snake_case(&m.resource.sdk_model);
+        format!("{noun}s")
+    }
+}
+
 /// Build the parent expression for resource_name style create calls.
 fn build_parent_expr(m: &ResourceManifest) -> String {
-    if let Some(ref parent_fmt) = m.resource.parent_format {
+    if let Some(ref binding) = m.resource.parent_binding {
+        // Nested resource: parent is the parent resource's provider_id (from binding)
+        let section = m
+            .resource
+            .parent_binding_section
+            .as_deref()
+            .unwrap_or("identity");
+        format!(
+            "config.require_str(\"/{section}/{binding}\")?.to_string()"
+        )
+    } else if let Some(ref parent_fmt) = m.resource.parent_format {
         let has_location = parent_fmt.contains("{location}");
         if has_location {
             "format!(\"projects/{}/locations/{}\", self.project_id, self.region)".into()

@@ -132,7 +132,7 @@ impl GcpProvider {
         let kms_key_name = config
             .optional_str("/security/kms_key_name")
             .map(String::from);
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let mode = config.optional_str("/config/mode").map(String::from);

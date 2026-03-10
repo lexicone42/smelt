@@ -10,7 +10,7 @@ use serde::Deserialize;
 
 use crate::generate;
 use crate::introspect;
-use crate::manifest::{ApiStyle, ResourceManifest, Scope};
+use crate::manifest::{ApiStyle, FieldDef, ResourceManifest, Scope};
 use crate::snake_case;
 
 #[derive(Debug, Deserialize)]
@@ -65,6 +65,15 @@ pub struct CatalogEntry {
     pub crud_update: Option<String>,
     #[serde(default)]
     pub crud_delete: Option<String>,
+    /// For nested resources: binding name containing parent's provider_id
+    #[serde(default)]
+    pub parent_binding: Option<String>,
+    /// Section for the parent binding (defaults to "identity")
+    #[serde(default)]
+    pub parent_binding_section: Option<String>,
+    /// GCP resource path segment override (e.g., "cryptoKeys" instead of "crypto_keys")
+    #[serde(default)]
+    pub resource_noun: Option<String>,
 }
 
 
@@ -231,6 +240,38 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
         if let Some(v) = entry.lro_delete {
             manifest.resource.lro_delete = v;
         }
+        // Resource path segment override
+        apply_optional_set(&mut manifest.resource.resource_noun, &entry.resource_noun);
+        // Nested resource parent binding
+        apply_optional_set(&mut manifest.resource.parent_binding, &entry.parent_binding);
+        apply_optional_set(
+            &mut manifest.resource.parent_binding_section,
+            &entry.parent_binding_section,
+        );
+
+        // When parent_binding is set, inject a Ref field into the schema
+        if let Some(ref binding) = entry.parent_binding {
+            let section = entry
+                .parent_binding_section
+                .as_deref()
+                .unwrap_or("identity");
+            manifest.fields.entry(binding.clone()).or_insert(FieldDef {
+                section: section.into(),
+                sdk_field: None,
+                field_type: "Ref".into(),
+                required: true,
+                default: None,
+                sensitive: false,
+                description: Some("Provider ID of the parent resource (injected via binding)".into()),
+                variants: Vec::new(),
+                output_only: true, // appears in schema but codegen skips it for model setters
+                deprecated: false,
+                skip: false,
+                optional: false,
+                sdk_type_path: None,
+                oneof_variants: Vec::new(),
+            });
+        }
 
         // Override CRUD methods from catalog
         if let Some(ref c) = entry.crud_create {
@@ -244,10 +285,11 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
 
         // Fix provider_id_format for resource_name style
         if entry.api_style == ApiStyle::ResourceName {
-            let noun = snake_case(&entry.struct_name);
-            let noun_plural = format!("{noun}s");
+            let noun_plural = entry.resource_noun.clone().unwrap_or_else(|| {
+                let noun = snake_case(&entry.struct_name);
+                format!("{noun}s")
+            });
             if let Some(ref pf) = entry.parent_format {
-                // Strip {parent_resource} parts for the simple case
                 let base = pf
                     .replace("{parent_resource}", "*")
                     .replace("{project}", "{project}")

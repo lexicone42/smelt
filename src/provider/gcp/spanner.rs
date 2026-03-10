@@ -168,7 +168,7 @@ impl GcpProvider {
         let instance_type = config
             .optional_str("/sizing/instance_type")
             .map(String::from);
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
@@ -185,16 +185,14 @@ impl GcpProvider {
             model = model.set_config(v);
         }
         if let Some(ref s) = default_backup_schedule_type {
-            model = model.set_default_backup_schedule_type(google_cloud_spanner_admin_instance_v1::model::instance::DefaultBackupScheduleType::from(s.as_str() as &str));
+            model = model.set_default_backup_schedule_type(google_cloud_spanner_admin_instance_v1::model::instance::DefaultBackupScheduleType::from(s.as_str()));
         }
         if let Some(v) = display_name {
             model = model.set_display_name(v);
         }
         if let Some(ref s) = edition {
             model = model.set_edition(
-                google_cloud_spanner_admin_instance_v1::model::instance::Edition::from(
-                    s.as_str() as &str
-                ),
+                google_cloud_spanner_admin_instance_v1::model::instance::Edition::from(s.as_str()),
             );
         }
         if let Some(v) = endpoint_uris {
@@ -206,7 +204,7 @@ impl GcpProvider {
         if let Some(ref s) = instance_type {
             model = model.set_instance_type(
                 google_cloud_spanner_admin_instance_v1::model::instance::InstanceType::from(
-                    s.as_str() as &str,
+                    s.as_str(),
                 ),
             );
         }
@@ -227,8 +225,7 @@ impl GcpProvider {
 
         // Make API call
         let parent = format!("projects/{}", self.project_id);
-        let _: google_cloud_spanner_admin_instance_v1::model::Instance = self
-            .spanner_instance_admin()
+        self.spanner_instance_admin()
             .await?
             .create_instance()
             .set_parent(&parent)
@@ -352,16 +349,14 @@ impl GcpProvider {
             model = model.set_config(v);
         }
         if let Some(ref s) = default_backup_schedule_type {
-            model = model.set_default_backup_schedule_type(google_cloud_spanner_admin_instance_v1::model::instance::DefaultBackupScheduleType::from(s.as_str() as &str));
+            model = model.set_default_backup_schedule_type(google_cloud_spanner_admin_instance_v1::model::instance::DefaultBackupScheduleType::from(s.as_str()));
         }
         if let Some(v) = display_name {
             model = model.set_display_name(v);
         }
         if let Some(ref s) = edition {
             model = model.set_edition(
-                google_cloud_spanner_admin_instance_v1::model::instance::Edition::from(
-                    s.as_str() as &str
-                ),
+                google_cloud_spanner_admin_instance_v1::model::instance::Edition::from(s.as_str()),
             );
         }
         if let Some(v) = endpoint_uris {
@@ -373,7 +368,7 @@ impl GcpProvider {
         if let Some(ref s) = instance_type {
             model = model.set_instance_type(
                 google_cloud_spanner_admin_instance_v1::model::instance::InstanceType::from(
-                    s.as_str() as &str,
+                    s.as_str(),
                 ),
             );
         }
@@ -391,8 +386,7 @@ impl GcpProvider {
         }
         model = model.set_labels(labels);
 
-        let _: google_cloud_spanner_admin_instance_v1::model::Instance = self
-            .spanner_instance_admin()
+        self.spanner_instance_admin()
             .await?
             .update_instance()
             .set_instance(model)
@@ -509,7 +503,7 @@ impl GcpProvider {
         let display_name = config
             .optional_str("/identity/display_name")
             .map(String::from);
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let leader_options = config
@@ -554,7 +548,7 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_instance_config InstanceConfig", e))?;
 
-        let provider_id = format!("projects/{}/instance_configs/{}", self.project_id, name);
+        let provider_id = format!("projects/{}/instanceConfigs/{}", self.project_id, name);
         self.read_spanner_instanceconfig(&provider_id).await
     }
 

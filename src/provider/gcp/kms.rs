@@ -53,7 +53,7 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("Create_key_ring KeyRing", e))?;
 
         let provider_id = format!(
-            "projects/{}/locations/{}/key_rings/{}",
+            "projects/{}/locations/{}/keyRings/{}",
             self.project_id, self.region, name
         );
         self.read_kms_keyring(&provider_id).await
@@ -119,6 +119,14 @@ impl GcpProvider {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
                         fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "key_ring_id".into(),
+                                description: "Provider ID of the parent resource (injected via binding)".into(),
+                                field_type: crate::provider::FieldType::Ref("*".into()),
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
                             crate::provider::FieldSchema {
                                 name: "labels".into(),
                                 description: "Labels with user-defined metadata. For more information, see".into(),
@@ -216,7 +224,7 @@ impl GcpProvider {
             .pointer("/config/destroy_scheduled_duration")
             .and_then(|v| serde_json::from_value::<google_cloud_wkt::Duration>(v.clone()).ok());
         let import_only = config.optional_bool("/config/import_only");
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
@@ -264,7 +272,7 @@ impl GcpProvider {
         model = model.set_labels(labels);
 
         // Make API call
-        let parent = format!("projects/{}/locations/{}", self.project_id, self.region);
+        let parent = config.require_str("/identity/key_ring_id")?.to_string();
         self.kms()
             .await?
             .create_crypto_key()
@@ -275,10 +283,7 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_crypto_key CryptoKey", e))?;
 
-        let provider_id = format!(
-            "projects/{}/locations/{}/crypto_keys/{}",
-            self.project_id, self.region, name
-        );
+        let provider_id = format!("{}/cryptoKeys/{}", parent, name);
         self.read_kms_cryptokey(&provider_id).await
     }
 

@@ -113,10 +113,7 @@ impl GcpProvider {
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // Set full resource name (required when no separate resource_id_setter)
-        let parent = format!("projects/{}/locations/{}", self.project_id, self.region);
-        let full_name = format!("{parent}/jobs/{name}");
-        model = model.set_name(full_name);
+        model = model.set_name(name.clone());
         if let Some(v) = retry_config {
             model = model.set_retry_config(v);
         }
@@ -145,6 +142,7 @@ impl GcpProvider {
         }
 
         // Make API call
+        let parent = format!("projects/{}/locations/{}", self.project_id, self.region);
         self.cloud_scheduler()
             .await?
             .create_job()

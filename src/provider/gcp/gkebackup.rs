@@ -118,7 +118,7 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
@@ -167,7 +167,7 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("Create_backup_plan BackupPlan", e))?;
 
         let provider_id = format!(
-            "projects/{}/locations/{}/backup_plans/{}",
+            "projects/{}/locations/{}/backupPlans/{}",
             self.project_id, self.region, name
         );
         self.read_gkebackup_backupplan(&provider_id).await
@@ -395,7 +395,7 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
@@ -436,7 +436,7 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("Create_restore_plan RestorePlan", e))?;
 
         let provider_id = format!(
-            "projects/{}/locations/{}/restore_plans/{}",
+            "projects/{}/locations/{}/restorePlans/{}",
             self.project_id, self.region, name
         );
         self.read_gkebackup_restoreplan(&provider_id).await

@@ -97,7 +97,7 @@ impl GcpProvider {
             .optional_str("/identity/description")
             .map(String::from);
         let export_psc = config.optional_bool("/config/export_psc");
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let name = config.require_str("/identity/name")?.to_string();
@@ -394,7 +394,7 @@ impl GcpProvider {
             .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let group = config.optional_str("/config/group").map(String::from);
         let hub = config.optional_str("/config/hub").map(String::from);
-        let _labels = config
+        let _labels_val = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let linked_producer_vpc_network = config

@@ -97,6 +97,18 @@ pub struct ResourceMeta {
     /// Whether delete is a Long Running Operation (LRO).
     #[serde(default)]
     pub lro_delete: bool,
+    /// For nested resources: binding name that contains the parent resource's provider_id.
+    /// E.g., "key_ring_id" for CryptoKey (parent: KeyRing).
+    /// The smelt user writes `needs keyring.main -> key_ring_id`.
+    #[serde(default)]
+    pub parent_binding: Option<String>,
+    /// Section where the parent binding field lives (defaults to "identity").
+    #[serde(default)]
+    pub parent_binding_section: Option<String>,
+    /// GCP resource path segment override (e.g., "cryptoKeys" instead of default "crypto_keys").
+    /// Used in provider_id construction. If not set, defaults to snake_case(model) + "s".
+    #[serde(default)]
+    pub resource_noun: Option<String>,
 }
 
 /// Resource scope — determines how provider_id is constructed and which
@@ -369,6 +381,9 @@ impl ResourceManifest {
                 lro_create: false,
                 lro_update: false,
                 lro_delete: false,
+                parent_binding: None,
+                parent_binding_section: None,
+                resource_noun: None,
             },
             crud,
             fields: field_defs,

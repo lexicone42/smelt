@@ -24,9 +24,13 @@ const RUST_KEYWORDS: &[&str] = &[
     "use", "where", "while", "yield",
 ];
 
-/// Escape a snake_case name if it's a Rust keyword by appending `_val`.
+/// Names that shadow function parameters in generated code.
+const SHADOWED_PARAMS: &[&str] = &["config", "model", "labels"];
+
+/// Escape a snake_case name if it's a Rust keyword or shadows a function parameter
+/// by appending `_val`.
 pub fn safe_ident(s: &str) -> String {
-    if RUST_KEYWORDS.contains(&s) {
+    if RUST_KEYWORDS.contains(&s) || SHADOWED_PARAMS.contains(&s) {
         format!("{s}_val")
     } else {
         s.to_string()
