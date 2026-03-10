@@ -227,7 +227,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "suspension_reason".into(),
                                 description: "If the instance state is SUSPENDED, the reason for the suspension.".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* TODO: Enum variants */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Enum(vec!["SQL_SUSPENSION_REASON_UNSPECIFIED".into(), "BILLING_ISSUE".into(), "LEGAL_ISSUE".into(), "OPERATIONAL_ISSUE".into(), "KMS_KEY_ISSUE".into()]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,

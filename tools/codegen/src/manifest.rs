@@ -371,10 +371,13 @@ impl ResourceManifest {
     }
 }
 
-/// Extract the enum type name from a manifest field_type string like "Enum(FooBar)".
+/// Extract the enum type name from a manifest field_type string like "Enum(FooBar)"
+/// or "Array(Enum(FooBar))".
 fn extract_enum_name(field_type: &str) -> Option<String> {
     if field_type.starts_with("Enum(") && field_type.ends_with(')') {
         Some(field_type[5..field_type.len() - 1].to_string())
+    } else if field_type.starts_with("Array(Enum(") && field_type.ends_with("))") {
+        Some(field_type[11..field_type.len() - 2].to_string())
     } else {
         None
     }
@@ -405,9 +408,9 @@ fn extract_inner_type(raw: &str) -> Option<String> {
     // google_cloud_api:: → not a real crate path, strip to bare type name
     let t = t.replace("wkt::", "google_cloud_wkt::");
 
-    // Strip Option<> wrapper
+    // Strip Option<> wrapper, handling multi-line joined types with internal commas
     let inner = if t.starts_with("Option<") && t.ends_with('>') {
-        t[7..t.len() - 1].to_string()
+        t[7..t.len() - 1].trim().trim_end_matches(',').trim().to_string()
     } else {
         t
     };

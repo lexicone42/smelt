@@ -1429,7 +1429,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "external_managed_backend_bucket_migration_state".into(),
                                 description: "Specifies the canary migration state for the backend buckets attached to".into(),
-                                field_type: crate::provider::FieldType::Record(vec![]),
+                                field_type: crate::provider::FieldType::Enum(vec!["PREPARE".into(), "TEST_ALL_TRAFFIC".into(), "TEST_BY_PERCENTAGE".into()]),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -1589,7 +1589,9 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract external_managed_backend_bucket_migration_state (Nested(Option<)) from config["/config/external_managed_backend_bucket_migration_state"] — type path unknown
+        let external_managed_backend_bucket_migration_state = config
+            .optional_str("/config/external_managed_backend_bucket_migration_state")
+            .map(String::from);
         let external_managed_backend_bucket_migration_testing_percentage = config
             .pointer("/config/external_managed_backend_bucket_migration_testing_percentage")
             .and_then(|v| v.as_f64());
@@ -1644,7 +1646,9 @@ impl GcpProvider {
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set external_managed_backend_bucket_migration_state on model via .set_external_managed_backend_bucket_migration_state() — type path unknown
+        if let Some(ref s) = external_managed_backend_bucket_migration_state {
+            model = model.set_external_managed_backend_bucket_migration_state(google_cloud_compute_v1::model::forwarding_rule::ExternalManagedBackendBucketMigrationState::from(s.as_str()));
+        }
         if let Some(v) = external_managed_backend_bucket_migration_testing_percentage {
             model =
                 model.set_external_managed_backend_bucket_migration_testing_percentage(v as f32);
@@ -1753,7 +1757,7 @@ impl GcpProvider {
                 "allow_global_access": forwarding_rule.allow_global_access.unwrap_or(false),
                 "allow_psc_global_access": forwarding_rule.allow_psc_global_access.unwrap_or(false),
                 "backend_service": forwarding_rule.backend_service.as_deref().unwrap_or(""),
-                "external_managed_backend_bucket_migration_state": serde_json::Value::Null,
+                "external_managed_backend_bucket_migration_state": &forwarding_rule.external_managed_backend_bucket_migration_state,
                 "external_managed_backend_bucket_migration_testing_percentage": forwarding_rule.external_managed_backend_bucket_migration_testing_percentage.unwrap_or(0.0),
                 "ip_collection": forwarding_rule.ip_collection.as_deref().unwrap_or(""),
                 "ip_protocol": &forwarding_rule.ip_protocol,
@@ -1804,7 +1808,9 @@ impl GcpProvider {
         let description = config
             .optional_str("/identity/description")
             .map(String::from);
-        // TODO: extract external_managed_backend_bucket_migration_state (Nested(Option<)) from config["/config/external_managed_backend_bucket_migration_state"] — type path unknown
+        let external_managed_backend_bucket_migration_state = config
+            .optional_str("/config/external_managed_backend_bucket_migration_state")
+            .map(String::from);
         let external_managed_backend_bucket_migration_testing_percentage = config
             .pointer("/config/external_managed_backend_bucket_migration_testing_percentage")
             .and_then(|v| v.as_f64());
@@ -1854,7 +1860,9 @@ impl GcpProvider {
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        // TODO: set external_managed_backend_bucket_migration_state on model via .set_external_managed_backend_bucket_migration_state() — type path unknown
+        if let Some(ref s) = external_managed_backend_bucket_migration_state {
+            model = model.set_external_managed_backend_bucket_migration_state(google_cloud_compute_v1::model::forwarding_rule::ExternalManagedBackendBucketMigrationState::from(s.as_str()));
+        }
         if let Some(v) = external_managed_backend_bucket_migration_testing_percentage {
             model =
                 model.set_external_managed_backend_bucket_migration_testing_percentage(v as f32);

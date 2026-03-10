@@ -816,7 +816,7 @@ impl GcpProvider {
                             crate::provider::FieldSchema {
                                 name: "selected_regions".into(),
                                 description: "The list of regions from which the check will be run.".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String /* TODO: Enum variants */)),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Enum(vec!["REGION_UNSPECIFIED".into(), "USA".into(), "EUROPE".into(), "SOUTH_AMERICA".into(), "ASIA_PACIFIC".into(), "USA_OREGON".into(), "USA_IOWA".into(), "USA_VIRGINIA".into()]))),
                                 required: false,
                                 default: None,
                                 sensitive: false,

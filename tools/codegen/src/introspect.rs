@@ -364,9 +364,30 @@ fn parse_fields_from_body(body: &str) -> Vec<SdkField> {
     let mut fields = Vec::new();
     let mut doc_lines = Vec::new();
     let mut deprecated = false;
+    let mut continuation: Option<String> = None;
 
     for line in body.lines() {
         let trimmed = line.trim();
+
+        // If we're accumulating a multi-line field declaration, append this line
+        if let Some(ref mut acc) = continuation {
+            acc.push(' ');
+            acc.push_str(trimmed);
+            // Check if angle brackets are balanced now
+            let opens: usize = acc.chars().filter(|&c| c == '<').count();
+            let closes: usize = acc.chars().filter(|&c| c == '>').count();
+            if opens <= closes {
+                // Brackets balanced — parse the complete line
+                let complete = acc.clone();
+                continuation = None;
+                if let Some(field) = parse_field_line(&complete, &doc_lines, deprecated) {
+                    fields.push(field);
+                }
+                doc_lines.clear();
+                deprecated = false;
+            }
+            continue;
+        }
 
         if trimmed.starts_with("///") {
             let raw_doc = trimmed.trim_start_matches("///").trim();
@@ -376,11 +397,20 @@ fn parse_fields_from_body(body: &str) -> Vec<SdkField> {
         } else if trimmed.starts_with("#[deprecated") {
             deprecated = true;
         } else if trimmed.starts_with("pub ") || trimmed.starts_with("pub(crate)") {
-            if let Some(field) = parse_field_line(trimmed, &doc_lines, deprecated) {
+            // Check if this field declaration spans multiple lines (unbalanced angle brackets)
+            let opens: usize = trimmed.chars().filter(|&c| c == '<').count();
+            let closes: usize = trimmed.chars().filter(|&c| c == '>').count();
+            if opens > closes {
+                // Multi-line field — start accumulating
+                continuation = Some(trimmed.to_string());
+            } else if let Some(field) = parse_field_line(trimmed, &doc_lines, deprecated) {
                 fields.push(field);
+                doc_lines.clear();
+                deprecated = false;
+            } else {
+                doc_lines.clear();
+                deprecated = false;
             }
-            doc_lines.clear();
-            deprecated = false;
         } else if trimmed.is_empty() || trimmed.starts_with("#[") || trimmed.starts_with("//") {
             // skip attributes, blank lines, non-doc comments
         } else {
@@ -514,10 +544,12 @@ fn strip_html_tags(s: &str) -> String {
 }
 
 /// Strip a wrapper type: "Wrapper<Inner>" -> Some("Inner")
+/// Handles multi-line joined types like "Option< crate::model::foo::Bar, >"
 fn strip_wrapper(s: &str, wrapper: &str) -> Option<String> {
     let prefix = format!("{wrapper}<");
     if s.starts_with(&prefix) && s.ends_with('>') {
-        Some(s[prefix.len()..s.len() - 1].to_string())
+        let inner = s[prefix.len()..s.len() - 1].trim().trim_end_matches(',').trim();
+        Some(inner.to_string())
     } else {
         None
     }
@@ -663,6 +695,34 @@ pub struct NetworkRoutingConfig {
         assert!(matches!(fields[0].simplified_type, SimplifiedType::Nested(ref n) if n == "NetworkRoutingConfig"));
         // mode references a nested enum → Enum
         assert!(matches!(fields[1].simplified_type, SimplifiedType::Enum(ref n) if n == "RoutingMode"));
+    }
+
+    #[test]
+    fn test_multiline_field_type() {
+        let source = r#"
+pub struct ForwardingRule {
+    /// The name.
+    pub name: std::option::Option<std::string::String>,
+
+    /// The migration state.
+    pub external_managed_backend_bucket_migration_state: std::option::Option<
+        crate::model::forwarding_rule::ExternalManagedBackendBucketMigrationState,
+    >,
+
+    /// Simple bool.
+    pub all_ports: std::option::Option<bool>,
+}
+"#;
+        let fields = parse_struct_fields(source, "ForwardingRule");
+        assert_eq!(fields.len(), 3, "Should parse 3 fields, got: {fields:?}");
+        assert_eq!(fields[0].name, "name");
+        assert_eq!(fields[1].name, "external_managed_backend_bucket_migration_state");
+        assert!(fields[1].optional, "multi-line Option field should be optional");
+        assert!(
+            matches!(fields[1].simplified_type, SimplifiedType::Enum(ref n) if n == "ExternalManagedBackendBucketMigrationState"),
+            "Should parse as Enum, got: {:?}", fields[1].simplified_type
+        );
+        assert_eq!(fields[2].name, "all_ports");
     }
 
     #[test]

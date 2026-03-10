@@ -729,7 +729,7 @@ fn field_type_expr(type_str: &str, variants: &[String]) -> String {
             let inner = &s[6..s.len() - 1];
             format!(
                 "crate::provider::FieldType::Array(Box::new({}))",
-                field_type_expr(inner, &[])
+                field_type_expr(inner, variants)
             )
         }
         "Record" => "crate::provider::FieldType::Record(vec![])".into(),
