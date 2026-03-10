@@ -754,8 +754,100 @@ crud_update = "update_instance"
 crud_delete = "delete_instance"
 lro = true
 
+# ─── Cloud Scheduler ────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Job"
+sdk_crate = "google-cloud-scheduler-v1"
+sdk_client = "CloudScheduler"
+client_accessor = "cloud_scheduler"
+type_path = "scheduler.Job"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = ""
+resource_body_setter = "set_job"
+crud_create = "create_job"
+crud_read = "get_job"
+crud_update = "update_job"
+crud_delete = "delete_job"
+
+# ─── Cloud Tasks ────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Queue"
+sdk_crate = "google-cloud-tasks-v2"
+sdk_client = "CloudTasks"
+client_accessor = "cloud_tasks"
+type_path = "tasks.Queue"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = ""
+resource_body_setter = "set_queue"
+crud_create = "create_queue"
+crud_read = "get_queue"
+crud_update = "update_queue"
+crud_delete = "delete_queue"
+
+# ─── Service Directory ──────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Namespace"
+sdk_crate = "google-cloud-servicedirectory-v1"
+sdk_client = "RegistrationService"
+client_accessor = "service_directory"
+type_path = "servicedirectory.Namespace"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_namespace_id"
+resource_body_setter = "set_namespace"
+crud_create = "create_namespace"
+crud_read = "get_namespace"
+crud_update = "update_namespace"
+crud_delete = "delete_namespace"
+
+# ─── Eventarc ───────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Trigger"
+sdk_crate = "google-cloud-eventarc-v1"
+sdk_client = "Eventarc"
+client_accessor = "eventarc"
+type_path = "eventarc.Trigger"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_trigger_id"
+resource_body_setter = "set_trigger"
+crud_create = "create_trigger"
+crud_read = "get_trigger"
+crud_update = "update_trigger"
+crud_delete = "delete_trigger"
+lro = true
+
+[[resource]]
+struct_name = "Channel"
+sdk_crate = "google-cloud-eventarc-v1"
+sdk_client = "Eventarc"
+client_accessor = "eventarc"
+type_path = "eventarc.Channel"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_channel_id"
+resource_body_setter = "set_channel"
+crud_create = "create_channel"
+crud_read = "get_channel"
+crud_update = "update_channel"
+crud_delete = "delete_channel"
+lro = true
+
 # ─── Skipped resources (require non-standard patterns) ──────────────────────
 # - FirewallPolicy — org-level, no set_project (different scope model)
 # - Container NodePool — parent includes cluster name from config
 # - IAM ServiceAccountKey — create doesn't take a body
 # - SecretVersion — uses add_secret_version, non-standard lifecycle
+# - Service Directory Service/Endpoint — nested parent requires namespace ref
+# - Cloud Build BuildTrigger — non-standard project_id/trigger_id API

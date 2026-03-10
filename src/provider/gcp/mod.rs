@@ -3,6 +3,7 @@ mod certificatemanager;
 mod compute;
 mod container;
 mod dns;
+mod eventarc;
 mod functions;
 mod iam;
 mod kms;
@@ -12,9 +13,12 @@ mod memorystore;
 mod monitoring;
 mod pubsub;
 mod run;
+mod scheduler;
 mod secretmanager;
+mod servicedirectory;
 mod sql;
 mod storage;
+mod tasks;
 
 use std::future::Future;
 use std::pin::Pin;
@@ -60,10 +64,11 @@ macro_rules! gcp_dispatch_delete {
 
 /// Google Cloud Platform provider backed by official Google Cloud Rust SDK.
 ///
-/// Covers 57 resource types across Compute Engine, Cloud Storage, Cloud SQL,
+/// Covers 62 resource types across Compute Engine, Cloud Storage, Cloud SQL,
 /// IAM, Cloud DNS, GKE, Cloud Run, Cloud Functions, Pub/Sub, KMS,
 /// Secret Manager, Cloud Logging, Cloud Monitoring, Load Balancing,
-/// Artifact Registry, Certificate Manager, and Memorystore.
+/// Artifact Registry, Certificate Manager, Memorystore, Cloud Scheduler,
+/// Cloud Tasks, Service Directory, and Eventarc.
 ///
 /// Clients are lazily initialized on first use — only the services you
 /// actually touch pay the cost of credential negotiation and connection setup.
@@ -164,6 +169,16 @@ pub struct GcpProvider {
     // Memorystore
     pub(crate) memorystore_client:
         tokio::sync::OnceCell<google_cloud_memorystore_v1::client::Memorystore>,
+    // Cloud Scheduler
+    pub(crate) cloud_scheduler_client:
+        tokio::sync::OnceCell<google_cloud_scheduler_v1::client::CloudScheduler>,
+    // Cloud Tasks
+    pub(crate) cloud_tasks_client: tokio::sync::OnceCell<google_cloud_tasks_v2::client::CloudTasks>,
+    // Service Directory
+    pub(crate) service_directory_client:
+        tokio::sync::OnceCell<google_cloud_servicedirectory_v1::client::RegistrationService>,
+    // Eventarc
+    pub(crate) eventarc_client: tokio::sync::OnceCell<google_cloud_eventarc_v1::client::Eventarc>,
     // Cloud Monitoring
     pub(crate) monitoring_client:
         tokio::sync::OnceCell<google_cloud_monitoring_v3::client::AlertPolicyService>,
@@ -248,6 +263,10 @@ impl GcpProvider {
             artifact_registry_client: tokio::sync::OnceCell::new(),
             certificate_manager_client: tokio::sync::OnceCell::new(),
             memorystore_client: tokio::sync::OnceCell::new(),
+            cloud_scheduler_client: tokio::sync::OnceCell::new(),
+            cloud_tasks_client: tokio::sync::OnceCell::new(),
+            service_directory_client: tokio::sync::OnceCell::new(),
+            eventarc_client: tokio::sync::OnceCell::new(),
             monitoring_client: tokio::sync::OnceCell::new(),
             notification_channels_client: tokio::sync::OnceCell::new(),
             uptime_checks_client: tokio::sync::OnceCell::new(),
@@ -746,6 +765,50 @@ impl GcpProvider {
             "init Memorystore"
         )
     }
+
+    // Cloud Scheduler
+    pub(crate) async fn cloud_scheduler(
+        &self,
+    ) -> Result<&google_cloud_scheduler_v1::client::CloudScheduler, ProviderError> {
+        gcp_client!(
+            self.cloud_scheduler_client,
+            google_cloud_scheduler_v1::client::CloudScheduler::builder(),
+            "init CloudScheduler"
+        )
+    }
+
+    // Cloud Tasks
+    pub(crate) async fn cloud_tasks(
+        &self,
+    ) -> Result<&google_cloud_tasks_v2::client::CloudTasks, ProviderError> {
+        gcp_client!(
+            self.cloud_tasks_client,
+            google_cloud_tasks_v2::client::CloudTasks::builder(),
+            "init CloudTasks"
+        )
+    }
+
+    // Service Directory
+    pub(crate) async fn service_directory(
+        &self,
+    ) -> Result<&google_cloud_servicedirectory_v1::client::RegistrationService, ProviderError> {
+        gcp_client!(
+            self.service_directory_client,
+            google_cloud_servicedirectory_v1::client::RegistrationService::builder(),
+            "init RegistrationService"
+        )
+    }
+
+    // Eventarc
+    pub(crate) async fn eventarc(
+        &self,
+    ) -> Result<&google_cloud_eventarc_v1::client::Eventarc, ProviderError> {
+        gcp_client!(
+            self.eventarc_client,
+            google_cloud_eventarc_v1::client::Eventarc::builder(),
+            "init Eventarc"
+        )
+    }
 }
 
 /// Parse a zonal provider_id like "us-central1-a/my-instance" into (zone, name).
@@ -914,6 +977,15 @@ impl Provider for GcpProvider {
             Self::certificatemanager_dnsauthorization_schema(),
             // Memorystore (1)
             Self::memorystore_instance_schema(),
+            // Cloud Scheduler (1)
+            Self::scheduler_job_schema(),
+            // Cloud Tasks (1)
+            Self::tasks_queue_schema(),
+            // Service Directory (1)
+            Self::servicedirectory_namespace_schema(),
+            // Eventarc (2)
+            Self::eventarc_trigger_schema(),
+            Self::eventarc_channel_schema(),
         ]
     }
 
@@ -1001,6 +1073,15 @@ impl Provider for GcpProvider {
                 "certificatemanager.DnsAuthorization" => read_certificatemanager_dnsauthorization,
                 // Memorystore
                 "memorystore.Instance" => read_memorystore_instance,
+                // Cloud Scheduler
+                "scheduler.Job" => read_scheduler_job,
+                // Cloud Tasks
+                "tasks.Queue" => read_tasks_queue,
+                // Service Directory
+                "servicedirectory.Namespace" => read_servicedirectory_namespace,
+                // Eventarc
+                "eventarc.Trigger" => read_eventarc_trigger,
+                "eventarc.Channel" => read_eventarc_channel,
             })
         })
     }
@@ -1089,6 +1170,15 @@ impl Provider for GcpProvider {
                 "certificatemanager.DnsAuthorization" => create_certificatemanager_dnsauthorization,
                 // Memorystore
                 "memorystore.Instance" => create_memorystore_instance,
+                // Cloud Scheduler
+                "scheduler.Job" => create_scheduler_job,
+                // Cloud Tasks
+                "tasks.Queue" => create_tasks_queue,
+                // Service Directory
+                "servicedirectory.Namespace" => create_servicedirectory_namespace,
+                // Eventarc
+                "eventarc.Trigger" => create_eventarc_trigger,
+                "eventarc.Channel" => create_eventarc_channel,
             })
         })
     }
@@ -1179,6 +1269,15 @@ impl Provider for GcpProvider {
                 "certificatemanager.DnsAuthorization" => update_certificatemanager_dnsauthorization,
                 // Memorystore
                 "memorystore.Instance" => update_memorystore_instance,
+                // Cloud Scheduler
+                "scheduler.Job" => update_scheduler_job,
+                // Cloud Tasks
+                "tasks.Queue" => update_tasks_queue,
+                // Service Directory
+                "servicedirectory.Namespace" => update_servicedirectory_namespace,
+                // Eventarc
+                "eventarc.Trigger" => update_eventarc_trigger,
+                "eventarc.Channel" => update_eventarc_channel,
             })
         })
     }
@@ -1267,6 +1366,15 @@ impl Provider for GcpProvider {
                 "certificatemanager.DnsAuthorization" => delete_certificatemanager_dnsauthorization,
                 // Memorystore
                 "memorystore.Instance" => delete_memorystore_instance,
+                // Cloud Scheduler
+                "scheduler.Job" => delete_scheduler_job,
+                // Cloud Tasks
+                "tasks.Queue" => delete_tasks_queue,
+                // Service Directory
+                "servicedirectory.Namespace" => delete_servicedirectory_namespace,
+                // Eventarc
+                "eventarc.Trigger" => delete_eventarc_trigger,
+                "eventarc.Channel" => delete_eventarc_channel,
             })
         })
     }
@@ -1402,6 +1510,13 @@ impl Provider for GcpProvider {
                 "memorystore.Instance" => {
                     memorystore::memorystore_instance_forces_replacement(&change.path)
                 }
+                "scheduler.Job" => scheduler::scheduler_job_forces_replacement(&change.path),
+                "tasks.Queue" => tasks::tasks_queue_forces_replacement(&change.path),
+                "servicedirectory.Namespace" => {
+                    servicedirectory::servicedirectory_namespace_forces_replacement(&change.path)
+                }
+                "eventarc.Trigger" => eventarc::eventarc_trigger_forces_replacement(&change.path),
+                "eventarc.Channel" => eventarc::eventarc_channel_forces_replacement(&change.path),
                 _ => false,
             };
         }
@@ -1468,6 +1583,10 @@ mod tests {
             artifact_registry_client: tokio::sync::OnceCell::new(),
             certificate_manager_client: tokio::sync::OnceCell::new(),
             memorystore_client: tokio::sync::OnceCell::new(),
+            cloud_scheduler_client: tokio::sync::OnceCell::new(),
+            cloud_tasks_client: tokio::sync::OnceCell::new(),
+            service_directory_client: tokio::sync::OnceCell::new(),
+            eventarc_client: tokio::sync::OnceCell::new(),
             monitoring_client: tokio::sync::OnceCell::new(),
             notification_channels_client: tokio::sync::OnceCell::new(),
             uptime_checks_client: tokio::sync::OnceCell::new(),
@@ -1475,9 +1594,10 @@ mod tests {
         };
         // 23 compute + 3 LB + 1 storage + 3 SQL + 2 IAM + 3 DNS + 1 GKE
         // + 2 run + 1 functions + 2 pubsub + 2 kms + 1 secret + 4 logging + 4 monitoring
-        // + 1 artifact registry + 3 certificate manager + 1 memorystore = 57
+        // + 1 artifact registry + 3 certificate manager + 1 memorystore
+        // + 1 scheduler + 1 tasks + 1 service directory + 2 eventarc = 62
         let schemas = provider.resource_types();
-        assert_eq!(schemas.len(), 57);
+        assert_eq!(schemas.len(), 62);
     }
 
     #[test]
