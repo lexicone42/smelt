@@ -728,9 +728,22 @@ fn build_registry() -> smelt::provider::ProviderRegistry {
     let aws_provider = rt.block_on(AwsProvider::from_env());
     registry.register(Box::new(aws_provider));
 
-    // Other providers use placeholder config for now
+    // GCP — resolve project from GOOGLE_CLOUD_PROJECT, GCLOUD_PROJECT, or gcloud CLI
+    let gcp_project = std::env::var("GOOGLE_CLOUD_PROJECT")
+        .or_else(|_| std::env::var("GCLOUD_PROJECT"))
+        .unwrap_or_else(|_| {
+            std::process::Command::new("gcloud")
+                .args(["config", "get-value", "project"])
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "default".into())
+        });
+    let gcp_region = std::env::var("GOOGLE_CLOUD_REGION").unwrap_or_else(|_| "us-central1".into());
     let gcp_provider = rt
-        .block_on(GcpProvider::from_env("default", "us-central1"))
+        .block_on(GcpProvider::from_env(&gcp_project, &gcp_region))
         .expect("Failed to initialize GCP provider");
     registry.register(Box::new(gcp_provider));
     registry.register(Box::new(CloudflareProvider::new("default")));

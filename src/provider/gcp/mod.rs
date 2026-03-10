@@ -112,7 +112,7 @@ pub struct GcpProvider {
     pub(crate) forwarding_rules_client:
         tokio::sync::OnceCell<google_cloud_compute_v1::client::ForwardingRules>,
     // Cloud Storage
-    pub(crate) storage_client: tokio::sync::OnceCell<google_cloud_storage::client::Storage>,
+    pub(crate) storage_client: tokio::sync::OnceCell<google_cloud_storage::client::StorageControl>,
     // Cloud SQL
     pub(crate) sql_instances_client:
         tokio::sync::OnceCell<google_cloud_sql_v1::client::SqlInstancesService>,
@@ -488,11 +488,11 @@ impl GcpProvider {
     // Cloud Storage
     pub(crate) async fn storage(
         &self,
-    ) -> Result<&google_cloud_storage::client::Storage, ProviderError> {
+    ) -> Result<&google_cloud_storage::client::StorageControl, ProviderError> {
         gcp_client!(
             self.storage_client,
-            google_cloud_storage::client::Storage::builder(),
-            "init Storage"
+            google_cloud_storage::client::StorageControl::builder(),
+            "init StorageControl"
         )
     }
     // Cloud SQL
@@ -898,7 +898,7 @@ impl Provider for GcpProvider {
                 "loadbalancing.HealthCheck" => read_loadbalancing_healthcheck,
                 "loadbalancing.ForwardingRule" => read_loadbalancing_forwardingrule,
                 // Cloud Storage
-                "storage.Bucket" => read_bucket,
+                "storage.Bucket" => read_storage_bucket,
                 // Cloud SQL
                 "sql.Instance" => read_sql_instance,
                 "sql.Database" => read_sql_database,
@@ -978,7 +978,7 @@ impl Provider for GcpProvider {
                 "loadbalancing.HealthCheck" => create_loadbalancing_healthcheck,
                 "loadbalancing.ForwardingRule" => create_loadbalancing_forwardingrule,
                 // Cloud Storage
-                "storage.Bucket" => create_bucket,
+                "storage.Bucket" => create_storage_bucket,
                 // Cloud SQL
                 "sql.Instance" => create_sql_instance,
                 "sql.Database" => create_sql_database,
@@ -1061,7 +1061,7 @@ impl Provider for GcpProvider {
                 "loadbalancing.HealthCheck" => update_loadbalancing_healthcheck,
                 "loadbalancing.ForwardingRule" => update_loadbalancing_forwardingrule,
                 // Cloud Storage
-                "storage.Bucket" => update_bucket,
+                "storage.Bucket" => update_storage_bucket,
                 // Cloud SQL
                 "sql.Instance" => update_sql_instance,
                 "sql.Database" => update_sql_database,
@@ -1140,7 +1140,7 @@ impl Provider for GcpProvider {
                 "loadbalancing.HealthCheck" => delete_loadbalancing_healthcheck,
                 "loadbalancing.ForwardingRule" => delete_loadbalancing_forwardingrule,
                 // Cloud Storage
-                "storage.Bucket" => delete_bucket,
+                "storage.Bucket" => delete_storage_bucket,
                 // Cloud SQL
                 "sql.Instance" => delete_sql_instance,
                 "sql.Database" => delete_sql_database,
@@ -1288,8 +1288,7 @@ impl Provider for GcpProvider {
                     monitoring::monitoring_uptimecheckconfig_forces_replacement(&change.path)
                 }
                 "monitoring.Group" => monitoring::monitoring_group_forces_replacement(&change.path),
-                // Handwritten resources
-                "storage.Bucket" => change.path == "identity.name",
+                "storage.Bucket" => storage::storage_bucket_forces_replacement(&change.path),
                 "pubsub.Topic" => true,
                 "pubsub.Subscription" => change.path == "identity.name",
                 _ => false,
