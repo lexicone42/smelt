@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::introspect::{OneofVariant, SdkEnum, SdkField, SimplifiedType};
+use crate::snake_case;
 
 // ── Top-level manifest ──────────────────────────────────────────────────────
 
@@ -195,7 +196,7 @@ impl ResourceManifest {
                     delete: Some("delete".into()),
                 }
             } else {
-                let noun = snake_case_simple(struct_name);
+                let noun = snake_case(struct_name);
                 CrudMethods {
                     create: format!("create_{noun}"),
                     read: format!("get_{noun}"),
@@ -223,13 +224,13 @@ impl ResourceManifest {
         };
 
         let resource_id_setter = if !is_compute {
-            Some(format!("set_{}_id", snake_case_simple(struct_name)))
+            Some(format!("set_{}_id", snake_case(struct_name)))
         } else {
             None
         };
 
         let resource_body_setter = if !is_compute {
-            Some(format!("set_{}", snake_case_simple(struct_name)))
+            Some(format!("set_{}", snake_case(struct_name)))
         } else {
             None
         };
@@ -388,24 +389,12 @@ impl ResourceManifest {
                         if let Some(ref path) = field_def.sdk_type_path {
                             let is_same_crate_nested = path.starts_with("crate::model::")
                                 && path.matches("::").count() > 2;
-                            let is_unlinked_crate = path.contains("_rpc::");
-                            if is_same_crate_nested || is_unlinked_crate {
+                                if is_same_crate_nested {
                                 field_def.sdk_type_path = None;
                             }
                         }
                     }
                     field_def.variants.clear();
-                }
-            }
-        }
-
-        // Final pass: clear sdk_type_path for types from unlinked crates
-        // (e.g., google_cloud_rpc is not a smelt dependency).
-        // This catches Nested types that bypassed the enum resolution branch.
-        for field_def in manifest.fields.values_mut() {
-            if let Some(ref path) = field_def.sdk_type_path {
-                if path.contains("_rpc::") {
-                    field_def.sdk_type_path = None;
                 }
             }
         }
@@ -538,17 +527,6 @@ fn is_output_only(field_name: &str, doc: &str) -> bool {
         || field_name == "kind"
         || field_name == "status"
         || field_name == "etag"
-}
-
-fn snake_case_simple(s: &str) -> String {
-    let mut result = String::with_capacity(s.len() + 4);
-    for (i, ch) in s.chars().enumerate() {
-        if ch.is_uppercase() && i > 0 {
-            result.push('_');
-        }
-        result.push(ch.to_ascii_lowercase());
-    }
-    result
 }
 
 fn is_sensitive(field_name: &str) -> bool {

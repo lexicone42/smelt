@@ -179,7 +179,9 @@ impl GcpProvider {
         let user_labels = config
             .pointer("/config/user_labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
-        // TODO: extract validity (Nested(Status)) from config["/config/validity"] — type path unknown
+        let validity = config.pointer("/config/validity").and_then(|v| {
+            serde_json::from_value::<google_cloud_rpc::model::Status>(v.clone()).ok()
+        });
 
         // Build SDK model
         let mut model = google_cloud_monitoring_v3::model::AlertPolicy::default();
@@ -223,7 +225,9 @@ impl GcpProvider {
         if let Some(v) = user_labels {
             model = model.set_user_labels(v);
         }
-        // TODO: set validity on model via .set_validity() — type path unknown
+        if let Some(v) = validity {
+            model = model.set_validity(v);
+        }
 
         // Make API call
         let parent = format!("projects/{}", self.project_id);
@@ -274,7 +278,7 @@ impl GcpProvider {
                 "notification_channels": &alert_policy.notification_channels,
                 "severity": &alert_policy.severity,
                 "user_labels": &alert_policy.user_labels,
-                "validity": serde_json::Value::Null,
+                "validity": &alert_policy.validity,
             },
         });
 
@@ -337,7 +341,9 @@ impl GcpProvider {
         let user_labels = config
             .pointer("/config/user_labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
-        // TODO: extract validity (Nested(Status)) from config["/config/validity"] — type path unknown
+        let validity = config.pointer("/config/validity").and_then(|v| {
+            serde_json::from_value::<google_cloud_rpc::model::Status>(v.clone()).ok()
+        });
 
         let mut model = google_cloud_monitoring_v3::model::AlertPolicy::default();
         model = model.set_name(provider_id);
@@ -380,7 +386,9 @@ impl GcpProvider {
         if let Some(v) = user_labels {
             model = model.set_user_labels(v);
         }
-        // TODO: set validity on model via .set_validity() — type path unknown
+        if let Some(v) = validity {
+            model = model.set_validity(v);
+        }
 
         self.monitoring()
             .await?

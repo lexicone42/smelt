@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write;
 
 use crate::manifest::{FieldDef, ResourceManifest};
+use crate::snake_case;
 
 pub fn generate_provider_code(manifest: &ResourceManifest) -> String {
     let mut out = String::with_capacity(8192);
@@ -686,17 +687,6 @@ fn crud_fn_name(operation: &str, type_path: &str) -> String {
     )
 }
 
-fn snake_case(s: &str) -> String {
-    let mut result = String::with_capacity(s.len() + 4);
-    for (i, ch) in s.chars().enumerate() {
-        if ch.is_uppercase() && i > 0 {
-            result.push('_');
-        }
-        result.push(ch.to_ascii_lowercase());
-    }
-    result
-}
-
 fn capitalize(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {
@@ -733,7 +723,7 @@ fn field_type_expr(type_str: &str, variants: &[String]) -> String {
             )
         }
         "Record" => "crate::provider::FieldType::Record(vec![])".into(),
-        s if s.starts_with("Oneof(") | s.starts_with("Nested(") => "crate::provider::FieldType::Record(vec![])".into(),
+        s if s.starts_with("Oneof(") || s.starts_with("Nested(") => "crate::provider::FieldType::Record(vec![])".into(),
         "Duration" | "Timestamp" | "Bytes" => "crate::provider::FieldType::String".into(),
         _ => format!("crate::provider::FieldType::String /* {type_str} */"),
     }
@@ -1077,7 +1067,7 @@ fn write_provider_id_construction(out: &mut String, m: &ResourceManifest) {
         // Resource-name style: build full resource path
         if let Some(ref parent_fmt) = m.resource.parent_format {
             // Replace {project} and {location} placeholders
-            let parent = parent_fmt
+            let _parent = parent_fmt
                 .replace("{project}", "{}")
                 .replace("{location}", "{}");
             let noun = snake_case(&m.resource.sdk_model);

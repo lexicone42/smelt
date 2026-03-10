@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 description = "Generate smelt provider code from SDK crate introspection"
 
+[lib]
+name = "smelt_codegen"
+path = "src/lib.rs"
+
 [[bin]]
 name = "smelt-codegen"
 path = "src/main.rs"

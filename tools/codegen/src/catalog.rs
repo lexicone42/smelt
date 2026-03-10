@@ -10,7 +10,8 @@ use serde::Deserialize;
 
 use crate::generate;
 use crate::introspect;
-use crate::manifest::{CrudMethods, ResourceManifest};
+use crate::manifest::ResourceManifest;
+use crate::snake_case;
 
 #[derive(Debug, Deserialize)]
 pub struct Catalog {
@@ -62,6 +63,24 @@ fn default_api_style() -> String {
 
 fn default_scope() -> String {
     "global".into()
+}
+
+/// Apply a catalog Option override: if Some(""), clear the field; if Some(val), set it; if None, keep existing.
+fn apply_optional(target: &mut Option<String>, source: &Option<String>) {
+    if let Some(val) = source {
+        if val.is_empty() {
+            *target = None;
+        } else {
+            *target = Some(val.clone());
+        }
+    }
+}
+
+/// Apply a catalog Option override without empty-string clearing: if Some(val), set it; if None, keep existing.
+fn apply_optional_set(target: &mut Option<String>, source: &Option<String>) {
+    if let Some(val) = source {
+        *target = Some(val.clone());
+    }
 }
 
 /// Find the model.rs for a given SDK crate in the cargo registry.
@@ -183,41 +202,17 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
         manifest.resource.scope = entry.scope.clone();
         manifest.resource.sdk_client = entry.sdk_client.clone();
 
-        if let Some(ref pf) = entry.parent_format {
-            manifest.resource.parent_format = Some(pf.clone());
-        }
-        if let Some(ref ids) = entry.resource_id_setter {
-            if ids.is_empty() {
-                manifest.resource.resource_id_setter = None;
-            } else {
-                manifest.resource.resource_id_setter = Some(ids.clone());
-            }
-        }
-        if let Some(ref rbs) = entry.resource_body_setter {
-            if rbs.is_empty() {
-                manifest.resource.resource_body_setter = None;
-            } else {
-                manifest.resource.resource_body_setter = Some(rbs.clone());
-            }
-        }
-        if let Some(ref ca) = entry.client_accessor {
-            manifest.resource.client_accessor = Some(ca.clone());
-        }
-        if let Some(ref rip) = entry.resource_id_param {
-            manifest.resource.resource_id_param = Some(rip.clone());
-        }
-        if let Some(ref ps) = entry.parent_setter {
-            manifest.resource.parent_setter = Some(ps.clone());
-        }
-        if let Some(ref rnp) = entry.resource_name_param {
-            manifest.resource.resource_name_param = Some(rnp.clone());
-        }
+        apply_optional_set(&mut manifest.resource.parent_format, &entry.parent_format);
+        apply_optional(&mut manifest.resource.resource_id_setter, &entry.resource_id_setter);
+        apply_optional(&mut manifest.resource.resource_body_setter, &entry.resource_body_setter);
+        apply_optional_set(&mut manifest.resource.client_accessor, &entry.client_accessor);
+        apply_optional_set(&mut manifest.resource.resource_id_param, &entry.resource_id_param);
+        apply_optional_set(&mut manifest.resource.parent_setter, &entry.parent_setter);
+        apply_optional_set(&mut manifest.resource.resource_name_param, &entry.resource_name_param);
         if let Some(hum) = entry.has_update_mask {
             manifest.resource.has_update_mask = hum;
         }
-        if let Some(ref of_) = entry.output_field {
-            manifest.resource.output_field = Some(of_.clone());
-        }
+        apply_optional_set(&mut manifest.resource.output_field, &entry.output_field);
 
         // Override CRUD methods from catalog
         if let Some(ref c) = entry.crud_create {
@@ -226,20 +221,8 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
         if let Some(ref r) = entry.crud_read {
             manifest.crud.read = r.clone();
         }
-        if let Some(ref u) = entry.crud_update {
-            if u.is_empty() {
-                manifest.crud.update = None;
-            } else {
-                manifest.crud.update = Some(u.clone());
-            }
-        }
-        if let Some(ref d) = entry.crud_delete {
-            if d.is_empty() {
-                manifest.crud.delete = None;
-            } else {
-                manifest.crud.delete = Some(d.clone());
-            }
-        }
+        apply_optional(&mut manifest.crud.update, &entry.crud_update);
+        apply_optional(&mut manifest.crud.delete, &entry.crud_delete);
 
         // Fix provider_id_format for resource_name style
         if entry.api_style == "resource_name" {
@@ -412,15 +395,4 @@ fn split_methods_and_standalone(code: &str) -> (String, String) {
     }
 
     (methods, standalone)
-}
-
-fn snake_case(s: &str) -> String {
-    let mut result = String::with_capacity(s.len() + 4);
-    for (i, ch) in s.chars().enumerate() {
-        if ch.is_uppercase() && i > 0 {
-            result.push('_');
-        }
-        result.push(ch.to_ascii_lowercase());
-    }
-    result
 }

@@ -101,6 +101,7 @@ google-cloud-logging-v2 = "1"
 google-cloud-monitoring-v3 = "1"
 google-cloud-longrunning = "1"
 bytes = { version = "1", features = ["serde"] }
+google-cloud-rpc = "1"
 
 [dev-dependencies]
 proptest = "1"

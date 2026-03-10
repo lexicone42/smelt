@@ -4,7 +4,11 @@
 //! The parsing is regex-based (not a full Rust parser) because the SDK
 //! crates are auto-generated and follow very predictable patterns.
 
+use std::sync::LazyLock;
+
 use regex::Regex;
+
+use crate::snake_case;
 
 /// A field extracted from an SDK model struct.
 #[derive(Debug, Clone)]
@@ -282,17 +286,6 @@ fn pascal_to_screaming(s: &str) -> String {
     result
 }
 
-fn pascal_to_snake(s: &str) -> String {
-    let mut result = String::with_capacity(s.len() + 4);
-    for (i, ch) in s.chars().enumerate() {
-        if ch.is_uppercase() && i > 0 {
-            result.push('_');
-        }
-        result.push(ch.to_ascii_lowercase());
-    }
-    result
-}
-
 /// Parse a proto oneof enum to extract its variants and their inner types.
 ///
 /// Proto oneofs have variants like `VariantName(Box<Type>)` or `VariantName(Type)`.
@@ -335,7 +328,7 @@ pub fn parse_oneof_variants(source: &str, enum_name: &str) -> Vec<OneofVariant> 
             };
 
         let inner_type = classify_oneof_inner(&inner_raw);
-        let setter = format!("set_{}", pascal_to_snake(&name));
+        let setter = format!("set_{}", snake_case(&name));
 
         variants.push(OneofVariant {
             name,
@@ -553,11 +546,12 @@ fn parse_fields_from_body(body: &str) -> Vec<SdkField> {
     fields
 }
 
-fn parse_field_line(line: &str, docs: &[String], deprecated: bool) -> Option<SdkField> {
-    // Match: pub field_name: Type, or pub(crate) field_name: Type,
-    let re = Regex::new(r"pub(?:\(crate\))?\s+(\w+)\s*:\s*(.+?),?\s*$").unwrap();
+static FIELD_LINE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"pub(?:\(crate\))?\s+(\w+)\s*:\s*(.+?),?\s*$").unwrap()
+});
 
-    let cap = re.captures(line)?;
+fn parse_field_line(line: &str, docs: &[String], deprecated: bool) -> Option<SdkField> {
+    let cap = FIELD_LINE_RE.captures(line)?;
     let name = cap[1].to_string();
     let raw_type = cap[2].trim().to_string();
 
@@ -668,10 +662,13 @@ fn classify_type_inner(t: &str) -> (SimplifiedType, bool) {
     }
 }
 
+static HTML_TAG_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"<[^>]+>").unwrap()
+});
+
 /// Strip simple HTML tags from AWS SDK doc comments.
 fn strip_html_tags(s: &str) -> String {
-    let re = Regex::new(r"<[^>]+>").unwrap();
-    re.replace_all(s, "").trim().to_string()
+    HTML_TAG_RE.replace_all(s, "").trim().to_string()
 }
 
 /// Strip a wrapper type: "Wrapper<Inner>" -> Some("Inner")

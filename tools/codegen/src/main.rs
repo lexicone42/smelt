@@ -8,12 +8,8 @@
 //!
 //! Supports both GCP (`google-cloud-*`) and AWS (`aws-sdk-*`) SDK crates.
 
-mod catalog;
-mod introspect;
-mod manifest;
-mod generate;
-
 use clap::{Parser, Subcommand};
+use smelt_codegen::{catalog, generate, introspect, manifest};
 
 #[derive(Parser)]
 #[command(name = "smelt-codegen", about = "Generate smelt provider code from SDK introspection")]
