@@ -1,24 +1,36 @@
+mod alloydb;
+mod apikeys;
 mod artifactregistry;
 mod certificatemanager;
 mod compute;
 mod container;
 mod dns;
 mod eventarc;
+mod filestore;
 mod functions;
+mod gkebackup;
 mod iam;
 mod kms;
 mod loadbalancing;
 mod logging;
 mod memorystore;
 mod monitoring;
+mod networkconnectivity;
+mod networksecurity;
+mod networkservices;
+mod orgpolicy;
+mod privateca;
 mod pubsub;
 mod run;
 mod scheduler;
 mod secretmanager;
 mod servicedirectory;
+mod spanner;
 mod sql;
 mod storage;
 mod tasks;
+mod workflows;
+mod workstations;
 
 use std::future::Future;
 use std::pin::Pin;
@@ -179,6 +191,42 @@ pub struct GcpProvider {
         tokio::sync::OnceCell<google_cloud_servicedirectory_v1::client::RegistrationService>,
     // Eventarc
     pub(crate) eventarc_client: tokio::sync::OnceCell<google_cloud_eventarc_v1::client::Eventarc>,
+    // API Keys
+    pub(crate) api_keys_client: tokio::sync::OnceCell<google_cloud_apikeys_v2::client::ApiKeys>,
+    // AlloyDB
+    pub(crate) alloy_db_admin_client:
+        tokio::sync::OnceCell<google_cloud_alloydb_v1::client::AlloyDBAdmin>,
+    // Filestore
+    pub(crate) cloud_filestore_manager_client:
+        tokio::sync::OnceCell<google_cloud_filestore_v1::client::CloudFilestoreManager>,
+    // Spanner
+    pub(crate) spanner_instance_admin_client:
+        tokio::sync::OnceCell<google_cloud_spanner_admin_instance_v1::client::InstanceAdmin>,
+    // Private CA
+    pub(crate) certificate_authority_service_client: tokio::sync::OnceCell<
+        google_cloud_security_privateca_v1::client::CertificateAuthorityService,
+    >,
+    // Network Connectivity
+    pub(crate) hub_service_client:
+        tokio::sync::OnceCell<google_cloud_networkconnectivity_v1::client::HubService>,
+    // Network Security
+    pub(crate) network_security_client:
+        tokio::sync::OnceCell<google_cloud_networksecurity_v1::client::NetworkSecurity>,
+    // Network Services
+    pub(crate) network_services_client:
+        tokio::sync::OnceCell<google_cloud_networkservices_v1::client::NetworkServices>,
+    // Workstations
+    pub(crate) workstations_client_client:
+        tokio::sync::OnceCell<google_cloud_workstations_v1::client::Workstations>,
+    // GKE Backup
+    pub(crate) backup_for_gke_client:
+        tokio::sync::OnceCell<google_cloud_gkebackup_v1::client::BackupForGKE>,
+    // Workflows
+    pub(crate) workflows_client:
+        tokio::sync::OnceCell<google_cloud_workflows_v1::client::Workflows>,
+    // Org Policy
+    pub(crate) org_policy_client:
+        tokio::sync::OnceCell<google_cloud_orgpolicy_v2::client::OrgPolicy>,
     // Cloud Monitoring
     pub(crate) monitoring_client:
         tokio::sync::OnceCell<google_cloud_monitoring_v3::client::AlertPolicyService>,
@@ -267,6 +315,18 @@ impl GcpProvider {
             cloud_tasks_client: tokio::sync::OnceCell::new(),
             service_directory_client: tokio::sync::OnceCell::new(),
             eventarc_client: tokio::sync::OnceCell::new(),
+            api_keys_client: tokio::sync::OnceCell::new(),
+            alloy_db_admin_client: tokio::sync::OnceCell::new(),
+            cloud_filestore_manager_client: tokio::sync::OnceCell::new(),
+            spanner_instance_admin_client: tokio::sync::OnceCell::new(),
+            certificate_authority_service_client: tokio::sync::OnceCell::new(),
+            hub_service_client: tokio::sync::OnceCell::new(),
+            network_security_client: tokio::sync::OnceCell::new(),
+            network_services_client: tokio::sync::OnceCell::new(),
+            workstations_client_client: tokio::sync::OnceCell::new(),
+            backup_for_gke_client: tokio::sync::OnceCell::new(),
+            workflows_client: tokio::sync::OnceCell::new(),
+            org_policy_client: tokio::sync::OnceCell::new(),
             monitoring_client: tokio::sync::OnceCell::new(),
             notification_channels_client: tokio::sync::OnceCell::new(),
             uptime_checks_client: tokio::sync::OnceCell::new(),
@@ -809,6 +869,141 @@ impl GcpProvider {
             "init Eventarc"
         )
     }
+
+    // API Keys
+    pub(crate) async fn api_keys(
+        &self,
+    ) -> Result<&google_cloud_apikeys_v2::client::ApiKeys, ProviderError> {
+        gcp_client!(
+            self.api_keys_client,
+            google_cloud_apikeys_v2::client::ApiKeys::builder(),
+            "init ApiKeys"
+        )
+    }
+
+    // AlloyDB
+    pub(crate) async fn alloy_db_admin(
+        &self,
+    ) -> Result<&google_cloud_alloydb_v1::client::AlloyDBAdmin, ProviderError> {
+        gcp_client!(
+            self.alloy_db_admin_client,
+            google_cloud_alloydb_v1::client::AlloyDBAdmin::builder(),
+            "init AlloyDBAdmin"
+        )
+    }
+
+    // Filestore
+    pub(crate) async fn cloud_filestore_manager(
+        &self,
+    ) -> Result<&google_cloud_filestore_v1::client::CloudFilestoreManager, ProviderError> {
+        gcp_client!(
+            self.cloud_filestore_manager_client,
+            google_cloud_filestore_v1::client::CloudFilestoreManager::builder(),
+            "init CloudFilestoreManager"
+        )
+    }
+
+    // Spanner Instance Admin
+    pub(crate) async fn spanner_instance_admin(
+        &self,
+    ) -> Result<&google_cloud_spanner_admin_instance_v1::client::InstanceAdmin, ProviderError> {
+        gcp_client!(
+            self.spanner_instance_admin_client,
+            google_cloud_spanner_admin_instance_v1::client::InstanceAdmin::builder(),
+            "init SpannerInstanceAdmin"
+        )
+    }
+
+    // Private CA
+    pub(crate) async fn certificate_authority_service(
+        &self,
+    ) -> Result<
+        &google_cloud_security_privateca_v1::client::CertificateAuthorityService,
+        ProviderError,
+    > {
+        gcp_client!(
+            self.certificate_authority_service_client,
+            google_cloud_security_privateca_v1::client::CertificateAuthorityService::builder(),
+            "init CertificateAuthorityService"
+        )
+    }
+
+    // Network Connectivity
+    pub(crate) async fn hub_service(
+        &self,
+    ) -> Result<&google_cloud_networkconnectivity_v1::client::HubService, ProviderError> {
+        gcp_client!(
+            self.hub_service_client,
+            google_cloud_networkconnectivity_v1::client::HubService::builder(),
+            "init HubService"
+        )
+    }
+
+    // Network Security
+    pub(crate) async fn network_security(
+        &self,
+    ) -> Result<&google_cloud_networksecurity_v1::client::NetworkSecurity, ProviderError> {
+        gcp_client!(
+            self.network_security_client,
+            google_cloud_networksecurity_v1::client::NetworkSecurity::builder(),
+            "init NetworkSecurity"
+        )
+    }
+
+    // Network Services
+    pub(crate) async fn network_services(
+        &self,
+    ) -> Result<&google_cloud_networkservices_v1::client::NetworkServices, ProviderError> {
+        gcp_client!(
+            self.network_services_client,
+            google_cloud_networkservices_v1::client::NetworkServices::builder(),
+            "init NetworkServices"
+        )
+    }
+
+    // Workstations
+    pub(crate) async fn workstations_client(
+        &self,
+    ) -> Result<&google_cloud_workstations_v1::client::Workstations, ProviderError> {
+        gcp_client!(
+            self.workstations_client_client,
+            google_cloud_workstations_v1::client::Workstations::builder(),
+            "init Workstations"
+        )
+    }
+
+    // GKE Backup
+    pub(crate) async fn backup_for_gke(
+        &self,
+    ) -> Result<&google_cloud_gkebackup_v1::client::BackupForGKE, ProviderError> {
+        gcp_client!(
+            self.backup_for_gke_client,
+            google_cloud_gkebackup_v1::client::BackupForGKE::builder(),
+            "init BackupForGKE"
+        )
+    }
+
+    // Workflows
+    pub(crate) async fn workflows(
+        &self,
+    ) -> Result<&google_cloud_workflows_v1::client::Workflows, ProviderError> {
+        gcp_client!(
+            self.workflows_client,
+            google_cloud_workflows_v1::client::Workflows::builder(),
+            "init Workflows"
+        )
+    }
+
+    // Org Policy
+    pub(crate) async fn org_policy(
+        &self,
+    ) -> Result<&google_cloud_orgpolicy_v2::client::OrgPolicy, ProviderError> {
+        gcp_client!(
+            self.org_policy_client,
+            google_cloud_orgpolicy_v2::client::OrgPolicy::builder(),
+            "init OrgPolicy"
+        )
+    }
 }
 
 /// Parse a zonal provider_id like "us-central1-a/my-instance" into (zone, name).
@@ -986,6 +1181,40 @@ impl Provider for GcpProvider {
             // Eventarc (2)
             Self::eventarc_trigger_schema(),
             Self::eventarc_channel_schema(),
+            // API Keys (1)
+            Self::apikeys_key_schema(),
+            // AlloyDB (2)
+            Self::alloydb_cluster_schema(),
+            Self::alloydb_backup_schema(),
+            // Filestore (2)
+            Self::filestore_instance_schema(),
+            Self::filestore_backup_schema(),
+            // Spanner (2)
+            Self::spanner_instance_schema(),
+            Self::spanner_instanceconfig_schema(),
+            // Private CA (1)
+            Self::privateca_capool_schema(),
+            // Network Connectivity (2)
+            Self::networkconnectivity_hub_schema(),
+            Self::networkconnectivity_spoke_schema(),
+            // Network Security (3)
+            Self::networksecurity_authorizationpolicy_schema(),
+            Self::networksecurity_servertlspolicy_schema(),
+            Self::networksecurity_clienttlspolicy_schema(),
+            // Network Services (4)
+            Self::networkservices_gateway_schema(),
+            Self::networkservices_mesh_schema(),
+            Self::networkservices_httproute_schema(),
+            Self::networkservices_grpcroute_schema(),
+            // Workstations (1)
+            Self::workstations_workstationcluster_schema(),
+            // GKE Backup (2)
+            Self::gkebackup_backupplan_schema(),
+            Self::gkebackup_restoreplan_schema(),
+            // Workflows (1)
+            Self::workflows_workflow_schema(),
+            // Org Policy (1)
+            Self::orgpolicy_policy_schema(),
         ]
     }
 
@@ -1082,6 +1311,40 @@ impl Provider for GcpProvider {
                 // Eventarc
                 "eventarc.Trigger" => read_eventarc_trigger,
                 "eventarc.Channel" => read_eventarc_channel,
+                // API Keys
+                "apikeys.Key" => read_apikeys_key,
+                // AlloyDB
+                "alloydb.Cluster" => read_alloydb_cluster,
+                "alloydb.Backup" => read_alloydb_backup,
+                // Filestore
+                "filestore.Instance" => read_filestore_instance,
+                "filestore.Backup" => read_filestore_backup,
+                // Spanner
+                "spanner.Instance" => read_spanner_instance,
+                "spanner.InstanceConfig" => read_spanner_instanceconfig,
+                // Private CA
+                "privateca.CaPool" => read_privateca_capool,
+                // Network Connectivity
+                "networkconnectivity.Hub" => read_networkconnectivity_hub,
+                "networkconnectivity.Spoke" => read_networkconnectivity_spoke,
+                // Network Security
+                "networksecurity.AuthorizationPolicy" => read_networksecurity_authorizationpolicy,
+                "networksecurity.ServerTlsPolicy" => read_networksecurity_servertlspolicy,
+                "networksecurity.ClientTlsPolicy" => read_networksecurity_clienttlspolicy,
+                // Network Services
+                "networkservices.Gateway" => read_networkservices_gateway,
+                "networkservices.Mesh" => read_networkservices_mesh,
+                "networkservices.HttpRoute" => read_networkservices_httproute,
+                "networkservices.GrpcRoute" => read_networkservices_grpcroute,
+                // Workstations
+                "workstations.WorkstationCluster" => read_workstations_workstationcluster,
+                // GKE Backup
+                "gkebackup.BackupPlan" => read_gkebackup_backupplan,
+                "gkebackup.RestorePlan" => read_gkebackup_restoreplan,
+                // Workflows
+                "workflows.Workflow" => read_workflows_workflow,
+                // Org Policy
+                "orgpolicy.Policy" => read_orgpolicy_policy,
             })
         })
     }
@@ -1179,6 +1442,40 @@ impl Provider for GcpProvider {
                 // Eventarc
                 "eventarc.Trigger" => create_eventarc_trigger,
                 "eventarc.Channel" => create_eventarc_channel,
+                // API Keys
+                "apikeys.Key" => create_apikeys_key,
+                // AlloyDB
+                "alloydb.Cluster" => create_alloydb_cluster,
+                "alloydb.Backup" => create_alloydb_backup,
+                // Filestore
+                "filestore.Instance" => create_filestore_instance,
+                "filestore.Backup" => create_filestore_backup,
+                // Spanner
+                "spanner.Instance" => create_spanner_instance,
+                "spanner.InstanceConfig" => create_spanner_instanceconfig,
+                // Private CA
+                "privateca.CaPool" => create_privateca_capool,
+                // Network Connectivity
+                "networkconnectivity.Hub" => create_networkconnectivity_hub,
+                "networkconnectivity.Spoke" => create_networkconnectivity_spoke,
+                // Network Security
+                "networksecurity.AuthorizationPolicy" => create_networksecurity_authorizationpolicy,
+                "networksecurity.ServerTlsPolicy" => create_networksecurity_servertlspolicy,
+                "networksecurity.ClientTlsPolicy" => create_networksecurity_clienttlspolicy,
+                // Network Services
+                "networkservices.Gateway" => create_networkservices_gateway,
+                "networkservices.Mesh" => create_networkservices_mesh,
+                "networkservices.HttpRoute" => create_networkservices_httproute,
+                "networkservices.GrpcRoute" => create_networkservices_grpcroute,
+                // Workstations
+                "workstations.WorkstationCluster" => create_workstations_workstationcluster,
+                // GKE Backup
+                "gkebackup.BackupPlan" => create_gkebackup_backupplan,
+                "gkebackup.RestorePlan" => create_gkebackup_restoreplan,
+                // Workflows
+                "workflows.Workflow" => create_workflows_workflow,
+                // Org Policy
+                "orgpolicy.Policy" => create_orgpolicy_policy,
             })
         })
     }
@@ -1278,6 +1575,40 @@ impl Provider for GcpProvider {
                 // Eventarc
                 "eventarc.Trigger" => update_eventarc_trigger,
                 "eventarc.Channel" => update_eventarc_channel,
+                // API Keys
+                "apikeys.Key" => update_apikeys_key,
+                // AlloyDB
+                "alloydb.Cluster" => update_alloydb_cluster,
+                "alloydb.Backup" => update_alloydb_backup,
+                // Filestore
+                "filestore.Instance" => update_filestore_instance,
+                "filestore.Backup" => update_filestore_backup,
+                // Spanner
+                "spanner.Instance" => update_spanner_instance,
+                "spanner.InstanceConfig" => update_spanner_instanceconfig,
+                // Private CA
+                "privateca.CaPool" => update_privateca_capool,
+                // Network Connectivity
+                "networkconnectivity.Hub" => update_networkconnectivity_hub,
+                "networkconnectivity.Spoke" => update_networkconnectivity_spoke,
+                // Network Security
+                "networksecurity.AuthorizationPolicy" => update_networksecurity_authorizationpolicy,
+                "networksecurity.ServerTlsPolicy" => update_networksecurity_servertlspolicy,
+                "networksecurity.ClientTlsPolicy" => update_networksecurity_clienttlspolicy,
+                // Network Services
+                "networkservices.Gateway" => update_networkservices_gateway,
+                "networkservices.Mesh" => update_networkservices_mesh,
+                "networkservices.HttpRoute" => update_networkservices_httproute,
+                "networkservices.GrpcRoute" => update_networkservices_grpcroute,
+                // Workstations
+                "workstations.WorkstationCluster" => update_workstations_workstationcluster,
+                // GKE Backup
+                "gkebackup.BackupPlan" => update_gkebackup_backupplan,
+                "gkebackup.RestorePlan" => update_gkebackup_restoreplan,
+                // Workflows
+                "workflows.Workflow" => update_workflows_workflow,
+                // Org Policy
+                "orgpolicy.Policy" => update_orgpolicy_policy,
             })
         })
     }
@@ -1375,6 +1706,40 @@ impl Provider for GcpProvider {
                 // Eventarc
                 "eventarc.Trigger" => delete_eventarc_trigger,
                 "eventarc.Channel" => delete_eventarc_channel,
+                // API Keys
+                "apikeys.Key" => delete_apikeys_key,
+                // AlloyDB
+                "alloydb.Cluster" => delete_alloydb_cluster,
+                "alloydb.Backup" => delete_alloydb_backup,
+                // Filestore
+                "filestore.Instance" => delete_filestore_instance,
+                "filestore.Backup" => delete_filestore_backup,
+                // Spanner
+                "spanner.Instance" => delete_spanner_instance,
+                "spanner.InstanceConfig" => delete_spanner_instanceconfig,
+                // Private CA
+                "privateca.CaPool" => delete_privateca_capool,
+                // Network Connectivity
+                "networkconnectivity.Hub" => delete_networkconnectivity_hub,
+                "networkconnectivity.Spoke" => delete_networkconnectivity_spoke,
+                // Network Security
+                "networksecurity.AuthorizationPolicy" => delete_networksecurity_authorizationpolicy,
+                "networksecurity.ServerTlsPolicy" => delete_networksecurity_servertlspolicy,
+                "networksecurity.ClientTlsPolicy" => delete_networksecurity_clienttlspolicy,
+                // Network Services
+                "networkservices.Gateway" => delete_networkservices_gateway,
+                "networkservices.Mesh" => delete_networkservices_mesh,
+                "networkservices.HttpRoute" => delete_networkservices_httproute,
+                "networkservices.GrpcRoute" => delete_networkservices_grpcroute,
+                // Workstations
+                "workstations.WorkstationCluster" => delete_workstations_workstationcluster,
+                // GKE Backup
+                "gkebackup.BackupPlan" => delete_gkebackup_backupplan,
+                "gkebackup.RestorePlan" => delete_gkebackup_restoreplan,
+                // Workflows
+                "workflows.Workflow" => delete_workflows_workflow,
+                // Org Policy
+                "orgpolicy.Policy" => delete_orgpolicy_policy,
             })
         })
     }
@@ -1517,6 +1882,64 @@ impl Provider for GcpProvider {
                 }
                 "eventarc.Trigger" => eventarc::eventarc_trigger_forces_replacement(&change.path),
                 "eventarc.Channel" => eventarc::eventarc_channel_forces_replacement(&change.path),
+                "apikeys.Key" => apikeys::apikeys_key_forces_replacement(&change.path),
+                "alloydb.Cluster" => alloydb::alloydb_cluster_forces_replacement(&change.path),
+                "alloydb.Backup" => alloydb::alloydb_backup_forces_replacement(&change.path),
+                "filestore.Instance" => {
+                    filestore::filestore_instance_forces_replacement(&change.path)
+                }
+                "filestore.Backup" => filestore::filestore_backup_forces_replacement(&change.path),
+                "spanner.Instance" => spanner::spanner_instance_forces_replacement(&change.path),
+                "spanner.InstanceConfig" => {
+                    spanner::spanner_instanceconfig_forces_replacement(&change.path)
+                }
+                "privateca.CaPool" => privateca::privateca_capool_forces_replacement(&change.path),
+                "networkconnectivity.Hub" => {
+                    networkconnectivity::networkconnectivity_hub_forces_replacement(&change.path)
+                }
+                "networkconnectivity.Spoke" => {
+                    networkconnectivity::networkconnectivity_spoke_forces_replacement(&change.path)
+                }
+                "networksecurity.AuthorizationPolicy" => {
+                    networksecurity::networksecurity_authorizationpolicy_forces_replacement(
+                        &change.path,
+                    )
+                }
+                "networksecurity.ServerTlsPolicy" => {
+                    networksecurity::networksecurity_servertlspolicy_forces_replacement(
+                        &change.path,
+                    )
+                }
+                "networksecurity.ClientTlsPolicy" => {
+                    networksecurity::networksecurity_clienttlspolicy_forces_replacement(
+                        &change.path,
+                    )
+                }
+                "networkservices.Gateway" => {
+                    networkservices::networkservices_gateway_forces_replacement(&change.path)
+                }
+                "networkservices.Mesh" => {
+                    networkservices::networkservices_mesh_forces_replacement(&change.path)
+                }
+                "networkservices.HttpRoute" => {
+                    networkservices::networkservices_httproute_forces_replacement(&change.path)
+                }
+                "networkservices.GrpcRoute" => {
+                    networkservices::networkservices_grpcroute_forces_replacement(&change.path)
+                }
+                "workstations.WorkstationCluster" => {
+                    workstations::workstations_workstationcluster_forces_replacement(&change.path)
+                }
+                "gkebackup.BackupPlan" => {
+                    gkebackup::gkebackup_backupplan_forces_replacement(&change.path)
+                }
+                "gkebackup.RestorePlan" => {
+                    gkebackup::gkebackup_restoreplan_forces_replacement(&change.path)
+                }
+                "workflows.Workflow" => {
+                    workflows::workflows_workflow_forces_replacement(&change.path)
+                }
+                "orgpolicy.Policy" => orgpolicy::orgpolicy_policy_forces_replacement(&change.path),
                 _ => false,
             };
         }
@@ -1587,6 +2010,18 @@ mod tests {
             cloud_tasks_client: tokio::sync::OnceCell::new(),
             service_directory_client: tokio::sync::OnceCell::new(),
             eventarc_client: tokio::sync::OnceCell::new(),
+            api_keys_client: tokio::sync::OnceCell::new(),
+            alloy_db_admin_client: tokio::sync::OnceCell::new(),
+            cloud_filestore_manager_client: tokio::sync::OnceCell::new(),
+            spanner_instance_admin_client: tokio::sync::OnceCell::new(),
+            certificate_authority_service_client: tokio::sync::OnceCell::new(),
+            hub_service_client: tokio::sync::OnceCell::new(),
+            network_security_client: tokio::sync::OnceCell::new(),
+            network_services_client: tokio::sync::OnceCell::new(),
+            workstations_client_client: tokio::sync::OnceCell::new(),
+            backup_for_gke_client: tokio::sync::OnceCell::new(),
+            workflows_client: tokio::sync::OnceCell::new(),
+            org_policy_client: tokio::sync::OnceCell::new(),
             monitoring_client: tokio::sync::OnceCell::new(),
             notification_channels_client: tokio::sync::OnceCell::new(),
             uptime_checks_client: tokio::sync::OnceCell::new(),
@@ -1597,7 +2032,7 @@ mod tests {
         // + 1 artifact registry + 3 certificate manager + 1 memorystore
         // + 1 scheduler + 1 tasks + 1 service directory + 2 eventarc = 62
         let schemas = provider.resource_types();
-        assert_eq!(schemas.len(), 62);
+        assert_eq!(schemas.len(), 84);
     }
 
     #[test]

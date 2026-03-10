@@ -844,6 +844,406 @@ crud_update = "update_channel"
 crud_delete = "delete_channel"
 lro = true
 
+# ─── API Keys ───────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Key"
+sdk_crate = "google-cloud-apikeys-v2"
+sdk_client = "ApiKeys"
+client_accessor = "api_keys"
+type_path = "apikeys.Key"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}/locations/global"
+resource_id_setter = "set_key_id"
+resource_body_setter = "set_key"
+crud_create = "create_key"
+crud_read = "get_key"
+crud_update = "update_key"
+crud_delete = "delete_key"
+lro = true
+
+# ─── AlloyDB ───────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Cluster"
+sdk_crate = "google-cloud-alloydb-v1"
+sdk_client = "AlloyDBAdmin"
+client_accessor = "alloy_db_admin"
+type_path = "alloydb.Cluster"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_cluster_id"
+resource_body_setter = "set_cluster"
+crud_create = "create_cluster"
+crud_read = "get_cluster"
+crud_update = "update_cluster"
+crud_delete = "delete_cluster"
+lro = true
+
+[[resource]]
+struct_name = "Backup"
+sdk_crate = "google-cloud-alloydb-v1"
+sdk_client = "AlloyDBAdmin"
+client_accessor = "alloy_db_admin"
+type_path = "alloydb.Backup"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_backup_id"
+resource_body_setter = "set_backup"
+crud_create = "create_backup"
+crud_read = "get_backup"
+crud_update = "update_backup"
+crud_delete = "delete_backup"
+lro = true
+
+# ─── Cloud Filestore ───────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Instance"
+sdk_crate = "google-cloud-filestore-v1"
+sdk_client = "CloudFilestoreManager"
+client_accessor = "cloud_filestore_manager"
+type_path = "filestore.Instance"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_instance_id"
+resource_body_setter = "set_instance"
+crud_create = "create_instance"
+crud_read = "get_instance"
+crud_update = "update_instance"
+crud_delete = "delete_instance"
+lro = true
+
+[[resource]]
+struct_name = "Backup"
+sdk_crate = "google-cloud-filestore-v1"
+sdk_client = "CloudFilestoreManager"
+client_accessor = "cloud_filestore_manager"
+type_path = "filestore.Backup"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_backup_id"
+resource_body_setter = "set_backup"
+crud_create = "create_backup"
+crud_read = "get_backup"
+crud_update = "update_backup"
+crud_delete = "delete_backup"
+lro = true
+
+# ─── Cloud Spanner ─────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Instance"
+sdk_crate = "google-cloud-spanner-admin-instance-v1"
+sdk_client = "InstanceAdmin"
+client_accessor = "spanner_instance_admin"
+type_path = "spanner.Instance"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+resource_id_setter = "set_instance_id"
+resource_body_setter = "set_instance"
+crud_create = "create_instance"
+crud_read = "get_instance"
+crud_update = "update_instance"
+crud_delete = "delete_instance"
+lro_create = true
+lro_update = true
+lro_delete = false
+
+[[resource]]
+struct_name = "InstanceConfig"
+sdk_crate = "google-cloud-spanner-admin-instance-v1"
+sdk_client = "InstanceAdmin"
+client_accessor = "spanner_instance_admin"
+type_path = "spanner.InstanceConfig"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+resource_id_setter = "set_instance_config_id"
+resource_body_setter = "set_instance_config"
+crud_create = "create_instance_config"
+crud_read = "get_instance_config"
+crud_update = "update_instance_config"
+crud_delete = "delete_instance_config"
+lro_create = true
+lro_update = true
+lro_delete = false
+
+# ─── Private CA ────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "CaPool"
+sdk_crate = "google-cloud-security-privateca-v1"
+sdk_client = "CertificateAuthorityService"
+client_accessor = "certificate_authority_service"
+type_path = "privateca.CaPool"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_ca_pool_id"
+resource_body_setter = "set_ca_pool"
+crud_create = "create_ca_pool"
+crud_read = "get_ca_pool"
+crud_update = "update_ca_pool"
+crud_delete = "delete_ca_pool"
+lro = true
+
+# ─── Network Connectivity ──────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Hub"
+sdk_crate = "google-cloud-networkconnectivity-v1"
+sdk_client = "HubService"
+client_accessor = "hub_service"
+type_path = "networkconnectivity.Hub"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}/locations/global"
+resource_id_setter = "set_hub_id"
+resource_body_setter = "set_hub"
+crud_create = "create_hub"
+crud_read = "get_hub"
+crud_update = "update_hub"
+crud_delete = "delete_hub"
+lro = true
+
+[[resource]]
+struct_name = "Spoke"
+sdk_crate = "google-cloud-networkconnectivity-v1"
+sdk_client = "HubService"
+client_accessor = "hub_service"
+type_path = "networkconnectivity.Spoke"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_spoke_id"
+resource_body_setter = "set_spoke"
+crud_create = "create_spoke"
+crud_read = "get_spoke"
+crud_update = "update_spoke"
+crud_delete = "delete_spoke"
+lro = true
+
+# ─── Network Security ──────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "AuthorizationPolicy"
+sdk_crate = "google-cloud-networksecurity-v1"
+sdk_client = "NetworkSecurity"
+client_accessor = "network_security"
+type_path = "networksecurity.AuthorizationPolicy"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_authorization_policy_id"
+resource_body_setter = "set_authorization_policy"
+crud_create = "create_authorization_policy"
+crud_read = "get_authorization_policy"
+crud_update = "update_authorization_policy"
+crud_delete = "delete_authorization_policy"
+lro = true
+
+[[resource]]
+struct_name = "ServerTlsPolicy"
+sdk_crate = "google-cloud-networksecurity-v1"
+sdk_client = "NetworkSecurity"
+client_accessor = "network_security"
+type_path = "networksecurity.ServerTlsPolicy"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_server_tls_policy_id"
+resource_body_setter = "set_server_tls_policy"
+crud_create = "create_server_tls_policy"
+crud_read = "get_server_tls_policy"
+crud_update = "update_server_tls_policy"
+crud_delete = "delete_server_tls_policy"
+lro = true
+
+[[resource]]
+struct_name = "ClientTlsPolicy"
+sdk_crate = "google-cloud-networksecurity-v1"
+sdk_client = "NetworkSecurity"
+client_accessor = "network_security"
+type_path = "networksecurity.ClientTlsPolicy"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_client_tls_policy_id"
+resource_body_setter = "set_client_tls_policy"
+crud_create = "create_client_tls_policy"
+crud_read = "get_client_tls_policy"
+crud_update = "update_client_tls_policy"
+crud_delete = "delete_client_tls_policy"
+lro = true
+
+# ─── Network Services ──────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Gateway"
+sdk_crate = "google-cloud-networkservices-v1"
+sdk_client = "NetworkServices"
+client_accessor = "network_services"
+type_path = "networkservices.Gateway"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_gateway_id"
+resource_body_setter = "set_gateway"
+crud_create = "create_gateway"
+crud_read = "get_gateway"
+crud_update = "update_gateway"
+crud_delete = "delete_gateway"
+lro = true
+
+[[resource]]
+struct_name = "Mesh"
+sdk_crate = "google-cloud-networkservices-v1"
+sdk_client = "NetworkServices"
+client_accessor = "network_services"
+type_path = "networkservices.Mesh"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}/locations/global"
+resource_id_setter = "set_mesh_id"
+resource_body_setter = "set_mesh"
+crud_create = "create_mesh"
+crud_read = "get_mesh"
+crud_update = "update_mesh"
+crud_delete = "delete_mesh"
+lro = true
+
+[[resource]]
+struct_name = "HttpRoute"
+sdk_crate = "google-cloud-networkservices-v1"
+sdk_client = "NetworkServices"
+client_accessor = "network_services"
+type_path = "networkservices.HttpRoute"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}/locations/global"
+resource_id_setter = "set_http_route_id"
+resource_body_setter = "set_http_route"
+crud_create = "create_http_route"
+crud_read = "get_http_route"
+crud_update = "update_http_route"
+crud_delete = "delete_http_route"
+lro = true
+
+[[resource]]
+struct_name = "GrpcRoute"
+sdk_crate = "google-cloud-networkservices-v1"
+sdk_client = "NetworkServices"
+client_accessor = "network_services"
+type_path = "networkservices.GrpcRoute"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}/locations/global"
+resource_id_setter = "set_grpc_route_id"
+resource_body_setter = "set_grpc_route"
+crud_create = "create_grpc_route"
+crud_read = "get_grpc_route"
+crud_update = "update_grpc_route"
+crud_delete = "delete_grpc_route"
+lro = true
+
+# ─── Cloud Workstations ────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "WorkstationCluster"
+sdk_crate = "google-cloud-workstations-v1"
+sdk_client = "Workstations"
+client_accessor = "workstations_client"
+type_path = "workstations.WorkstationCluster"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_workstation_cluster_id"
+resource_body_setter = "set_workstation_cluster"
+crud_create = "create_workstation_cluster"
+crud_read = "get_workstation_cluster"
+crud_update = "update_workstation_cluster"
+crud_delete = "delete_workstation_cluster"
+lro = true
+
+# ─── GKE Backup ────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "BackupPlan"
+sdk_crate = "google-cloud-gkebackup-v1"
+sdk_client = "BackupForGKE"
+client_accessor = "backup_for_gke"
+type_path = "gkebackup.BackupPlan"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_backup_plan_id"
+resource_body_setter = "set_backup_plan"
+crud_create = "create_backup_plan"
+crud_read = "get_backup_plan"
+crud_update = "update_backup_plan"
+crud_delete = "delete_backup_plan"
+lro = true
+
+[[resource]]
+struct_name = "RestorePlan"
+sdk_crate = "google-cloud-gkebackup-v1"
+sdk_client = "BackupForGKE"
+client_accessor = "backup_for_gke"
+type_path = "gkebackup.RestorePlan"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_restore_plan_id"
+resource_body_setter = "set_restore_plan"
+crud_create = "create_restore_plan"
+crud_read = "get_restore_plan"
+crud_update = "update_restore_plan"
+crud_delete = "delete_restore_plan"
+lro = true
+
+# ─── Cloud Workflows ───────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Workflow"
+sdk_crate = "google-cloud-workflows-v1"
+sdk_client = "Workflows"
+client_accessor = "workflows"
+type_path = "workflows.Workflow"
+api_style = "resource_name"
+scope = "regional"
+parent_format = "projects/{project}/locations/{location}"
+resource_id_setter = "set_workflow_id"
+resource_body_setter = "set_workflow"
+crud_create = "create_workflow"
+crud_read = "get_workflow"
+crud_update = "update_workflow"
+crud_delete = "delete_workflow"
+lro = true
+
+# ─── Org Policy ────────────────────────────────────────────────────────────
+
+[[resource]]
+struct_name = "Policy"
+sdk_crate = "google-cloud-orgpolicy-v2"
+sdk_client = "OrgPolicy"
+client_accessor = "org_policy"
+type_path = "orgpolicy.Policy"
+api_style = "resource_name"
+scope = "global"
+parent_format = "projects/{project}"
+resource_body_setter = "set_policy"
+crud_create = "create_policy"
+crud_read = "get_policy"
+crud_update = "update_policy"
+crud_delete = "delete_policy"
+
 # ─── Skipped resources (require non-standard patterns) ──────────────────────
 # - FirewallPolicy — org-level, no set_project (different scope model)
 # - Container NodePool — parent includes cluster name from config
@@ -851,3 +1251,11 @@ lro = true
 # - SecretVersion — uses add_secret_version, non-standard lifecycle
 # - Service Directory Service/Endpoint — nested parent requires namespace ref
 # - Cloud Build BuildTrigger — non-standard project_id/trigger_id API
+# - VPC Access Connector — no update method
+# - AlloyDB Instance — nested parent (cluster)
+# - Spanner Database — non-standard create (DDL), delete is drop_database
+# - Private CA CertificateAuthority/Certificate — nested parent, no delete
+# - Workstation/WorkstationConfig — nested parent hierarchy
+# - Domains Registration — non-standard create (register_domain)
+# - Dataproc Cluster/Job — flat params (set_project_id+set_region), not resource_name
+# - ResourceManager Folder/Project/TagKey/TagValue — parent embedded in body, not set_parent

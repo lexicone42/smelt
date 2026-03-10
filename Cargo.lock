@@ -2042,6 +2042,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 
 [[package]]
+name = "google-cloud-alloydb-v1"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e75967f160954bdeabf74a125bb31a0f9898b8026c6f813f74ee9579d114969"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-location",
+ "google-cloud-longrunning",
+ "google-cloud-lro",
+ "google-cloud-rpc",
+ "google-cloud-type",
+ "google-cloud-wkt",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tracing",
+]
+
+[[package]]
 name = "google-cloud-api"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2052,6 +2075,26 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
+]
+
+[[package]]
+name = "google-cloud-apikeys-v2"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af6d8a81d5210dfc6f79662171def4285c82f3cdbe3face93e0de2a09e6a96ba"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-longrunning",
+ "google-cloud-lro",
+ "google-cloud-wkt",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tracing",
 ]
 
 [[package]]
@@ -2145,6 +2188,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "google-cloud-common"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4726fb942ed1550dedc2dfe7b37a25b8e6996ac7cd68d40ecd43174e2f2b3744"
+dependencies = [
+ "bytes",
+ "google-cloud-wkt",
+ "serde",
+ "serde_json",
+ "serde_with",
+]
+
+[[package]]
 name = "google-cloud-compute-v1"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2184,6 +2240,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "google-cloud-dataproc-v1"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e16f5b17b74579d6f0698981f05c61a39a869be80d96de72f7aa1dd104d841e"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-iam-v1",
+ "google-cloud-longrunning",
+ "google-cloud-lro",
+ "google-cloud-type",
+ "google-cloud-wkt",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tracing",
+]
+
+[[package]]
 name = "google-cloud-dns-v1"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2194,6 +2272,27 @@ dependencies = [
  "google-cloud-gax",
  "google-cloud-gax-internal",
  "google-cloud-lro",
+ "google-cloud-wkt",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tracing",
+]
+
+[[package]]
+name = "google-cloud-domains-v1"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "381fb727a45d9e40218fe32db7f01eac828c19308213b550b757d64cbfb3350d"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-longrunning",
+ "google-cloud-lro",
+ "google-cloud-type",
  "google-cloud-wkt",
  "lazy_static",
  "serde",
@@ -2217,6 +2316,28 @@ dependencies = [
  "google-cloud-longrunning",
  "google-cloud-lro",
  "google-cloud-rpc",
+ "google-cloud-wkt",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tracing",
+]
+
+[[package]]
+name = "google-cloud-filestore-v1"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3043fa85b02046d17517fb386e159cca549564acde728a10b6d6ac8e3175d76e"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "google-cloud-common",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-location",
+ "google-cloud-longrunning",
+ "google-cloud-lro",
  "google-cloud-wkt",
  "lazy_static",
  "serde",
@@ -2299,6 +2420,29 @@ dependencies = [
  "tonic",
  "tonic-prost",
  "tower",
+ "tracing",
+]
+
+[[package]]
+name = "google-cloud-gkebackup-v1"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e240df49557b3cd398fe0204f214f9f908011f25a50395d7b860e6a4e17dd295"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-iam-v1",
+ "google-cloud-location",
+ "google-cloud-longrunning",
+ "google-cloud-lro",
+ "google-cloud-type",
+ "google-cloud-wkt",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_with",
  "tracing",
 ]
 
@@ -2494,6 +2638,92 @@ dependencies = [
 ]
 
 [[package]]
+name = "google-cloud-networkconnectivity-v1"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1854fbce4f032b9f66e94f6c7dd55813a460aa96f0a58cb444e9b5d1c90c5baf"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-iam-v1",
+ "google-cloud-location",
+ "google-cloud-longrunning",
+ "google-cloud-lro",
+ "google-cloud-rpc",
+ "google-cloud-wkt",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tracing",
+]
+
+[[package]]
+name = "google-cloud-networksecurity-v1"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "091b98be3debcb2cdb638ca344e298464f2d9583e1008dd87f70d2171eeca406"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-iam-v1",
+ "google-cloud-location",
+ "google-cloud-longrunning",
+ "google-cloud-lro",
+ "google-cloud-wkt",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tracing",
+]
+
+[[package]]
+name = "google-cloud-networkservices-v1"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c776f9410324e0f35403bc0393ff3b3d79926c05e94292560bb548da20b7622"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-iam-v1",
+ "google-cloud-location",
+ "google-cloud-longrunning",
+ "google-cloud-lro",
+ "google-cloud-wkt",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tracing",
+]
+
+[[package]]
+name = "google-cloud-orgpolicy-v2"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a42da8c9ab872ff953e8dda0302eb19a9cf31e50decec38ee883902ac6237aed"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-type",
+ "google-cloud-wkt",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tracing",
+]
+
+[[package]]
 name = "google-cloud-pubsub"
 version = "0.32.3-preview"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2520,6 +2750,27 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "google-cloud-resourcemanager-v3"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc045dd316f4f5ac71338f1d13ba539c752386bd1ac9bedebb78d34b14e862fd"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-iam-v1",
+ "google-cloud-longrunning",
+ "google-cloud-lro",
+ "google-cloud-wkt",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tracing",
 ]
 
 [[package]]
@@ -2599,6 +2850,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "google-cloud-security-privateca-v1"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2ac771ce64c7a5a5106d9552c65c97bfcb7542813b991c48d0a998fe8d535be"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-iam-v1",
+ "google-cloud-location",
+ "google-cloud-longrunning",
+ "google-cloud-lro",
+ "google-cloud-type",
+ "google-cloud-wkt",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tracing",
+]
+
+[[package]]
 name = "google-cloud-servicedirectory-v1"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2610,6 +2884,49 @@ dependencies = [
  "google-cloud-gax-internal",
  "google-cloud-iam-v1",
  "google-cloud-location",
+ "google-cloud-wkt",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tracing",
+]
+
+[[package]]
+name = "google-cloud-spanner-admin-database-v1"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b526861ea1a2f22922139398ce4937cf4270cfde3760b8b36eeaa59f158c33f1"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-iam-v1",
+ "google-cloud-longrunning",
+ "google-cloud-lro",
+ "google-cloud-rpc",
+ "google-cloud-wkt",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tracing",
+]
+
+[[package]]
+name = "google-cloud-spanner-admin-instance-v1"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d1aaeffa90f834b9013694f56315803b07b0f288358c7e3ec057e2761ede11f"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-iam-v1",
+ "google-cloud-longrunning",
+ "google-cloud-lro",
  "google-cloud-wkt",
  "lazy_static",
  "serde",
@@ -2716,6 +3033,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "google-cloud-vpcaccess-v1"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ddb045c6e616df7db523e20dc04ff11f1469933103b1e51491623d1232b94a02"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-location",
+ "google-cloud-longrunning",
+ "google-cloud-lro",
+ "google-cloud-wkt",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tracing",
+]
+
+[[package]]
 name = "google-cloud-wkt"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2729,6 +3067,49 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "url",
+]
+
+[[package]]
+name = "google-cloud-workflows-v1"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7419f4d4b248ca3f6fcb02f5eced5b1b2e57a39a153d31c8575b67f4f9db5ca0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-location",
+ "google-cloud-longrunning",
+ "google-cloud-lro",
+ "google-cloud-wkt",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tracing",
+]
+
+[[package]]
+name = "google-cloud-workstations-v1"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90a8ddfa073de63ee618ee00d571ed65d86435f3e375505acca6a5c4e8f30d45"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-iam-v1",
+ "google-cloud-longrunning",
+ "google-cloud-lro",
+ "google-cloud-rpc",
+ "google-cloud-wkt",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tracing",
 ]
 
 [[package]]
@@ -4408,16 +4789,22 @@ dependencies = [
  "chumsky",
  "clap",
  "futures",
+ "google-cloud-alloydb-v1",
  "google-cloud-api",
+ "google-cloud-apikeys-v2",
  "google-cloud-artifactregistry-v1",
  "google-cloud-auth",
  "google-cloud-build-v1",
  "google-cloud-certificatemanager-v1",
  "google-cloud-compute-v1",
  "google-cloud-container-v1",
+ "google-cloud-dataproc-v1",
  "google-cloud-dns-v1",
+ "google-cloud-domains-v1",
  "google-cloud-eventarc-v1",
+ "google-cloud-filestore-v1",
  "google-cloud-functions-v2",
+ "google-cloud-gkebackup-v1",
  "google-cloud-iam-admin-v1",
  "google-cloud-iam-v1",
  "google-cloud-kms-v1",
@@ -4426,16 +4813,27 @@ dependencies = [
  "google-cloud-lro",
  "google-cloud-memorystore-v1",
  "google-cloud-monitoring-v3",
+ "google-cloud-networkconnectivity-v1",
+ "google-cloud-networksecurity-v1",
+ "google-cloud-networkservices-v1",
+ "google-cloud-orgpolicy-v2",
  "google-cloud-pubsub",
+ "google-cloud-resourcemanager-v3",
  "google-cloud-rpc",
  "google-cloud-run-v2",
  "google-cloud-scheduler-v1",
  "google-cloud-secretmanager-v1",
+ "google-cloud-security-privateca-v1",
  "google-cloud-servicedirectory-v1",
+ "google-cloud-spanner-admin-database-v1",
+ "google-cloud-spanner-admin-instance-v1",
  "google-cloud-sql-v1",
  "google-cloud-storage",
  "google-cloud-tasks-v2",
+ "google-cloud-vpcaccess-v1",
  "google-cloud-wkt",
+ "google-cloud-workflows-v1",
+ "google-cloud-workstations-v1",
  "miette",
  "petgraph",
  "proptest",
