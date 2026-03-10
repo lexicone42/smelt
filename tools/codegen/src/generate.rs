@@ -733,7 +733,7 @@ fn field_type_expr(type_str: &str, variants: &[String]) -> String {
             )
         }
         "Record" => "crate::provider::FieldType::Record(vec![])".into(),
-        s if s.starts_with("Nested(") => "crate::provider::FieldType::Record(vec![])".into(),
+        s if s.starts_with("Oneof(") | s.starts_with("Nested(") => "crate::provider::FieldType::Record(vec![])".into(),
         "Duration" | "Timestamp" | "Bytes" => "crate::provider::FieldType::String".into(),
         _ => format!("crate::provider::FieldType::String /* {type_str} */"),
     }
@@ -857,6 +857,10 @@ fn write_field_extraction(out: &mut String, name: &str, field: &FieldDef, sdk_cr
                 );
             }
         }
+        s if s.starts_with("Oneof(") => {
+            // Oneof fields: extraction is done inline in write_model_setter
+            // Nothing to extract here
+        }
         _ => {
             // Nested, Array, Record, Duration, Timestamp — deserialize from config JSON
             if let Some(ref type_path) = field.sdk_type_path {
@@ -937,6 +941,14 @@ fn write_model_setter(out: &mut String, name: &str, setter: &str, field: &FieldD
                 let _ = writeln!(out, "    // TODO: set {name} on model via .{setter}() — enum type path unknown");
             }
         }
+        s if s.starts_with("Oneof(") => {
+            // Proto oneof: check each variant's config path and call the variant-specific setter
+            if field.oneof_variants.is_empty() {
+                let _ = writeln!(out, "    // TODO: set {name} on model via .{setter}() — no oneof variants parsed");
+                return;
+            }
+            write_oneof_setters(out, name, &field.oneof_variants, sdk_crate_mod);
+        }
         _ => {
             // Nested, Array, Record, Duration, Timestamp — already extracted as Option<T>
             if field.sdk_type_path.is_some() {
@@ -947,6 +959,84 @@ fn write_model_setter(out: &mut String, name: &str, setter: &str, field: &FieldD
                 let _ = writeln!(out, "    // TODO: set {name} on model via .{setter}() — type path unknown");
             }
         }
+    }
+}
+
+/// Generate combined extraction+setter code for each oneof variant.
+///
+/// For a field "expiration" with variants [ExpireTime(Timestamp), Ttl(Duration)]:
+/// ```ignore
+/// if let Some(v) = config.optional_str("/config/expire_time") {
+///     model = model.set_expire_time(google_cloud_wkt::Timestamp::try_from(v)
+///         .map_err(|e| ProviderError::InvalidConfig(format!("expire_time: {e}")))?);
+/// } else if let Some(v) = config.optional_str("/config/ttl") {
+///     model = model.set_ttl(google_cloud_wkt::Duration::try_from(v)
+///         .map_err(|e| ProviderError::InvalidConfig(format!("ttl: {e}")))?);
+/// }
+/// ```
+fn write_oneof_setters(
+    out: &mut String,
+    _field_name: &str,
+    variants: &[crate::introspect::OneofVariant],
+    sdk_crate_mod: &str,
+) {
+    use crate::introspect::OneofInnerType;
+
+    let mut first = true;
+    for variant in variants {
+        let setter = &variant.setter;
+        let var_snake = &variant.setter[4..]; // strip "set_" prefix for config path
+
+        let if_keyword = if first { "if" } else { "} else if" };
+
+        match &variant.inner_type {
+            OneofInnerType::String => {
+                first = false;
+                let _ = writeln!(out, "    {if_keyword} let Some(v) = config.optional_str(\"/config/{var_snake}\") {{");
+                let _ = writeln!(out, "        model = model.{setter}(v);");
+            }
+            OneofInnerType::Timestamp => {
+                first = false;
+                let _ = writeln!(out, "    {if_keyword} let Some(v) = config.optional_str(\"/config/{var_snake}\") {{");
+                let _ = writeln!(out, "        model = model.{setter}(google_cloud_wkt::Timestamp::try_from(v)");
+                let _ = writeln!(out, "            .map_err(|e| ProviderError::InvalidConfig(format!(\"{var_snake}: {{e}}\")))?);");
+            }
+            OneofInnerType::Duration => {
+                first = false;
+                let _ = writeln!(out, "    {if_keyword} let Some(v) = config.optional_str(\"/config/{var_snake}\") {{");
+                let _ = writeln!(out, "        model = model.{setter}(google_cloud_wkt::Duration::try_from(v)");
+                let _ = writeln!(out, "            .map_err(|e| ProviderError::InvalidConfig(format!(\"{var_snake}: {{e}}\")))?);");
+            }
+            OneofInnerType::Integer(int_type) => {
+                first = false;
+                let _ = writeln!(out, "    {if_keyword} let Some(v) = config.pointer(\"/config/{var_snake}\").and_then(|v| v.as_i64()) {{");
+                let _ = writeln!(out, "        model = model.{setter}(v as {int_type});");
+            }
+            OneofInnerType::Float => {
+                first = false;
+                let _ = writeln!(out, "    {if_keyword} let Some(v) = config.pointer(\"/config/{var_snake}\").and_then(|v| v.as_f64()) {{");
+                let _ = writeln!(out, "        model = model.{setter}(v as f32);");
+            }
+            OneofInnerType::Bool => {
+                first = false;
+                let _ = writeln!(out, "    {if_keyword} let Some(v) = config.pointer(\"/config/{var_snake}\").and_then(|v| v.as_bool()) {{");
+                let _ = writeln!(out, "        model = model.{setter}(v);");
+            }
+            OneofInnerType::SameCrateStruct(type_path) | OneofInnerType::CrossCrateStruct(type_path) => {
+                first = false;
+                // Both same-crate and cross-crate structs have custom serde in GCP SDKs.
+                // Replace crate:: with the sdk crate module path.
+                let full_path = type_path.replace("crate::", &format!("{sdk_crate_mod}::"));
+                let _ = writeln!(out, "    {if_keyword} let Some(v) = config.pointer(\"/config/{var_snake}\") {{");
+                let _ = writeln!(out, "        let parsed: {full_path} = serde_json::from_value(v.clone())");
+                let _ = writeln!(out, "            .map_err(|e| ProviderError::InvalidConfig(format!(\"{var_snake}: {{e}}\")))?;");
+                let _ = writeln!(out, "        model = model.{setter}(parsed);");
+            }
+        }
+    }
+
+    if !first {
+        let _ = writeln!(out, "    }}");
     }
 }
 

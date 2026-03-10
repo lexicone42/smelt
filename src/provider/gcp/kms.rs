@@ -224,7 +224,6 @@ impl GcpProvider {
             .pointer("/config/next_rotation_time")
             .and_then(|v| serde_json::from_value::<google_cloud_wkt::Timestamp>(v.clone()).ok());
         let purpose = config.optional_str("/config/purpose").map(String::from);
-        // TODO: extract rotation_schedule (Nested(RotationSchedule)) from config["/config/rotation_schedule"] — type path unknown
         let version_template = config.pointer("/config/version_template").and_then(|v| {
             serde_json::from_value::<google_cloud_kms_v1::model::CryptoKeyVersionTemplate>(
                 v.clone(),
@@ -253,7 +252,12 @@ impl GcpProvider {
                 google_cloud_kms_v1::model::crypto_key::CryptoKeyPurpose::from(s.as_str()),
             );
         }
-        // TODO: set rotation_schedule on model via .set_rotation_schedule() — type path unknown
+        if let Some(v) = config.optional_str("/config/rotation_period") {
+            model = model.set_rotation_period(
+                google_cloud_wkt::Duration::try_from(v)
+                    .map_err(|e| ProviderError::InvalidConfig(format!("rotation_period: {e}")))?,
+            );
+        }
         if let Some(v) = version_template {
             model = model.set_version_template(v);
         }
@@ -351,7 +355,6 @@ impl GcpProvider {
             .pointer("/config/next_rotation_time")
             .and_then(|v| serde_json::from_value::<google_cloud_wkt::Timestamp>(v.clone()).ok());
         let purpose = config.optional_str("/config/purpose").map(String::from);
-        // TODO: extract rotation_schedule (Nested(RotationSchedule)) from config["/config/rotation_schedule"] — type path unknown
         let version_template = config.pointer("/config/version_template").and_then(|v| {
             serde_json::from_value::<google_cloud_kms_v1::model::CryptoKeyVersionTemplate>(
                 v.clone(),
@@ -379,7 +382,12 @@ impl GcpProvider {
                 google_cloud_kms_v1::model::crypto_key::CryptoKeyPurpose::from(s.as_str()),
             );
         }
-        // TODO: set rotation_schedule on model via .set_rotation_schedule() — type path unknown
+        if let Some(v) = config.optional_str("/config/rotation_period") {
+            model = model.set_rotation_period(
+                google_cloud_wkt::Duration::try_from(v)
+                    .map_err(|e| ProviderError::InvalidConfig(format!("rotation_period: {e}")))?,
+            );
+        }
         if let Some(v) = version_template {
             model = model.set_version_template(v);
         }

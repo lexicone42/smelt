@@ -864,7 +864,6 @@ impl GcpProvider {
         // Extract fields from config
         let charset = config.optional_str("/config/charset").map(String::from);
         let collation = config.optional_str("/config/collation").map(String::from);
-        // TODO: extract database_details (Nested(DatabaseDetails)) from config["/config/database_details"] — type path unknown
         let instance = config.optional_str("/config/instance").map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
         let project = config.optional_str("/config/project").map(String::from);
@@ -877,7 +876,13 @@ impl GcpProvider {
         if let Some(v) = collation {
             model = model.set_collation(v);
         }
-        // TODO: set database_details on model via .set_database_details() — type path unknown
+        if let Some(v) = config.pointer("/config/sqlserver_database_details") {
+            let parsed: google_cloud_sql_v1::model::SqlServerDatabaseDetails =
+                serde_json::from_value(v.clone()).map_err(|e| {
+                    ProviderError::InvalidConfig(format!("sqlserver_database_details: {e}"))
+                })?;
+            model = model.set_sqlserver_database_details(parsed);
+        }
         if let Some(v) = instance {
             model = model.set_instance(v);
         }
@@ -947,7 +952,6 @@ impl GcpProvider {
         // Extract fields from config
         let charset = config.optional_str("/config/charset").map(String::from);
         let collation = config.optional_str("/config/collation").map(String::from);
-        // TODO: extract database_details (Nested(DatabaseDetails)) from config["/config/database_details"] — type path unknown
         let instance = config.optional_str("/config/instance").map(String::from);
         let project = config.optional_str("/config/project").map(String::from);
 
@@ -958,7 +962,13 @@ impl GcpProvider {
         if let Some(v) = collation {
             model = model.set_collation(v);
         }
-        // TODO: set database_details on model via .set_database_details() — type path unknown
+        if let Some(v) = config.pointer("/config/sqlserver_database_details") {
+            let parsed: google_cloud_sql_v1::model::SqlServerDatabaseDetails =
+                serde_json::from_value(v.clone()).map_err(|e| {
+                    ProviderError::InvalidConfig(format!("sqlserver_database_details: {e}"))
+                })?;
+            model = model.set_sqlserver_database_details(parsed);
+        }
         if let Some(v) = instance {
             model = model.set_instance(v);
         }
@@ -1133,7 +1143,6 @@ impl GcpProvider {
             .ok()
         });
         let project = config.optional_str("/config/project").map(String::from);
-        // TODO: extract user_details (Nested(UserDetails)) from config["/config/user_details"] — type path unknown
 
         // Build SDK model
         let mut model = google_cloud_sql_v1::model::User::default();
@@ -1169,7 +1178,13 @@ impl GcpProvider {
         if let Some(v) = project {
             model = model.set_project(v);
         }
-        // TODO: set user_details on model via .set_user_details() — type path unknown
+        if let Some(v) = config.pointer("/config/sqlserver_user_details") {
+            let parsed: google_cloud_sql_v1::model::SqlServerUserDetails =
+                serde_json::from_value(v.clone()).map_err(|e| {
+                    ProviderError::InvalidConfig(format!("sqlserver_user_details: {e}"))
+                })?;
+            model = model.set_sqlserver_user_details(parsed);
+        }
 
         // Make API call
         self.sql_users()
@@ -1255,7 +1270,6 @@ impl GcpProvider {
             .ok()
         });
         let project = config.optional_str("/config/project").map(String::from);
-        // TODO: extract user_details (Nested(UserDetails)) from config["/config/user_details"] — type path unknown
 
         let mut model = google_cloud_sql_v1::model::User::default();
         if let Some(v) = database_roles {
@@ -1289,7 +1303,13 @@ impl GcpProvider {
         if let Some(v) = project {
             model = model.set_project(v);
         }
-        // TODO: set user_details on model via .set_user_details() — type path unknown
+        if let Some(v) = config.pointer("/config/sqlserver_user_details") {
+            let parsed: google_cloud_sql_v1::model::SqlServerUserDetails =
+                serde_json::from_value(v.clone()).map_err(|e| {
+                    ProviderError::InvalidConfig(format!("sqlserver_user_details: {e}"))
+                })?;
+            model = model.set_sqlserver_user_details(parsed);
+        }
 
         self.sql_users()
             .await?

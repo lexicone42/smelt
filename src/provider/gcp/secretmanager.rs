@@ -141,7 +141,6 @@ impl GcpProvider {
                 >(v.clone())
                 .ok()
             });
-        // TODO: extract expiration (Nested(Expiration)) from config["/config/expiration"] — type path unknown
         let _labels = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
@@ -176,7 +175,17 @@ impl GcpProvider {
         if let Some(v) = customer_managed_encryption {
             model = model.set_customer_managed_encryption(v);
         }
-        // TODO: set expiration on model via .set_expiration() — type path unknown
+        if let Some(v) = config.optional_str("/config/expire_time") {
+            model = model.set_expire_time(
+                google_cloud_wkt::Timestamp::try_from(v)
+                    .map_err(|e| ProviderError::InvalidConfig(format!("expire_time: {e}")))?,
+            );
+        } else if let Some(v) = config.optional_str("/config/ttl") {
+            model = model.set_ttl(
+                google_cloud_wkt::Duration::try_from(v)
+                    .map_err(|e| ProviderError::InvalidConfig(format!("ttl: {e}")))?,
+            );
+        }
         model = model.set_name(name.clone());
         if let Some(v) = replication {
             model = model.set_replication(v);
@@ -291,7 +300,6 @@ impl GcpProvider {
                 >(v.clone())
                 .ok()
             });
-        // TODO: extract expiration (Nested(Expiration)) from config["/config/expiration"] — type path unknown
         let replication = config.pointer("/reliability/replication").and_then(|v| {
             serde_json::from_value::<google_cloud_secretmanager_v1::model::Replication>(v.clone())
                 .ok()
@@ -322,7 +330,17 @@ impl GcpProvider {
         if let Some(v) = customer_managed_encryption {
             model = model.set_customer_managed_encryption(v);
         }
-        // TODO: set expiration on model via .set_expiration() — type path unknown
+        if let Some(v) = config.optional_str("/config/expire_time") {
+            model = model.set_expire_time(
+                google_cloud_wkt::Timestamp::try_from(v)
+                    .map_err(|e| ProviderError::InvalidConfig(format!("expire_time: {e}")))?,
+            );
+        } else if let Some(v) = config.optional_str("/config/ttl") {
+            model = model.set_ttl(
+                google_cloud_wkt::Duration::try_from(v)
+                    .map_err(|e| ProviderError::InvalidConfig(format!("ttl: {e}")))?,
+            );
+        }
         if let Some(v) = replication {
             model = model.set_replication(v);
         }

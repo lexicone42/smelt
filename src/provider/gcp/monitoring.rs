@@ -865,7 +865,6 @@ impl GcpProvider {
         let period = config
             .pointer("/config/period")
             .and_then(|v| serde_json::from_value::<google_cloud_wkt::Duration>(v.clone()).ok());
-        // TODO: extract resource (Nested(Resource)) from config["/config/resource"] — type path unknown
         let selected_regions = config.pointer("/config/selected_regions").and_then(|v| {
             serde_json::from_value::<Vec<google_cloud_monitoring_v3::model::UptimeCheckRegion>>(
                 v.clone(),
@@ -898,7 +897,23 @@ impl GcpProvider {
         if let Some(v) = period {
             model = model.set_period(v);
         }
-        // TODO: set resource on model via .set_resource() — type path unknown
+        if let Some(v) = config.pointer("/config/monitored_resource") {
+            let parsed: google_cloud_api::model::MonitoredResource =
+                serde_json::from_value(v.clone()).map_err(|e| {
+                    ProviderError::InvalidConfig(format!("monitored_resource: {e}"))
+                })?;
+            model = model.set_monitored_resource(parsed);
+        } else if let Some(v) = config.pointer("/config/resource_group") {
+            let parsed: google_cloud_monitoring_v3::model::uptime_check_config::ResourceGroup =
+                serde_json::from_value(v.clone())
+                    .map_err(|e| ProviderError::InvalidConfig(format!("resource_group: {e}")))?;
+            model = model.set_resource_group(parsed);
+        } else if let Some(v) = config.pointer("/config/synthetic_monitor") {
+            let parsed: google_cloud_monitoring_v3::model::SyntheticMonitorTarget =
+                serde_json::from_value(v.clone())
+                    .map_err(|e| ProviderError::InvalidConfig(format!("synthetic_monitor: {e}")))?;
+            model = model.set_synthetic_monitor(parsed);
+        }
         if let Some(v) = selected_regions {
             model = model.set_selected_regions(v);
         }
@@ -996,7 +1011,6 @@ impl GcpProvider {
         let period = config
             .pointer("/config/period")
             .and_then(|v| serde_json::from_value::<google_cloud_wkt::Duration>(v.clone()).ok());
-        // TODO: extract resource (Nested(Resource)) from config["/config/resource"] — type path unknown
         let selected_regions = config.pointer("/config/selected_regions").and_then(|v| {
             serde_json::from_value::<Vec<google_cloud_monitoring_v3::model::UptimeCheckRegion>>(
                 v.clone(),
@@ -1028,7 +1042,23 @@ impl GcpProvider {
         if let Some(v) = period {
             model = model.set_period(v);
         }
-        // TODO: set resource on model via .set_resource() — type path unknown
+        if let Some(v) = config.pointer("/config/monitored_resource") {
+            let parsed: google_cloud_api::model::MonitoredResource =
+                serde_json::from_value(v.clone()).map_err(|e| {
+                    ProviderError::InvalidConfig(format!("monitored_resource: {e}"))
+                })?;
+            model = model.set_monitored_resource(parsed);
+        } else if let Some(v) = config.pointer("/config/resource_group") {
+            let parsed: google_cloud_monitoring_v3::model::uptime_check_config::ResourceGroup =
+                serde_json::from_value(v.clone())
+                    .map_err(|e| ProviderError::InvalidConfig(format!("resource_group: {e}")))?;
+            model = model.set_resource_group(parsed);
+        } else if let Some(v) = config.pointer("/config/synthetic_monitor") {
+            let parsed: google_cloud_monitoring_v3::model::SyntheticMonitorTarget =
+                serde_json::from_value(v.clone())
+                    .map_err(|e| ProviderError::InvalidConfig(format!("synthetic_monitor: {e}")))?;
+            model = model.set_synthetic_monitor(parsed);
+        }
         if let Some(v) = selected_regions {
             model = model.set_selected_regions(v);
         }

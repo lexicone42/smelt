@@ -503,7 +503,6 @@ impl GcpProvider {
         let client_version = config
             .optional_str("/config/client_version")
             .map(String::from);
-        // TODO: extract create_execution (Nested(CreateExecution)) from config["/config/create_execution"] — type path unknown
         let _labels = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
@@ -530,7 +529,11 @@ impl GcpProvider {
         if let Some(v) = client_version {
             model = model.set_client_version(v);
         }
-        // TODO: set create_execution on model via .set_create_execution() — type path unknown
+        if let Some(v) = config.optional_str("/config/start_execution_token") {
+            model = model.set_start_execution_token(v);
+        } else if let Some(v) = config.optional_str("/config/run_execution_token") {
+            model = model.set_run_execution_token(v);
+        }
         if let Some(v) = launch_stage {
             model = model.set_launch_stage(v);
         }

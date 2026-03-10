@@ -75,6 +75,41 @@ pub struct SdkEnum {
     pub variant_strings: Vec<String>,
 }
 
+/// A variant of a proto oneof enum (union type).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OneofVariant {
+    /// PascalCase variant name (e.g., "ExpireTime")
+    pub name: String,
+    /// snake_case setter name on the parent struct (e.g., "set_expire_time")
+    pub setter: String,
+    /// Inner type category for codegen
+    pub inner_type: OneofInnerType,
+    /// Whether the inner value is boxed (Box<T>)
+    pub boxed: bool,
+}
+
+/// Categories of inner types in oneof variants, determining how they're
+/// constructed from config values.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum OneofInnerType {
+    /// Bare String — config value used directly
+    String,
+    /// wkt::Timestamp — parse from RFC 3339 string via TryFrom<&str>
+    Timestamp,
+    /// wkt::Duration — parse from duration string via TryFrom<&str>
+    Duration,
+    /// i32, i64, u32, u64 — parse from integer
+    Integer(String),
+    /// f32, f64 — parse from float
+    Float,
+    /// bool
+    Bool,
+    /// A struct from the same crate (may or may not implement serde)
+    SameCrateStruct(String),
+    /// A struct from a linked crate (e.g., google_cloud_api::model::MonitoredResource)
+    CrossCrateStruct(String),
+}
+
 /// List all top-level `pub struct` names in the source.
 pub fn list_structs(source: &str) -> Vec<String> {
     let re = Regex::new(r"(?m)^(?:\s+)?pub struct (\w+)\b").unwrap();
@@ -245,6 +280,102 @@ fn pascal_to_screaming(s: &str) -> String {
         result.push(ch.to_ascii_uppercase());
     }
     result
+}
+
+fn pascal_to_snake(s: &str) -> String {
+    let mut result = String::with_capacity(s.len() + 4);
+    for (i, ch) in s.chars().enumerate() {
+        if ch.is_uppercase() && i > 0 {
+            result.push('_');
+        }
+        result.push(ch.to_ascii_lowercase());
+    }
+    result
+}
+
+/// Parse a proto oneof enum to extract its variants and their inner types.
+///
+/// Proto oneofs have variants like `VariantName(Box<Type>)` or `VariantName(Type)`.
+/// They do NOT have `name()` methods or `From<&str>` — they're union types, not
+/// string-valued enums.
+pub fn parse_oneof_variants(source: &str, enum_name: &str) -> Vec<OneofVariant> {
+    // Find the enum body
+    let pattern = format!(
+        r"(?ms)^\s*pub enum {}\s*\{{(.*?)^\s*\}}",
+        regex::escape(enum_name)
+    );
+    let re = Regex::new(&pattern).unwrap();
+    let body = match re.captures(source) {
+        Some(cap) => cap[1].to_string(),
+        None => return Vec::new(),
+    };
+
+    // Match variants with inner types: VariantName(Type) or VariantName(Box<Type>)
+    let variant_re =
+        Regex::new(r"(?m)^\s+(\w+)\(([^)]+)\)\s*,?\s*$").unwrap();
+
+    let mut variants = Vec::new();
+    for cap in variant_re.captures_iter(&body) {
+        let name = cap[1].to_string();
+        let raw_inner = cap[2].trim().to_string();
+
+        // Skip UnknownValue variant
+        if name == "UnknownValue" {
+            continue;
+        }
+
+        // Check if boxed
+        let (inner_raw, boxed) =
+            if raw_inner.starts_with("std::boxed::Box<") && raw_inner.ends_with('>') {
+                (raw_inner[16..raw_inner.len() - 1].to_string(), true)
+            } else if raw_inner.starts_with("Box<") && raw_inner.ends_with('>') {
+                (raw_inner[4..raw_inner.len() - 1].to_string(), true)
+            } else {
+                (raw_inner, false)
+            };
+
+        let inner_type = classify_oneof_inner(&inner_raw);
+        let setter = format!("set_{}", pascal_to_snake(&name));
+
+        variants.push(OneofVariant {
+            name,
+            setter,
+            inner_type,
+            boxed,
+        });
+    }
+
+    variants
+}
+
+/// Classify the inner type of a oneof variant for codegen.
+/// Preserves full paths for structs so codegen can resolve them.
+fn classify_oneof_inner(raw: &str) -> OneofInnerType {
+    let normalized = raw
+        .replace("std::string::String", "String")
+        .replace("::std::string::String", "String");
+    let t = normalized.trim();
+
+    match t {
+        "String" => OneofInnerType::String,
+        "bool" => OneofInnerType::Bool,
+        "i32" | "i64" | "u32" | "u64" => OneofInnerType::Integer(t.into()),
+        "f32" | "f64" => OneofInnerType::Float,
+        s if s.contains("Timestamp") => OneofInnerType::Timestamp,
+        s if s.contains("Duration") => OneofInnerType::Duration,
+        s if s.starts_with("crate::") => {
+            // Same-crate type — keep full path (e.g., "crate::model::BigQueryOptions")
+            OneofInnerType::SameCrateStruct(s.to_string())
+        }
+        s if s.contains("::") => {
+            // Cross-crate type (e.g., google_cloud_api::model::MonitoredResource)
+            OneofInnerType::CrossCrateStruct(s.to_string())
+        }
+        s => {
+            // Bare type name — likely a same-crate struct
+            OneofInnerType::SameCrateStruct(s.to_string())
+        }
+    }
 }
 
 /// Parse all fields from a named struct in the SDK source.
@@ -670,6 +801,60 @@ impl Tenancy {
         let e = parse_aws_enum(source, "Tenancy").unwrap();
         assert_eq!(e.name, "Tenancy");
         assert_eq!(e.variant_strings, vec!["dedicated", "default", "host"]);
+    }
+
+    #[test]
+    fn test_parse_oneof_variants() {
+        let source = r#"
+    pub enum Expiration {
+        ExpireTime(std::boxed::Box<wkt::Timestamp>),
+        Ttl(std::boxed::Box<wkt::Duration>),
+    }
+"#;
+        let variants = parse_oneof_variants(source, "Expiration");
+        assert_eq!(variants.len(), 2);
+        assert_eq!(variants[0].name, "ExpireTime");
+        assert_eq!(variants[0].setter, "set_expire_time");
+        assert!(variants[0].boxed);
+        assert!(matches!(variants[0].inner_type, OneofInnerType::Timestamp));
+        assert_eq!(variants[1].name, "Ttl");
+        assert_eq!(variants[1].setter, "set_ttl");
+        assert!(variants[1].boxed);
+        assert!(matches!(variants[1].inner_type, OneofInnerType::Duration));
+    }
+
+    #[test]
+    fn test_parse_oneof_string_variants() {
+        let source = r#"
+    pub enum CreateExecution {
+        StartExecutionToken(std::string::String),
+        RunExecutionToken(std::string::String),
+    }
+"#;
+        let variants = parse_oneof_variants(source, "CreateExecution");
+        assert_eq!(variants.len(), 2);
+        assert_eq!(variants[0].name, "StartExecutionToken");
+        assert!(!variants[0].boxed);
+        assert!(matches!(variants[0].inner_type, OneofInnerType::String));
+    }
+
+    #[test]
+    fn test_parse_oneof_struct_variants() {
+        let source = r#"
+    pub enum Resource {
+        MonitoredResource(std::boxed::Box<google_cloud_api::model::MonitoredResource>),
+        ResourceGroup(std::boxed::Box<crate::model::uptime_check_config::ResourceGroup>),
+        SyntheticMonitor(std::boxed::Box<crate::model::SyntheticMonitorTarget>),
+    }
+"#;
+        let variants = parse_oneof_variants(source, "Resource");
+        assert_eq!(variants.len(), 3);
+        assert_eq!(variants[0].name, "MonitoredResource");
+        assert!(matches!(variants[0].inner_type, OneofInnerType::CrossCrateStruct(_)));
+        assert_eq!(variants[1].name, "ResourceGroup");
+        assert!(matches!(variants[1].inner_type, OneofInnerType::SameCrateStruct(ref n) if n == "crate::model::uptime_check_config::ResourceGroup"));
+        assert_eq!(variants[2].name, "SyntheticMonitor");
+        assert!(matches!(variants[2].inner_type, OneofInnerType::SameCrateStruct(ref n) if n == "crate::model::SyntheticMonitorTarget"));
     }
 
     #[test]

@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::introspect::{SdkEnum, SdkField, SimplifiedType};
+use crate::introspect::{OneofVariant, SdkEnum, SdkField, SimplifiedType};
 
 // ── Top-level manifest ──────────────────────────────────────────────────────
 
@@ -149,6 +149,10 @@ pub struct FieldDef {
     /// Example: `crate::model::network::RoutingMode` or `Vec<crate::model::Backend>`
     #[serde(default)]
     pub sdk_type_path: Option<String>,
+    /// For proto oneof fields: the parsed variants with their inner types.
+    /// Empty for non-oneof fields.
+    #[serde(default)]
+    pub oneof_variants: Vec<OneofVariant>,
 }
 
 fn default_true() -> bool {
@@ -289,6 +293,7 @@ impl ResourceManifest {
                     skip: output_only, // skip output-only fields by default
                     optional: f.optional,
                     sdk_type_path,
+                    oneof_variants: Vec::new(),
                 },
             );
         }
@@ -322,6 +327,7 @@ impl ResourceManifest {
     }
 
     /// Like `from_introspected` but also fills in enum variants from parsed SDK enums.
+    /// Accepts optional SDK source for parsing proto oneof variants.
     pub fn from_introspected_with_enums(
         provider: &str,
         sdk_crate: &str,
@@ -329,6 +335,21 @@ impl ResourceManifest {
         sdk_client: Option<&str>,
         fields: &[SdkField],
         enums: &[SdkEnum],
+    ) -> Self {
+        Self::from_introspected_with_enums_and_source(
+            provider, sdk_crate, struct_name, sdk_client, fields, enums, None,
+        )
+    }
+
+    /// Like `from_introspected_with_enums` but with optional SDK source for oneof parsing.
+    pub fn from_introspected_with_enums_and_source(
+        provider: &str,
+        sdk_crate: &str,
+        struct_name: &str,
+        sdk_client: Option<&str>,
+        fields: &[SdkField],
+        enums: &[SdkEnum],
+        sdk_source: Option<&str>,
     ) -> Self {
         let mut manifest = Self::from_introspected(provider, sdk_crate, struct_name, sdk_client, fields);
 
@@ -341,28 +362,50 @@ impl ResourceManifest {
         // Fill in real variants for Enum fields.
         // If an Enum type's variants couldn't be resolved (still has "TODO:" placeholder),
         // it's likely a proto oneof (union type) rather than a named enum.
-        // Proto oneofs don't implement From<&str>, Serialize, or Deserialize —
-        // clear their sdk_type_path so the codegen generates TODO comments instead of broken code.
         for field_def in manifest.fields.values_mut() {
             if let Some(enum_name) = extract_enum_name(&field_def.field_type) {
                 if let Some(variants) = enum_lookup.get(enum_name.as_str()) {
                     field_def.variants = variants.iter().cloned().collect();
                 } else {
-                    // Unresolved type: could be a proto oneof or a cross-crate type.
-                    // Proto oneofs (crate::model::submod::Type) don't implement serde.
-                    // Cross-crate types (google_cloud_api::model::Type) usually do.
-                    // Keep sdk_type_path only for cross-crate types that are likely
-                    // serde-compatible; clear it for same-crate nested types (oneofs).
-                    field_def.field_type = format!("Nested({enum_name})");
-                    field_def.variants.clear();
-                    if let Some(ref path) = field_def.sdk_type_path {
-                        let is_same_crate_oneof = path.starts_with("crate::model::")
-                            && path.matches("::").count() > 2;
-                        let is_unknown_crate = path.contains("_rpc::");
-                        if is_same_crate_oneof || is_unknown_crate {
-                            field_def.sdk_type_path = None;
+                    // Unresolved: try parsing as a proto oneof if we have SDK source
+                    let oneof_variants = sdk_source
+                        .map(|src| crate::introspect::parse_oneof_variants(src, &enum_name))
+                        .unwrap_or_default();
+
+                    let is_oneof = !oneof_variants.is_empty();
+                    if is_oneof {
+                        // It's a proto oneof with parsed variants
+                        field_def.field_type = format!("Oneof({enum_name})");
+                        field_def.oneof_variants = oneof_variants;
+                        // Oneof with parsed variants: sdk_type_path not needed (we use variant setters)
+                        field_def.sdk_type_path = None;
+                    } else {
+                        // Truly unresolved — fall back to Nested with sdk_type_path heuristic
+                        field_def.field_type = format!("Nested({enum_name})");
+                        // Clear sdk_type_path for types we can't use in codegen:
+                        // - Same-crate nested types (proto oneofs without serde)
+                        // - Types from unlinked crates (google_cloud_rpc is not a dependency)
+                        if let Some(ref path) = field_def.sdk_type_path {
+                            let is_same_crate_nested = path.starts_with("crate::model::")
+                                && path.matches("::").count() > 2;
+                            let is_unlinked_crate = path.contains("_rpc::");
+                            if is_same_crate_nested || is_unlinked_crate {
+                                field_def.sdk_type_path = None;
+                            }
                         }
                     }
+                    field_def.variants.clear();
+                }
+            }
+        }
+
+        // Final pass: clear sdk_type_path for types from unlinked crates
+        // (e.g., google_cloud_rpc is not a smelt dependency).
+        // This catches Nested types that bypassed the enum resolution branch.
+        for field_def in manifest.fields.values_mut() {
+            if let Some(ref path) = field_def.sdk_type_path {
+                if path.contains("_rpc::") {
+                    field_def.sdk_type_path = None;
                 }
             }
         }

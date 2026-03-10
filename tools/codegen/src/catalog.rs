@@ -164,14 +164,15 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
 
         let enums = introspect::resolve_enums(source, &fields, "gcp");
 
-        // Build base manifest
-        let mut manifest = ResourceManifest::from_introspected_with_enums(
+        // Build base manifest (pass SDK source for oneof parsing)
+        let mut manifest = ResourceManifest::from_introspected_with_enums_and_source(
             "gcp",
             &entry.sdk_crate,
             &entry.struct_name,
             Some(&entry.sdk_client),
             &fields,
             &enums,
+            Some(source),
         );
 
         // Override from catalog
@@ -285,6 +286,7 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
                     skip: false,
                     optional: true,
                     sdk_type_path: None,
+                    oneof_variants: Vec::new(),
                 },
             );
         }

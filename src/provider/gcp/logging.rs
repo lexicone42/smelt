@@ -392,7 +392,6 @@ impl GcpProvider {
         let filter = config.optional_str("/config/filter").map(String::from);
         let include_children = config.optional_bool("/config/include_children");
         let name = config.require_str("/identity/name")?.to_string();
-        // TODO: extract options (Nested(Options)) from config["/config/options"] — type path unknown
 
         // Build SDK model
         let mut model = google_cloud_logging_v2::model::LogSink::default();
@@ -415,7 +414,12 @@ impl GcpProvider {
             model = model.set_include_children(v);
         }
         model = model.set_name(name.clone());
-        // TODO: set options on model via .set_options() — type path unknown
+        if let Some(v) = config.pointer("/config/bigquery_options") {
+            let parsed: google_cloud_logging_v2::model::BigQueryOptions =
+                serde_json::from_value(v.clone())
+                    .map_err(|e| ProviderError::InvalidConfig(format!("bigquery_options: {e}")))?;
+            model = model.set_bigquery_options(parsed);
+        }
 
         // Make API call
         let parent = format!("projects/{}", self.project_id);
@@ -497,7 +501,6 @@ impl GcpProvider {
         });
         let filter = config.optional_str("/config/filter").map(String::from);
         let include_children = config.optional_bool("/config/include_children");
-        // TODO: extract options (Nested(Options)) from config["/config/options"] — type path unknown
 
         let mut model = google_cloud_logging_v2::model::LogSink::default();
         model = model.set_name(provider_id);
@@ -519,7 +522,12 @@ impl GcpProvider {
         if let Some(v) = include_children {
             model = model.set_include_children(v);
         }
-        // TODO: set options on model via .set_options() — type path unknown
+        if let Some(v) = config.pointer("/config/bigquery_options") {
+            let parsed: google_cloud_logging_v2::model::BigQueryOptions =
+                serde_json::from_value(v.clone())
+                    .map_err(|e| ProviderError::InvalidConfig(format!("bigquery_options: {e}")))?;
+            model = model.set_bigquery_options(parsed);
+        }
 
         self.logging()
             .await?
