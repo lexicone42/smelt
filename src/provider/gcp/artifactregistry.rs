@@ -203,7 +203,7 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("Create_repository Repository", e))?;
 
         let provider_id = format!(
-            "projects/{}/locations/{}/repositorys/{}",
+            "projects/{}/locations/{}/repositories/{}",
             self.project_id, self.region, name
         );
         self.read_artifactregistry_repository(&provider_id).await

@@ -283,8 +283,8 @@ impl GcpProvider {
         model = model.set_name(name.clone());
         model = model.set_labels(labels);
 
-        // Make API call
-        let parent = format!("projects/{}/locations/{}", self.project_id, self.region);
+        // Make API call — CertificateMap is global-only
+        let parent = format!("projects/{}/locations/global", self.project_id);
         self.certificate_manager()
             .await?
             .create_certificate_map()
@@ -297,8 +297,8 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("Create_certificate_map CertificateMap", e))?;
 
         let provider_id = format!(
-            "projects/{}/locations/{}/certificate_maps/{}",
-            self.project_id, self.region, name
+            "projects/{}/locations/global/certificateMaps/{}",
+            self.project_id, name
         );
         self.read_certificatemanager_certificatemap(&provider_id)
             .await
@@ -502,7 +502,7 @@ impl GcpProvider {
             })?;
 
         let provider_id = format!(
-            "projects/{}/locations/{}/dns_authorizations/{}",
+            "projects/{}/locations/{}/dnsAuthorizations/{}",
             self.project_id, self.region, name
         );
         self.read_certificatemanager_dnsauthorization(&provider_id)

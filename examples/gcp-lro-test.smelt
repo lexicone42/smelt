@@ -1,0 +1,35 @@
+resource repo "docker" : gcp.artifactregistry.Repository {
+  @intent "Docker container registry — free tier (0.5 GB)"
+  @lifecycle "ephemeral"
+
+  config {
+    format = "DOCKER"
+    mode = "STANDARD_REPOSITORY"
+  }
+
+  identity {
+    name = "smelt-test-docker"
+  }
+}
+
+resource certmap "test" : gcp.certificatemanager.CertificateMap {
+  @intent "Certificate map — free tier"
+  @lifecycle "ephemeral"
+
+  identity {
+    name = "smelt-test-certmap"
+  }
+}
+
+resource dnsauth "example" : gcp.certificatemanager.DnsAuthorization {
+  @intent "DNS authorization for example.com — free tier"
+  @lifecycle "ephemeral"
+
+  config {
+    domain = "example.com"
+  }
+
+  identity {
+    name = "smelt-test-dnsauth"
+  }
+}
