@@ -448,14 +448,17 @@ fn value() -> impl Parser<char, Value, Error = Simple<char>> {
             .delimited_by(just('[').padded(), just(']').padded())
             .map(Value::Array);
 
-        let record_val = ident()
+        // Records accept commas OR newlines between entries (like sections).
+        // Comma is optional so multi-line records don't require trailing punctuation.
+        let record_entry = ident()
             .padded()
             .then_ignore(just('=').padded())
             .then(val)
             .map(|(name, value)| Field { name, value })
+            .then_ignore(just(',').padded().or_not());
+        let record_val = record_entry
             .padded()
-            .separated_by(just(',').padded())
-            .allow_trailing()
+            .repeated()
             .delimited_by(just('{').padded(), just('}').padded())
             .map(Value::Record);
 
