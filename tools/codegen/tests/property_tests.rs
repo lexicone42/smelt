@@ -171,6 +171,9 @@ fn arb_manifest() -> impl Strategy<Value = ResourceManifest> {
                     parent_binding: None,
                     parent_binding_section: None,
                     resource_noun: None,
+                    skip_name_on_create: false,
+                    full_name_on_model: false,
+                    raw_labels: false,
                 },
                 crud: CrudMethods {
                     create: "insert".into(),
@@ -424,6 +427,9 @@ fn integer_codegen_uses_try_from() {
             parent_binding: None,
             parent_binding_section: None,
             resource_noun: None,
+            skip_name_on_create: false,
+            full_name_on_model: false,
+            raw_labels: false,
         },
         crud: CrudMethods {
             create: "insert".into(),
@@ -524,6 +530,9 @@ fn oneof_uses_field_section_not_config() {
             parent_binding: None,
             parent_binding_section: None,
             resource_noun: None,
+            skip_name_on_create: false,
+            full_name_on_model: false,
+            raw_labels: false,
         },
         crud: CrudMethods {
             create: "create_secret".into(),

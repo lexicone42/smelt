@@ -74,6 +74,19 @@ pub struct CatalogEntry {
     /// GCP resource path segment override (e.g., "cryptoKeys" instead of "crypto_keys")
     #[serde(default)]
     pub resource_noun: Option<String>,
+    /// Don't set model.name on create — server assigns the ID/name.
+    #[serde(default)]
+    pub skip_name_on_create: Option<bool>,
+    /// Set full resource path on model.name instead of short name.
+    #[serde(default)]
+    pub full_name_on_model: Option<bool>,
+    /// Don't inject managed_by label or filter it on read.
+    #[serde(default)]
+    pub raw_labels: Option<bool>,
+    /// Per-field section overrides: move fields to different schema sections.
+    /// e.g. { type = "identity" } moves the `type` field from its inferred section to `identity`.
+    #[serde(default)]
+    pub field_sections: BTreeMap<String, String>,
 }
 
 
@@ -242,6 +255,16 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
         }
         // Resource path segment override
         apply_optional_set(&mut manifest.resource.resource_noun, &entry.resource_noun);
+        // Create-time behavior flags
+        if let Some(v) = entry.skip_name_on_create {
+            manifest.resource.skip_name_on_create = v;
+        }
+        if let Some(v) = entry.full_name_on_model {
+            manifest.resource.full_name_on_model = v;
+        }
+        if let Some(v) = entry.raw_labels {
+            manifest.resource.raw_labels = v;
+        }
         // Nested resource parent binding
         apply_optional_set(&mut manifest.resource.parent_binding, &entry.parent_binding);
         apply_optional_set(
@@ -271,6 +294,13 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
                 sdk_type_path: None,
                 oneof_variants: Vec::new(),
             });
+        }
+
+        // Per-field section overrides
+        for (field_name, section) in &entry.field_sections {
+            if let Some(field) = manifest.fields.get_mut(field_name) {
+                field.section = section.clone();
+            }
         }
 
         // Override CRUD methods from catalog

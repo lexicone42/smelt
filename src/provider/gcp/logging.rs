@@ -924,7 +924,7 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_log_metric LogMetric", e))?;
 
-        let provider_id = format!("projects/{}/log_metrics/{}", self.project_id, name);
+        let provider_id = format!("projects/{}/metrics/{}", self.project_id, name);
         self.read_logging_logmetric(&provider_id).await
     }
 

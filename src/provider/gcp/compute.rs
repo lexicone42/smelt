@@ -1878,6 +1878,14 @@ impl GcpProvider {
                                 default: None,
                                 sensitive: false,
                             },
+                            crate::provider::FieldSchema {
+                                name: "type".into(),
+                                description: "URL of the disk type resource describing which disk type to use to create".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
                         ],
                     },
                     crate::provider::SectionSchema {
@@ -1988,6 +1996,7 @@ impl GcpProvider {
         let storage_pool = config
             .optional_str("/config/storage_pool")
             .map(String::from);
+        let type_val = config.optional_str("/config/type").map(String::from);
 
         let labels = super::extract_labels(config);
         // Build SDK model
@@ -2089,6 +2098,9 @@ impl GcpProvider {
         if let Some(v) = storage_pool {
             model = model.set_storage_pool(v);
         }
+        if let Some(v) = type_val {
+            model = model.set_type(v);
+        }
         model = model.set_labels(labels);
 
         // Make API call
@@ -2163,6 +2175,7 @@ impl GcpProvider {
                 "source_snapshot_encryption_key": &disk.source_snapshot_encryption_key,
                 "source_storage_object": disk.source_storage_object.as_deref().unwrap_or(""),
                 "storage_pool": disk.storage_pool.as_deref().unwrap_or(""),
+                "type": disk.r#type.as_deref().unwrap_or(""),
             },
             "runtime": {
                 "source_image": disk.source_image.as_deref().unwrap_or(""),
@@ -2269,6 +2282,7 @@ impl GcpProvider {
         let storage_pool = config
             .optional_str("/config/storage_pool")
             .map(String::from);
+        let type_val = config.optional_str("/config/type").map(String::from);
         let labels = super::extract_labels(config);
 
         let mut model = google_cloud_compute_v1::model::Disk::default();
@@ -2367,6 +2381,9 @@ impl GcpProvider {
         }
         if let Some(v) = storage_pool {
             model = model.set_storage_pool(v);
+        }
+        if let Some(v) = type_val {
+            model = model.set_type(v);
         }
         model = model.set_labels(labels);
 
@@ -5067,6 +5084,14 @@ impl GcpProvider {
                                 sensitive: false,
                             },
                             crate::provider::FieldSchema {
+                                name: "type".into(),
+                                description: "The type indicates the intended use of the security policy.".into(),
+                                field_type: crate::provider::FieldType::Enum(vec!["DIRECT_IPV6".into(), "ONE_TO_ONE_NAT".into()]),
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
+                            crate::provider::FieldSchema {
                                 name: "user_defined_fields".into(),
                                 description: "Definitions of user-defined fields for CLOUD_ARMOR_NETWORK policies. A".into(),
                                 field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::Record(vec![]))),
@@ -5106,6 +5131,7 @@ impl GcpProvider {
             .ok()
         });
         let short_name = config.optional_str("/config/short_name").map(String::from);
+        let type_val = config.optional_str("/config/type").map(String::from);
         let user_defined_fields = config.pointer("/config/user_defined_fields").and_then(|v| {
             serde_json::from_value::<
                 Vec<google_cloud_compute_v1::model::SecurityPolicyUserDefinedField>,
@@ -5128,6 +5154,11 @@ impl GcpProvider {
         }
         if let Some(v) = short_name {
             model = model.set_short_name(v);
+        }
+        if let Some(ref s) = type_val {
+            model = model.set_type(google_cloud_compute_v1::model::security_policy::Type::from(
+                s.as_str(),
+            ));
         }
         if let Some(v) = user_defined_fields {
             model = model.set_user_defined_fields(v);
@@ -5180,6 +5211,7 @@ impl GcpProvider {
                 "associations": &security_policy.associations,
                 "rules": &security_policy.rules,
                 "short_name": security_policy.short_name.as_deref().unwrap_or(""),
+                "type": &security_policy.r#type,
                 "user_defined_fields": &security_policy.user_defined_fields,
             },
         });
@@ -5220,6 +5252,7 @@ impl GcpProvider {
             .ok()
         });
         let short_name = config.optional_str("/config/short_name").map(String::from);
+        let type_val = config.optional_str("/config/type").map(String::from);
         let user_defined_fields = config.pointer("/config/user_defined_fields").and_then(|v| {
             serde_json::from_value::<
                 Vec<google_cloud_compute_v1::model::SecurityPolicyUserDefinedField>,
@@ -5240,6 +5273,11 @@ impl GcpProvider {
         }
         if let Some(v) = short_name {
             model = model.set_short_name(v);
+        }
+        if let Some(ref s) = type_val {
+            model = model.set_type(google_cloud_compute_v1::model::security_policy::Type::from(
+                s.as_str(),
+            ));
         }
         if let Some(v) = user_defined_fields {
             model = model.set_user_defined_fields(v);
@@ -5665,6 +5703,14 @@ impl GcpProvider {
                                 default: None,
                                 sensitive: false,
                             },
+                            crate::provider::FieldSchema {
+                                name: "type".into(),
+                                description: "(Optional) Specifies the type of SSL certificate, either \"SELF_MANAGED\" or".into(),
+                                field_type: crate::provider::FieldType::Enum(vec!["DIRECT_IPV6".into(), "ONE_TO_ONE_NAT".into()]),
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
                         ],
                     },
                 ],
@@ -5695,6 +5741,7 @@ impl GcpProvider {
             >(v.clone())
             .ok()
         });
+        let type_val = config.optional_str("/config/type").map(String::from);
 
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::SslCertificate::default();
@@ -5713,6 +5760,11 @@ impl GcpProvider {
         }
         if let Some(v) = self_managed {
             model = model.set_self_managed(v);
+        }
+        if let Some(ref s) = type_val {
+            model = model.set_type(google_cloud_compute_v1::model::ssl_certificate::Type::from(
+                s.as_str(),
+            ));
         }
 
         // Make API call
@@ -5754,6 +5806,7 @@ impl GcpProvider {
                 "managed": &ssl_certificate.managed,
                 "private_key": ssl_certificate.private_key.as_deref().unwrap_or(""),
                 "self_managed": &ssl_certificate.self_managed,
+                "type": &ssl_certificate.r#type,
             },
         });
 
@@ -7937,6 +7990,14 @@ impl GcpProvider {
                                 sensitive: false,
                             },
                             crate::provider::FieldSchema {
+                                name: "type".into(),
+                                description: "The type of interconnect attachment this is, which can take one of the".into(),
+                                field_type: crate::provider::FieldType::Enum(vec!["DIRECT_IPV6".into(), "ONE_TO_ONE_NAT".into()]),
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
+                            crate::provider::FieldSchema {
                                 name: "vlan_tag_8021_q".into(),
                                 description: "The IEEE 802.1Q VLAN tag for this attachment, in the range 2-4093.".into(),
                                 field_type: crate::provider::FieldType::Integer,
@@ -8049,6 +8110,7 @@ impl GcpProvider {
         let router = config.optional_str("/config/router").map(String::from);
         let stack_type = config.optional_str("/config/stack_type").map(String::from);
         let subnet_length = config.optional_i64("/config/subnet_length");
+        let type_val = config.optional_str("/config/type").map(String::from);
         let vlan_tag_8021_q = config.optional_i64("/config/vlan_tag_8021_q");
 
         let labels = super::extract_labels(config);
@@ -8141,6 +8203,11 @@ impl GcpProvider {
                 ))
             })?);
         }
+        if let Some(ref s) = type_val {
+            model = model.set_type(
+                google_cloud_compute_v1::model::interconnect_attachment::Type::from(s.as_str()),
+            );
+        }
         if let Some(v) = vlan_tag_8021_q {
             model = model.set_vlan_tag_8021_q(i32::try_from(v).map_err(|_| {
                 ProviderError::InvalidConfig(format!(
@@ -8215,6 +8282,7 @@ impl GcpProvider {
                 "router": interconnect_attachment.router.as_deref().unwrap_or(""),
                 "stack_type": &interconnect_attachment.stack_type,
                 "subnet_length": interconnect_attachment.subnet_length.unwrap_or(0),
+                "type": &interconnect_attachment.r#type,
                 "vlan_tag_8021_q": interconnect_attachment.vlan_tag_8021_q.unwrap_or(0),
             },
             "network": {
@@ -8306,6 +8374,7 @@ impl GcpProvider {
         let router = config.optional_str("/config/router").map(String::from);
         let stack_type = config.optional_str("/config/stack_type").map(String::from);
         let subnet_length = config.optional_i64("/config/subnet_length");
+        let type_val = config.optional_str("/config/type").map(String::from);
         let vlan_tag_8021_q = config.optional_i64("/config/vlan_tag_8021_q");
         let labels = super::extract_labels(config);
 
@@ -8395,6 +8464,11 @@ impl GcpProvider {
                     "subnet_length: value {v} out of range for i32"
                 ))
             })?);
+        }
+        if let Some(ref s) = type_val {
+            model = model.set_type(
+                google_cloud_compute_v1::model::interconnect_attachment::Type::from(s.as_str()),
+            );
         }
         if let Some(v) = vlan_tag_8021_q {
             model = model.set_vlan_tag_8021_q(i32::try_from(v).map_err(|_| {

@@ -337,6 +337,14 @@ impl GcpProvider {
                                 default: None,
                                 sensitive: false,
                             },
+                            crate::provider::FieldSchema {
+                                name: "type".into(),
+                                description: "Required. Immutable. The".into(),
+                                field_type: crate::provider::FieldType::Enum(vec!["TYPE_UNSPECIFIED".into(), "SELF_SIGNED".into(), "SUBORDINATE".into()]),
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
                         ],
                     },
                 ],
@@ -375,6 +383,7 @@ impl GcpProvider {
             )
             .ok()
         });
+        let type_val = config.optional_str("/config/type").map(String::from);
 
         let labels = super::extract_labels(config);
         // Build SDK model
@@ -394,6 +403,13 @@ impl GcpProvider {
         model = model.set_name(name.clone());
         if let Some(v) = subordinate_config {
             model = model.set_subordinate_config(v);
+        }
+        if let Some(ref s) = type_val {
+            model = model.set_type(
+                google_cloud_security_privateca_v1::model::certificate_authority::Type::from(
+                    s.as_str(),
+                ),
+            );
         }
         model = model.set_labels(labels);
 
@@ -452,6 +468,7 @@ impl GcpProvider {
                 "key_spec": &certificate_authority.key_spec,
                 "lifetime": &certificate_authority.lifetime,
                 "subordinate_config": &certificate_authority.subordinate_config,
+                "type": &certificate_authority.r#type,
             },
         });
 
@@ -501,6 +518,7 @@ impl GcpProvider {
             )
             .ok()
         });
+        let type_val = config.optional_str("/config/type").map(String::from);
         let labels = super::extract_labels(config);
 
         let mut model = google_cloud_security_privateca_v1::model::CertificateAuthority::default();
@@ -519,6 +537,13 @@ impl GcpProvider {
         }
         if let Some(v) = subordinate_config {
             model = model.set_subordinate_config(v);
+        }
+        if let Some(ref s) = type_val {
+            model = model.set_type(
+                google_cloud_security_privateca_v1::model::certificate_authority::Type::from(
+                    s.as_str(),
+                ),
+            );
         }
         model = model.set_labels(labels);
 

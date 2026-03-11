@@ -70,11 +70,12 @@ impl GcpProvider {
         if let Some(v) = display_name {
             model = model.set_display_name(v);
         }
-        model = model.set_name(name.clone());
+        // Do NOT set model.name on create — GCP auto-assigns it.
 
         // Make API call
         let parent = format!("projects/{}", self.project_id);
-        self.iam()
+        let created = self
+            .iam()
             .await?
             .create_service_account()
             .set_name(&parent)
@@ -84,7 +85,20 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_service_account ServiceAccount", e))?;
 
-        let provider_id = format!("projects/{}/serviceAccounts/{}", self.project_id, name);
+        let provider_id = created.name.clone();
+        // Retry read-back: some APIs (e.g. IAM) have eventual consistency
+        for attempt in 0..3u32 {
+            match self.read_iam_serviceaccount(&provider_id).await {
+                Ok(result) => return Ok(result),
+                Err(ProviderError::NotFound(_)) if attempt < 2 => {
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        500 * (attempt as u64 + 1),
+                    ))
+                    .await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
         self.read_iam_serviceaccount(&provider_id).await
     }
 

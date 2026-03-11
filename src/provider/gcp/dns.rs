@@ -426,6 +426,14 @@ impl GcpProvider {
                                 default: None,
                                 sensitive: false,
                             },
+                            crate::provider::FieldSchema {
+                                name: "type".into(),
+                                description: "The identifier of a supported record type. See the list of Supported DNS record types.".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
                         ],
                     },
                     crate::provider::SectionSchema {
@@ -471,6 +479,7 @@ impl GcpProvider {
             .pointer("/config/signature_rrdatas")
             .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
         let ttl = config.optional_i64("/dns/ttl");
+        let type_val = config.optional_str("/config/type").map(String::from);
 
         // Build SDK model
         let mut model = google_cloud_dns_v1::model::ResourceRecordSet::default();
@@ -488,6 +497,9 @@ impl GcpProvider {
             model = model.set_ttl(i32::try_from(v).map_err(|_| {
                 ProviderError::InvalidConfig(format!("ttl: value {v} out of range for i32"))
             })?);
+        }
+        if let Some(v) = type_val {
+            model = model.set_type(v);
         }
 
         // Make API call
@@ -526,6 +538,7 @@ impl GcpProvider {
             "config": {
                 "routing_policy": &resource_record_set.routing_policy,
                 "signature_rrdatas": &resource_record_set.signature_rrdatas,
+                "type": resource_record_set.r#type.as_deref().unwrap_or(""),
             },
             "dns": {
                 "rrdatas": &resource_record_set.rrdatas,

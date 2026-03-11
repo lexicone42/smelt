@@ -109,6 +109,19 @@ pub struct ResourceMeta {
     /// Used in provider_id construction. If not set, defaults to snake_case(model) + "s".
     #[serde(default)]
     pub resource_noun: Option<String>,
+    /// Don't set model.name on create — server assigns the ID/name.
+    /// When true, codegen captures the create response and uses response.name as provider_id.
+    /// Examples: ServiceAccount, NotificationChannel, UptimeCheckConfig.
+    #[serde(default)]
+    pub skip_name_on_create: bool,
+    /// Set the full resource path (parent/noun/name) on model.name instead of the short name.
+    /// Used by resources that require full paths on model.name (e.g., Scheduler Job, Tasks Queue).
+    #[serde(default)]
+    pub full_name_on_model: bool,
+    /// Don't inject managed_by label or filter it on read.
+    /// Used for resources where labels are type-specific config (e.g., NotificationChannel email_address).
+    #[serde(default)]
+    pub raw_labels: bool,
 }
 
 /// Resource scope — determines how provider_id is constructed and which
@@ -384,6 +397,9 @@ impl ResourceManifest {
                 parent_binding: None,
                 parent_binding_section: None,
                 resource_noun: None,
+                skip_name_on_create: false,
+                full_name_on_model: false,
+                raw_labels: false,
             },
             crud,
             fields: field_defs,

@@ -1095,6 +1095,14 @@ impl GcpProvider {
                                 sensitive: false,
                             },
                             crate::provider::FieldSchema {
+                                name: "type".into(),
+                                description: "The user type. It determines the method to authenticate the user during".into(),
+                                field_type: crate::provider::FieldType::Enum(vec!["BUILT_IN".into(), "CLOUD_IAM_USER".into(), "CLOUD_IAM_SERVICE_ACCOUNT".into(), "CLOUD_IAM_GROUP".into(), "CLOUD_IAM_GROUP_USER".into(), "CLOUD_IAM_GROUP_SERVICE_ACCOUNT".into(), "ENTRAID_USER".into()]),
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
+                            crate::provider::FieldSchema {
                                 name: "user_details".into(),
                                 description: "User details for specific database type".into(),
                                 field_type: crate::provider::FieldType::Record(vec![]),
@@ -1147,6 +1155,7 @@ impl GcpProvider {
             .ok()
         });
         let project = config.optional_str("/config/project").map(String::from);
+        let type_val = config.optional_str("/config/type").map(String::from);
 
         // Build SDK model
         let mut model = google_cloud_sql_v1::model::User::default();
@@ -1181,6 +1190,11 @@ impl GcpProvider {
         }
         if let Some(v) = project {
             model = model.set_project(v);
+        }
+        if let Some(ref s) = type_val {
+            model = model.set_type(google_cloud_sql_v1::model::user::SqlUserType::from(
+                s.as_str(),
+            ));
         }
         if let Some(v) = config.pointer("/config/sqlserver_user_details") {
             let parsed: google_cloud_sql_v1::model::SqlServerUserDetails =
@@ -1232,6 +1246,7 @@ impl GcpProvider {
                 "password": user.password.as_str(),
                 "password_policy": &user.password_policy,
                 "project": user.project.as_str(),
+                "type": &user.r#type,
                 "user_details": serde_json::Value::Null,
             },
             "output": {
@@ -1274,6 +1289,7 @@ impl GcpProvider {
             .ok()
         });
         let project = config.optional_str("/config/project").map(String::from);
+        let type_val = config.optional_str("/config/type").map(String::from);
 
         let mut model = google_cloud_sql_v1::model::User::default();
         if let Some(v) = database_roles {
@@ -1306,6 +1322,11 @@ impl GcpProvider {
         }
         if let Some(v) = project {
             model = model.set_project(v);
+        }
+        if let Some(ref s) = type_val {
+            model = model.set_type(google_cloud_sql_v1::model::user::SqlUserType::from(
+                s.as_str(),
+            ));
         }
         if let Some(v) = config.pointer("/config/sqlserver_user_details") {
             let parsed: google_cloud_sql_v1::model::SqlServerUserDetails =

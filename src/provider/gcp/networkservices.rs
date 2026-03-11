@@ -113,6 +113,14 @@ impl GcpProvider {
                                 default: None,
                                 sensitive: false,
                             },
+                            crate::provider::FieldSchema {
+                                name: "type".into(),
+                                description: "Immutable. The type of the customer managed gateway.".into(),
+                                field_type: crate::provider::FieldType::Enum(vec!["TYPE_UNSPECIFIED".into(), "OPEN_MESH".into(), "SECURE_WEB_GATEWAY".into()]),
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
                         ],
                     },
                     crate::provider::SectionSchema {
@@ -193,6 +201,7 @@ impl GcpProvider {
             .optional_str("/config/server_tls_policy")
             .map(String::from);
         let subnetwork = config.optional_str("/network/subnetwork").map(String::from);
+        let type_val = config.optional_str("/config/type").map(String::from);
 
         let labels = super::extract_labels(config);
         // Build SDK model
@@ -239,6 +248,11 @@ impl GcpProvider {
         }
         if let Some(v) = subnetwork {
             model = model.set_subnetwork(v);
+        }
+        if let Some(ref s) = type_val {
+            model = model.set_type(google_cloud_networkservices_v1::model::gateway::Type::from(
+                s.as_str(),
+            ));
         }
         model = model.set_labels(labels);
 
@@ -302,6 +316,7 @@ impl GcpProvider {
                 "routing_mode": &gateway.routing_mode,
                 "scope": gateway.scope.as_str(),
                 "server_tls_policy": gateway.server_tls_policy.as_str(),
+                "type": &gateway.r#type,
             },
             "network": {
                 "network": gateway.network.as_str(),
@@ -361,6 +376,7 @@ impl GcpProvider {
             .optional_str("/config/server_tls_policy")
             .map(String::from);
         let subnetwork = config.optional_str("/network/subnetwork").map(String::from);
+        let type_val = config.optional_str("/config/type").map(String::from);
         let labels = super::extract_labels(config);
 
         let mut model = google_cloud_networkservices_v1::model::Gateway::default();
@@ -406,6 +422,11 @@ impl GcpProvider {
         }
         if let Some(v) = subnetwork {
             model = model.set_subnetwork(v);
+        }
+        if let Some(ref s) = type_val {
+            model = model.set_type(google_cloud_networkservices_v1::model::gateway::Type::from(
+                s.as_str(),
+            ));
         }
         model = model.set_labels(labels);
 

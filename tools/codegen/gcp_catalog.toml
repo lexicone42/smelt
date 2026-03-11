@@ -467,6 +467,8 @@ crud_create = "create_service_account"
 crud_read = "get_service_account"
 crud_update = "patch_service_account"
 crud_delete = "delete_service_account"
+# GCP rejects service_account.name on create — server-assigned
+skip_name_on_create = true
 
 [[resource]]
 struct_name = "Role"
@@ -521,6 +523,12 @@ crud_create = "create_notification_channel"
 crud_read = "get_notification_channel"
 crud_update = "update_notification_channel"
 crud_delete = "delete_notification_channel"
+# GCP rejects name on create — server-assigned channel ID
+skip_name_on_create = true
+# Labels are channel-type-specific config (e.g., email_address), NOT user metadata
+raw_labels = true
+# "type" field (e.g. "email") is an identity property, not config
+field_sections = { type = "identity" }
 
 [[resource]]
 struct_name = "UptimeCheckConfig"
@@ -538,6 +546,8 @@ crud_create = "create_uptime_check_config"
 crud_read = "get_uptime_check_config"
 crud_update = "update_uptime_check_config"
 crud_delete = "delete_uptime_check_config"
+# GCP rejects name on create — server-assigned check ID
+skip_name_on_create = true
 
 [[resource]]
 struct_name = "Group"
@@ -606,6 +616,8 @@ type_path = "logging.LogMetric"
 api_style = "resource_name"
 scope = "global"
 parent_format = "projects/{project}"
+# GCP uses "metrics" not "log_metrics" in resource paths
+resource_noun = "metrics"
 resource_id_setter = ""
 resource_body_setter = "set_metric"
 resource_name_param = "set_metric_name"
@@ -780,6 +792,8 @@ scope = "regional"
 parent_format = "projects/{project}/locations/{location}"
 resource_id_setter = ""
 resource_body_setter = "set_job"
+# Job.name must be the full resource path (projects/{}/locations/{}/jobs/{})
+full_name_on_model = true
 crud_create = "create_job"
 crud_read = "get_job"
 crud_update = "update_job"
@@ -798,6 +812,8 @@ scope = "regional"
 parent_format = "projects/{project}/locations/{location}"
 resource_id_setter = ""
 resource_body_setter = "set_queue"
+# Queue.name must be the full resource path (projects/{}/locations/{}/queues/{})
+full_name_on_model = true
 crud_create = "create_queue"
 crud_read = "get_queue"
 crud_update = "update_queue"

@@ -126,7 +126,7 @@ pub fn list_structs(source: &str) -> Vec<String> {
 /// Much faster than calling `parse_struct_fields` for each struct.
 pub fn scan_structs(source: &str) -> Vec<(String, usize, bool)> {
     let struct_re = Regex::new(r"(?m)^(?:\s+)?pub struct (\w+)\b").unwrap();
-    let field_re = Regex::new(r"(?m)^\s+pub(?:\(crate\))?\s+(\w+)\s*:").unwrap();
+    let field_re = Regex::new(r"(?m)^\s+pub(?:\(crate\))?\s+(?:r#)?(\w+)\s*:").unwrap();
 
     let mut results = Vec::new();
     for cap in struct_re.captures_iter(source) {
@@ -547,7 +547,7 @@ fn parse_fields_from_body(body: &str) -> Vec<SdkField> {
 }
 
 static FIELD_LINE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"pub(?:\(crate\))?\s+(\w+)\s*:\s*(.+?),?\s*$").unwrap()
+    Regex::new(r"pub(?:\(crate\))?\s+(?:r#)?(\w+)\s*:\s*(.+?),?\s*$").unwrap()
 });
 
 fn parse_field_line(line: &str, docs: &[String], deprecated: bool) -> Option<SdkField> {
@@ -905,6 +905,36 @@ pub struct ForwardingRule {
             "Should parse as Enum, got: {:?}", fields[1].simplified_type
         );
         assert_eq!(fields[2].name, "all_ports");
+    }
+
+    #[test]
+    fn test_raw_identifier_fields() {
+        let source = r#"
+pub struct NotificationChannel {
+    /// Channel type (e.g., "email").
+    pub r#type: std::string::String,
+
+    /// Display name for the channel.
+    pub display_name: std::option::Option<std::string::String>,
+
+    /// Labels for this channel.
+    pub labels: std::collections::HashMap<std::string::String, std::string::String>,
+}
+"#;
+        let fields = parse_struct_fields(source, "NotificationChannel");
+        assert_eq!(fields.len(), 3, "Should parse 3 fields including r#type, got: {fields:?}");
+        assert_eq!(fields[0].name, "type", "r# prefix should be stripped");
+        assert_eq!(fields[0].simplified_type, SimplifiedType::String);
+        assert!(!fields[0].optional);
+        assert_eq!(fields[1].name, "display_name");
+        assert_eq!(fields[2].name, "labels");
+
+        // scan_structs should also find r#type as "type"
+        let scanned = scan_structs(source);
+        let nc = scanned.iter().find(|(n, _, _)| n == "NotificationChannel");
+        assert!(nc.is_some());
+        let (_, count, _) = nc.unwrap();
+        assert_eq!(*count, 3, "scan_structs should count r#type as a field");
     }
 
     #[test]

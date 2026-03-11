@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write;
 
 use crate::manifest::{ApiStyle, FieldDef, ResourceManifest, Scope};
-use crate::{safe_ident, snake_case};
+use crate::{raw_field, safe_ident, snake_case};
 
 pub fn generate_provider_code(manifest: &ResourceManifest) -> String {
     let mut out = String::with_capacity(8192);
@@ -175,10 +175,34 @@ fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
     let client_accessor = m.resource.client_accessor.clone().unwrap_or_else(|| snake_case(&m.resource.sdk_client));
     let create_method = &m.crud.create;
     let is_direct_model = m.resource.api_style == ApiStyle::DirectModel;
+    let skip_name = m.resource.skip_name_on_create;
+    let full_name_on_model = m.resource.full_name_on_model;
 
     // Extract labels if any identity.labels field
     if m.fields.contains_key("labels") {
-        let _ = writeln!(out, "    let labels = super::extract_labels(config);");
+        if m.resource.raw_labels {
+            // Raw labels: extract directly without injecting managed_by.
+            // Used for resources where labels are type-specific config (e.g., NotificationChannel).
+            let _ = writeln!(out, "    // NotificationChannel.labels are channel-type-specific config fields");
+            let _ = writeln!(out, "    // (e.g. email_address for email channels), NOT user labels.");
+            let _ = writeln!(out, "    // Do NOT inject managed_by — use the user's labels as-is.");
+            let _ = writeln!(out, "    let labels: HashMap<String, String> = config");
+            let _ = writeln!(out, "        .pointer(\"/identity/labels\")");
+            let _ = writeln!(out, "        .and_then(|v| v.as_object())");
+            let _ = writeln!(out, "        .map(|m| {{");
+            let _ = writeln!(out, "            m.iter()");
+            let _ = writeln!(out, "                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))");
+            let _ = writeln!(out, "                .collect()");
+            let _ = writeln!(out, "        }})");
+            let _ = writeln!(out, "        .unwrap_or_default();");
+        } else {
+            let _ = writeln!(out, "    let labels = super::extract_labels(config);");
+        }
+    }
+
+    // When skip_name_on_create and no resource_id_setter, name variable is unused
+    if skip_name && m.resource.resource_id_setter.is_none() {
+        let _ = writeln!(out, "    let _ = &name; // server-assigned name — not set on model");
     }
 
     if is_direct_model {
@@ -219,9 +243,26 @@ fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
             "    let mut model = {sdk_crate_mod}::model::{model}::default();"
         );
 
+        // For full_name_on_model: compute full resource path before model setters
+        if full_name_on_model {
+            let parent = build_parent_expr(m);
+            let noun_plural = resource_noun_plural(m);
+            let _ = writeln!(out, "    let full_name = format!(\"{{}}/{noun_plural}/{{}}\", {parent}, name);");
+        }
+
         // Set fields on the model
         for (name, field) in &m.fields {
             if field.output_only || field.skip || name == "labels" {
+                continue;
+            }
+            // skip_name_on_create: don't set model.name — GCP auto-assigns it
+            if name == "name" && skip_name {
+                let _ = writeln!(out, "    // Do NOT set model.name on create — GCP auto-assigns it.");
+                continue;
+            }
+            // full_name_on_model: set full resource path instead of short name
+            if name == "name" && full_name_on_model {
+                let _ = writeln!(out, "    model = model.set_name(&full_name);");
                 continue;
             }
             let sdk_field = field.sdk_field.as_deref().unwrap_or(name);
@@ -242,7 +283,13 @@ fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
             let parent = build_parent_expr(m);
             let parent_setter = m.resource.parent_setter.as_deref().unwrap_or("set_parent");
             let _ = writeln!(out, "    let parent = {parent};");
-            let _ = writeln!(out, "    self.{client_accessor}().await?");
+
+            // When skip_name_on_create, capture response to get server-assigned name
+            if skip_name {
+                let _ = writeln!(out, "    let created = self.{client_accessor}().await?");
+            } else {
+                let _ = writeln!(out, "    self.{client_accessor}().await?");
+            }
             let _ = writeln!(out, "        .{create_method}()");
             let _ = writeln!(out, "        .{parent_setter}(&parent)");
 
@@ -298,9 +345,29 @@ fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
     let _ = writeln!(out);
 
     // Build provider_id and read back
-    write_provider_id_construction(out, m);
+    if skip_name {
+        // Server-assigned name: get provider_id from create response
+        let _ = writeln!(out, "    let provider_id = created.name.clone();");
+    } else {
+        write_provider_id_construction(out, m);
+    }
     let read_fn = crud_fn_name("read", &m.resource.type_path);
-    let _ = writeln!(out, "    self.{read_fn}(&provider_id).await");
+    if skip_name {
+        // Server-assigned resources may have eventual consistency — retry read-back
+        let _ = writeln!(out, "    // Retry read-back: some APIs (e.g. IAM) have eventual consistency");
+        let _ = writeln!(out, "    for attempt in 0..3u32 {{");
+        let _ = writeln!(out, "        match self.{read_fn}(&provider_id).await {{");
+        let _ = writeln!(out, "            Ok(result) => return Ok(result),");
+        let _ = writeln!(out, "            Err(ProviderError::NotFound(_)) if attempt < 2 => {{");
+        let _ = writeln!(out, "                tokio::time::sleep(std::time::Duration::from_millis(500 * (attempt as u64 + 1))).await;");
+        let _ = writeln!(out, "            }}");
+        let _ = writeln!(out, "            Err(e) => return Err(e),");
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out, "    self.{read_fn}(&provider_id).await");
+    } else {
+        let _ = writeln!(out, "    self.{read_fn}(&provider_id).await");
+    }
 }
 
 fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
@@ -412,9 +479,10 @@ fn write_gcp_read_body(out: &mut String, m: &ResourceManifest) {
     let _ = writeln!(out, "    let mut outputs = HashMap::new();");
     if let Some(ref output_field) = m.resource.output_field {
         // Custom output field specified
+        let rf = raw_field(output_field);
         let _ = writeln!(
             out,
-            "    outputs.insert(\"{output_field}\".into(), serde_json::json!(&{model_var}.{output_field}));"
+            "    outputs.insert(\"{output_field}\".into(), serde_json::json!(&{model_var}.{rf}));"
         );
     } else if uses_resource_name {
         let _ = writeln!(
@@ -511,7 +579,19 @@ fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
     }
 
     if m.fields.contains_key("labels") {
-        let _ = writeln!(out, "    let labels = super::extract_labels(config);");
+        if m.resource.raw_labels {
+            let _ = writeln!(out, "    let labels: HashMap<String, String> = config");
+            let _ = writeln!(out, "        .pointer(\"/identity/labels\")");
+            let _ = writeln!(out, "        .and_then(|v| v.as_object())");
+            let _ = writeln!(out, "        .map(|m| {{");
+            let _ = writeln!(out, "            m.iter()");
+            let _ = writeln!(out, "                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))");
+            let _ = writeln!(out, "                .collect()");
+            let _ = writeln!(out, "        }})");
+            let _ = writeln!(out, "        .unwrap_or_default();");
+        } else {
+            let _ = writeln!(out, "    let labels = super::extract_labels(config);");
+        }
     }
     let _ = writeln!(out);
 
@@ -1265,10 +1345,12 @@ fn write_state_json(out: &mut String, m: &ResourceManifest, model_var: &str) {
     if m.fields.contains_key("labels") {
         let _ = writeln!(out, "    let user_labels: serde_json::Map<String, serde_json::Value> = {model_var}.labels");
         let _ = writeln!(out, "        .iter()");
-        let _ = writeln!(
-            out,
-            "        .filter(|(k, _)| k.as_str() != \"managed_by\")"
-        );
+        if !m.resource.raw_labels {
+            let _ = writeln!(
+                out,
+                "        .filter(|(k, _)| k.as_str() != \"managed_by\")"
+            );
+        }
         let _ = writeln!(
             out,
             "        .map(|(k, v)| (k.clone(), serde_json::json!(v)))"
@@ -1296,10 +1378,12 @@ fn write_state_json(out: &mut String, m: &ResourceManifest, model_var: &str) {
 }
 
 fn field_read_accessor(model_var: &str, field_name: &str, field: &FieldDef) -> String {
-    let sdk_field = field
+    let sdk_field_raw = field
         .sdk_field
         .as_deref()
         .unwrap_or(field_name);
+    // Use r#type syntax for Rust keywords used as struct field accessors
+    let sdk_field = raw_field(sdk_field_raw);
 
     if field_name == "labels" {
         return "user_labels".into();

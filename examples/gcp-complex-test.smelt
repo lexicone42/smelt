@@ -1,0 +1,160 @@
+component "microservice" {
+  param svc_name : String
+
+  resource sa "identity" : gcp.iam.ServiceAccount {
+    @intent "Service account for microservice"
+
+    identity {
+      display_name = param.svc_name
+      name = param.svc_name
+    }
+  }
+
+  resource secret "config" : gcp.secretmanager.Secret {
+    @intent "API key / config for microservice"
+
+    identity {
+      name = param.svc_name
+    }
+  }
+
+  resource topic "events" : gcp.pubsub.Topic {
+    @intent "Event bus for microservice"
+
+    identity {
+      name = param.svc_name
+    }
+  }
+}
+
+use "microservice" as "orders" {
+  svc_name = "smelt-orders"
+}
+
+use "microservice" as "payments" {
+  svc_name = "smelt-payments"
+}
+
+resource ns "platform" : gcp.servicedirectory.Namespace {
+  @intent "Service discovery namespace for all microservices"
+
+  identity {
+    name = "smelt-platform"
+  }
+}
+
+resource svc "orders-registry" : gcp.servicedirectory.Service {
+  @intent "Service directory entry for orders service"
+
+  needs ns.platform -> namespace_id
+
+  identity {
+    name = "orders"
+  }
+}
+
+resource svc "payments-registry" : gcp.servicedirectory.Service {
+  @intent "Service directory entry for payments service"
+
+  needs ns.platform -> namespace_id
+
+  identity {
+    name = "payments"
+  }
+}
+
+resource sub "payments-order-listener" : gcp.pubsub.Subscription {
+  @intent "Payments service listens to order events"
+
+  needs orders__topic.events -> topic
+
+  identity {
+    name = "smelt-payments-order-listener"
+  }
+
+  reliability {
+    ack_deadline_seconds = 60
+    message_retention_duration = "86400s"
+  }
+}
+
+resource metric "error-rate" : gcp.logging.LogMetric {
+  @intent "Track error rate across all smelt services"
+
+  config {
+    filter = "severity=ERROR"
+  }
+
+  identity {
+    description = "Count of ERROR-level log entries from smelt services"
+    name = "smelt-error-rate"
+  }
+}
+
+resource channel "ops-email" : gcp.monitoring.NotificationChannel {
+  @intent "Email notifications for ops team"
+
+  config {
+    enabled = true
+  }
+
+  identity {
+    display_name = "Smelt Ops Email"
+    labels = { email_address = "ops@example.com" }
+    name = "smelt-ops-email"
+    type = "email"
+  }
+}
+
+resource uptime "orders-health" : gcp.monitoring.UptimeCheckConfig {
+  @intent "Uptime check for orders endpoint"
+
+  config {
+    period = "300s"
+    timeout = "10s"
+  }
+
+  identity {
+    display_name = "Orders Service Health"
+    name = "smelt-orders-health"
+  }
+}
+
+resource job "order-cleanup" : gcp.scheduler.Job {
+  @intent "Periodic cleanup of stale orders"
+
+  config {
+    schedule = "0 3 * * *"
+    time_zone = "UTC"
+  }
+
+  identity {
+    description = "Nightly cleanup of abandoned orders"
+    name = "smelt-order-cleanup"
+  }
+}
+
+resource queue "order-processing" : gcp.tasks.Queue {
+  @intent "Task queue for order processing pipeline"
+
+  identity {
+    name = "smelt-order-proc-v4"
+  }
+}
+
+layer "staging" over "base" {
+  override sub.* {
+    reliability {
+      ack_deadline_seconds = 30
+    }
+  }
+}
+
+layer "production" over "staging" {
+  override sub.* {
+    reliability {
+      ack_deadline_seconds = 120
+      message_retention_duration = "604800s"
+    }
+  }
+}

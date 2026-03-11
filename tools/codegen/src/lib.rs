@@ -36,3 +36,13 @@ pub fn safe_ident(s: &str) -> String {
         s.to_string()
     }
 }
+
+/// Produce a raw-identifier form for struct field access if the name is a Rust keyword.
+/// e.g. "type" → "r#type", "name" → "name"
+pub fn raw_field(s: &str) -> String {
+    if RUST_KEYWORDS.contains(&s) {
+        format!("r#{s}")
+    } else {
+        s.to_string()
+    }
+}

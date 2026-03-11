@@ -610,6 +610,14 @@ impl GcpProvider {
                                 default: None,
                                 sensitive: false,
                             },
+                            crate::provider::FieldSchema {
+                                name: "type".into(),
+                                description: "The backup type, which suggests the trigger for the backup.".into(),
+                                field_type: crate::provider::FieldType::Enum(vec!["TYPE_UNSPECIFIED".into(), "GOOGLE_DEFAULT_ENCRYPTION".into(), "CUSTOMER_MANAGED_ENCRYPTION".into()]),
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
                         ],
                     },
                 ],
@@ -645,6 +653,7 @@ impl GcpProvider {
         let tags = config
             .pointer("/identity/tags")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        let type_val = config.optional_str("/config/type").map(String::from);
 
         let labels = super::extract_labels(config);
         // Build SDK model
@@ -667,6 +676,11 @@ impl GcpProvider {
         model = model.set_name(name.clone());
         if let Some(v) = tags {
             model = model.set_tags(v);
+        }
+        if let Some(ref s) = type_val {
+            model = model.set_type(google_cloud_alloydb_v1::model::backup::Type::from(
+                s.as_str(),
+            ));
         }
         model = model.set_labels(labels);
 
@@ -727,6 +741,7 @@ impl GcpProvider {
                 "annotations": &backup.annotations,
                 "cluster_name": backup.cluster_name.as_str(),
                 "encryption_config": &backup.encryption_config,
+                "type": &backup.r#type,
             },
         });
 
@@ -770,6 +785,7 @@ impl GcpProvider {
         let tags = config
             .pointer("/identity/tags")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
+        let type_val = config.optional_str("/config/type").map(String::from);
         let labels = super::extract_labels(config);
 
         let mut model = google_cloud_alloydb_v1::model::Backup::default();
@@ -791,6 +807,11 @@ impl GcpProvider {
         }
         if let Some(v) = tags {
             model = model.set_tags(v);
+        }
+        if let Some(ref s) = type_val {
+            model = model.set_type(google_cloud_alloydb_v1::model::backup::Type::from(
+                s.as_str(),
+            ));
         }
         model = model.set_labels(labels);
 

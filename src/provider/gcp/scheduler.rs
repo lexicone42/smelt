@@ -107,13 +107,18 @@ impl GcpProvider {
 
         // Build SDK model
         let mut model = google_cloud_scheduler_v1::model::Job::default();
+        let full_name = format!(
+            "{}/jobs/{}",
+            format!("projects/{}/locations/{}", self.project_id, self.region),
+            name
+        );
         if let Some(v) = attempt_deadline {
             model = model.set_attempt_deadline(v);
         }
         if let Some(v) = description {
             model = model.set_description(v);
         }
-        model = model.set_name(name.clone());
+        model = model.set_name(&full_name);
         if let Some(v) = retry_config {
             model = model.set_retry_config(v);
         }

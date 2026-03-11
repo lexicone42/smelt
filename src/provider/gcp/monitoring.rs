@@ -463,6 +463,14 @@ impl GcpProvider {
                                 default: None,
                                 sensitive: false,
                             },
+                            crate::provider::FieldSchema {
+                                name: "type".into(),
+                                description: "The type of the notification channel. This field matches the".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
                         ],
                     },
                     crate::provider::SectionSchema {
@@ -548,6 +556,7 @@ impl GcpProvider {
             .ok()
         });
         let name = config.require_str("/identity/name")?.to_string();
+        let type_val = config.optional_str("/identity/type").map(String::from);
         let user_labels = config
             .pointer("/config/user_labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
@@ -555,7 +564,19 @@ impl GcpProvider {
             .optional_str("/output/verification_status")
             .map(String::from);
 
-        let labels = super::extract_labels(config);
+        // NotificationChannel.labels are channel-type-specific config fields
+        // (e.g. email_address for email channels), NOT user labels.
+        // Do NOT inject managed_by — use the user's labels as-is.
+        let labels: HashMap<String, String> = config
+            .pointer("/identity/labels")
+            .and_then(|v| v.as_object())
+            .map(|m| {
+                m.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let _ = &name; // server-assigned name — not set on model
         // Build SDK model
         let mut model = google_cloud_monitoring_v3::model::NotificationChannel::default();
         if let Some(v) = creation_record {
@@ -573,7 +594,10 @@ impl GcpProvider {
         if let Some(v) = mutation_records {
             model = model.set_mutation_records(v);
         }
-        model = model.set_name(name.clone());
+        // Do NOT set model.name on create — GCP auto-assigns it.
+        if let Some(v) = type_val {
+            model = model.set_type(v);
+        }
         if let Some(v) = user_labels {
             model = model.set_user_labels(v);
         }
@@ -588,7 +612,8 @@ impl GcpProvider {
 
         // Make API call
         let parent = format!("projects/{}", self.project_id);
-        self.notification_channels()
+        let created = self
+            .notification_channels()
             .await?
             .create_notification_channel()
             .set_name(&parent)
@@ -599,7 +624,20 @@ impl GcpProvider {
                 super::classify_gcp_error("Create_notification_channel NotificationChannel", e)
             })?;
 
-        let provider_id = format!("projects/{}/notificationChannels/{}", self.project_id, name);
+        let provider_id = created.name.clone();
+        // Retry read-back: some APIs (e.g. IAM) have eventual consistency
+        for attempt in 0..3u32 {
+            match self.read_monitoring_notificationchannel(&provider_id).await {
+                Ok(result) => return Ok(result),
+                Err(ProviderError::NotFound(_)) if attempt < 2 => {
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        500 * (attempt as u64 + 1),
+                    ))
+                    .await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
         self.read_monitoring_notificationchannel(&provider_id).await
     }
 
@@ -624,7 +662,6 @@ impl GcpProvider {
         let user_labels: serde_json::Map<String, serde_json::Value> = notification_channel
             .labels
             .iter()
-            .filter(|(k, _)| k.as_str() != "managed_by")
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
 
@@ -634,6 +671,7 @@ impl GcpProvider {
                 "display_name": notification_channel.display_name.as_str(),
                 "labels": user_labels,
                 "name": notification_channel.name.as_str(),
+                "type": notification_channel.r#type.as_str(),
             },
             "config": {
                 "creation_record": &notification_channel.creation_record,
@@ -684,13 +722,22 @@ impl GcpProvider {
             )
             .ok()
         });
+        let type_val = config.optional_str("/identity/type").map(String::from);
         let user_labels = config
             .pointer("/config/user_labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
         let verification_status = config
             .optional_str("/output/verification_status")
             .map(String::from);
-        let labels = super::extract_labels(config);
+        let labels: HashMap<String, String> = config
+            .pointer("/identity/labels")
+            .and_then(|v| v.as_object())
+            .map(|m| {
+                m.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default();
 
         let mut model = google_cloud_monitoring_v3::model::NotificationChannel::default();
         model = model.set_name(provider_id);
@@ -708,6 +755,9 @@ impl GcpProvider {
         }
         if let Some(v) = mutation_records {
             model = model.set_mutation_records(v);
+        }
+        if let Some(v) = type_val {
+            model = model.set_type(v);
         }
         if let Some(v) = user_labels {
             model = model.set_user_labels(v);
@@ -883,6 +933,7 @@ impl GcpProvider {
             .pointer("/config/user_labels")
             .and_then(|v| serde_json::from_value::<HashMap<String, String>>(v.clone()).ok());
 
+        let _ = &name; // server-assigned name — not set on model
         // Build SDK model
         let mut model = google_cloud_monitoring_v3::model::UptimeCheckConfig::default();
         if let Some(ref s) = checker_type {
@@ -898,7 +949,7 @@ impl GcpProvider {
         if let Some(v) = display_name {
             model = model.set_display_name(v);
         }
-        model = model.set_name(name.clone());
+        // Do NOT set model.name on create — GCP auto-assigns it.
         if let Some(v) = period {
             model = model.set_period(v);
         }
@@ -931,7 +982,8 @@ impl GcpProvider {
 
         // Make API call
         let parent = format!("projects/{}", self.project_id);
-        self.uptime_checks()
+        let created = self
+            .uptime_checks()
             .await?
             .create_uptime_check_config()
             .set_parent(&parent)
@@ -942,7 +994,20 @@ impl GcpProvider {
                 super::classify_gcp_error("Create_uptime_check_config UptimeCheckConfig", e)
             })?;
 
-        let provider_id = format!("projects/{}/uptimeCheckConfigs/{}", self.project_id, name);
+        let provider_id = created.name.clone();
+        // Retry read-back: some APIs (e.g. IAM) have eventual consistency
+        for attempt in 0..3u32 {
+            match self.read_monitoring_uptimecheckconfig(&provider_id).await {
+                Ok(result) => return Ok(result),
+                Err(ProviderError::NotFound(_)) if attempt < 2 => {
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        500 * (attempt as u64 + 1),
+                    ))
+                    .await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
         self.read_monitoring_uptimecheckconfig(&provider_id).await
     }
 
