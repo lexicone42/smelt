@@ -61,6 +61,10 @@ pub struct ResourceNode {
 pub struct DependencyGraph {
     graph: DiGraph<ResourceNode, DepEdge>,
     index_map: HashMap<ResourceId, NodeIndex>,
+    /// Resource declarations expanded from component `use` statements.
+    /// These don't exist in the original parsed files, so the plan module
+    /// needs them to generate configs for expanded resources.
+    expanded_resources: Vec<ResourceDecl>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -226,7 +230,16 @@ impl DependencyGraph {
             return Err(GraphError::CycleDetected(node.id.to_string()));
         }
 
-        Ok(Self { graph, index_map })
+        Ok(Self {
+            graph,
+            index_map,
+            expanded_resources: expanded,
+        })
+    }
+
+    /// Resource declarations expanded from component `use` statements.
+    pub fn expanded_resources(&self) -> &[ResourceDecl] {
+        &self.expanded_resources
     }
 
     /// Get the topological order for applying resources (dependencies first).
@@ -448,6 +461,14 @@ fn expand_components(
     }
 
     Ok(expanded)
+}
+
+/// Expand a single `use` declaration into concrete resources (public for apply module).
+pub fn expand_single_use_public(
+    use_decl: &UseDecl,
+    component: &ComponentDecl,
+) -> Vec<ResourceDecl> {
+    expand_single_use(use_decl, component)
 }
 
 /// Expand a single `use` declaration into concrete resources.

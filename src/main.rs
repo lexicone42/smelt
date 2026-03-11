@@ -446,7 +446,7 @@ fn cmd_plan(
 fn load_current_state(
     environment: &str,
     secret_store: Option<&SecretStore>,
-) -> BTreeMap<String, serde_json::Value> {
+) -> BTreeMap<String, plan::CurrentResource> {
     let store = match store::Store::open(Path::new(".")) {
         Ok(s) => s,
         Err(_) => return BTreeMap::new(),
@@ -472,7 +472,13 @@ fn load_current_state(
             if let Some(ss) = secret_store {
                 let _ = ss.decrypt_json_values(&mut config);
             }
-            state.insert(name.clone(), config);
+            state.insert(
+                name.clone(),
+                plan::CurrentResource {
+                    type_path: obj.type_path,
+                    config,
+                },
+            );
         }
     }
     state
@@ -483,12 +489,12 @@ fn load_current_state(
 /// All reads are dispatched concurrently — there's no dependency ordering
 /// for reads, so we can fire them all at once and collect results.
 ///
-/// Returns a map of resource_id -> live config JSON.
+/// Returns a map of resource_id -> live CurrentResource.
 fn load_live_state(
     environment: &str,
     graph: &DependencyGraph,
     registry: &smelt::provider::ProviderRegistry,
-) -> Result<BTreeMap<String, serde_json::Value>> {
+) -> Result<BTreeMap<String, plan::CurrentResource>> {
     let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
 
     let tree_hash = match s.get_ref(environment) {
@@ -505,6 +511,7 @@ fn load_live_state(
     // Collect all readable resources with their provider info
     struct ReadTarget<'a> {
         resource_id: String,
+        type_path: String,
         provider: &'a dyn smelt::provider::Provider,
         resource_type: String,
         provider_id: String,
@@ -533,6 +540,7 @@ fn load_live_state(
 
         targets.push(ReadTarget {
             resource_id,
+            type_path: node.type_path.clone(),
             provider,
             resource_type,
             provider_id,
@@ -562,9 +570,20 @@ fn load_live_state(
 
     let mut state = BTreeMap::new();
     for (resource_id, result) in results {
+        let type_path = targets
+            .iter()
+            .find(|t| t.resource_id == resource_id)
+            .map(|t| t.type_path.clone())
+            .unwrap_or_default();
         match result {
             Ok(output) => {
-                state.insert(resource_id, output.state);
+                state.insert(
+                    resource_id,
+                    plan::CurrentResource {
+                        type_path,
+                        config: output.state,
+                    },
+                );
             }
             Err(smelt::provider::ProviderError::NotFound(_)) => {
                 let pid = targets
@@ -588,7 +607,13 @@ fn load_live_state(
                 if let Some(store::TreeEntry::Object(hash)) = tree.children.get(&resource_id)
                     && let Ok(obj) = s.get_object(hash)
                 {
-                    state.insert(resource_id, obj.config);
+                    state.insert(
+                        resource_id,
+                        plan::CurrentResource {
+                            type_path,
+                            config: obj.config,
+                        },
+                    );
                 }
             }
         }
@@ -984,7 +1009,7 @@ fn cmd_drift(environment: &str, files: &[std::path::PathBuf], json: bool) -> Res
     for node in &apply_order {
         let resource_id = node.id.to_string();
 
-        let Some(stored_config) = current_state.get(&resource_id) else {
+        let Some(stored_cr) = current_state.get(&resource_id) else {
             continue;
         };
 
@@ -1009,7 +1034,7 @@ fn cmd_drift(environment: &str, files: &[std::path::PathBuf], json: bool) -> Res
             provider,
             resource_type,
             provider_id,
-            stored_config,
+            stored_config: &stored_cr.config,
         });
     }
 

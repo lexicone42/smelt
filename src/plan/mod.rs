@@ -69,6 +69,16 @@ pub struct PlanSummary {
     pub unchanged: usize,
 }
 
+/// A resource's current state for plan comparison.
+///
+/// Carries both the config JSON and the type_path so that `build_plan`
+/// can generate proper Delete actions for resources removed from desired config.
+#[derive(Debug, Clone)]
+pub struct CurrentResource {
+    pub type_path: String,
+    pub config: serde_json::Value,
+}
+
 /// A single planned action for a resource.
 #[derive(Debug, Clone, Serialize)]
 pub struct PlannedAction {
@@ -112,7 +122,7 @@ impl std::fmt::Display for ActionType {
 pub fn build_plan(
     environment: &str,
     desired_files: &[SmeltFile],
-    current_state: &BTreeMap<String, serde_json::Value>,
+    current_state: &BTreeMap<String, CurrentResource>,
     graph: &DependencyGraph,
 ) -> Plan {
     // Fallback: look for a single layer matching the environment name
@@ -137,7 +147,7 @@ pub fn build_plan(
 pub fn build_plan_with_layers(
     environment: &str,
     desired_files: &[SmeltFile],
-    current_state: &BTreeMap<String, serde_json::Value>,
+    current_state: &BTreeMap<String, CurrentResource>,
     graph: &DependencyGraph,
     layer_names: &[String],
 ) -> Plan {
@@ -157,15 +167,25 @@ pub fn build_plan_with_layers(
         let resource_id = node.id.to_string();
         seen_current.insert(resource_id.clone());
 
-        // Find the resource declaration
-        let resource_decl = desired_files.iter().find_map(|f| {
-            f.declarations.iter().find_map(|d| match d {
-                Declaration::Resource(r) if r.kind == node.id.kind && r.name == node.id.name => {
-                    Some(r)
-                }
-                _ => None,
+        // Find the resource declaration (in parsed files or expanded from components)
+        let resource_decl = desired_files
+            .iter()
+            .find_map(|f| {
+                f.declarations.iter().find_map(|d| match d {
+                    Declaration::Resource(r)
+                        if r.kind == node.id.kind && r.name == node.id.name =>
+                    {
+                        Some(r)
+                    }
+                    _ => None,
+                })
             })
-        });
+            .or_else(|| {
+                graph
+                    .expanded_resources()
+                    .iter()
+                    .find(|r| r.kind == node.id.kind && r.name == node.id.name)
+            });
 
         let resource_decl = match resource_decl {
             Some(r) => r,
@@ -190,9 +210,9 @@ pub fn build_plan_with_layers(
                 changes: vec![],
                 forces_replacement: false,
             },
-            Some(current) => {
+            Some(cr) => {
                 let mut changes = Vec::new();
-                crate::provider::diff_values("", &desired_json, current, &mut changes);
+                crate::provider::diff_values("", &desired_json, &cr.config, &mut changes);
                 let action = if changes.is_empty() {
                     ActionType::Unchanged
                 } else {
@@ -214,17 +234,15 @@ pub fn build_plan_with_layers(
 
     // Find resources in current state that are not in desired — these need deletion.
     // Deletes go in a final tier after all creates/updates.
-    let destroy_order = graph.destroy_order();
     let delete_tier = tier_map.keys().last().map_or(0, |k| k + 1);
-    for node in &destroy_order {
-        let resource_id = node.id.to_string();
-        if current_state.contains_key(&resource_id) && !seen_current.contains(&resource_id) {
+    for (resource_id, cr) in current_state {
+        if !seen_current.contains(resource_id) {
             tier_map
                 .entry(delete_tier)
                 .or_default()
                 .push(PlannedAction {
-                    resource_id,
-                    type_path: node.type_path.clone(),
+                    resource_id: resource_id.clone(),
+                    type_path: cr.type_path.clone(),
                     action: ActionType::Delete,
                     intent: None,
                     changes: vec![],
@@ -566,6 +584,13 @@ mod tests {
         assert_eq!(plan.summary.delete, 0);
     }
 
+    fn cr(type_path: &str, config: serde_json::Value) -> CurrentResource {
+        CurrentResource {
+            type_path: type_path.to_string(),
+            config,
+        }
+    }
+
     #[test]
     fn plan_detects_changes() {
         let file = parser::parse(
@@ -582,9 +607,12 @@ mod tests {
         let mut current_state = BTreeMap::new();
         current_state.insert(
             "vpc.main".to_string(),
-            serde_json::json!({
-                "network": { "cidr_block": "10.0.0.0/8" }
-            }),
+            cr(
+                "aws.ec2.Vpc",
+                serde_json::json!({
+                    "network": { "cidr_block": "10.0.0.0/8" }
+                }),
+            ),
         );
 
         let plan = build_plan("production", &[file], &current_state, &graph);
@@ -613,9 +641,12 @@ mod tests {
         let mut current_state = BTreeMap::new();
         current_state.insert(
             "vpc.main".to_string(),
-            serde_json::json!({
-                "network": { "cidr_block": "10.0.0.0/16" }
-            }),
+            cr(
+                "aws.ec2.Vpc",
+                serde_json::json!({
+                    "network": { "cidr_block": "10.0.0.0/16" }
+                }),
+            ),
         );
 
         let plan = build_plan("production", &[file], &current_state, &graph);
@@ -676,10 +707,13 @@ mod tests {
         let mut current_state = BTreeMap::new();
         current_state.insert(
             "vpc.main".to_string(),
-            serde_json::json!({
-                "network": { "cidr_block": "10.0.0.0/16" },
-                "sizing": { "instance_type": "t3.large" }
-            }),
+            cr(
+                "aws.ec2.Vpc",
+                serde_json::json!({
+                    "network": { "cidr_block": "10.0.0.0/16" },
+                    "sizing": { "instance_type": "t3.large" }
+                }),
+            ),
         );
 
         // Build plan for "staging" environment — layer should override instance_type
@@ -715,9 +749,12 @@ mod tests {
         let mut current_state = BTreeMap::new();
         current_state.insert(
             "vpc.main".to_string(),
-            serde_json::json!({
-                "network": { "cidr_block": "10.0.0.0/16" }
-            }),
+            cr(
+                "aws.ec2.Vpc",
+                serde_json::json!({
+                    "network": { "cidr_block": "10.0.0.0/16" }
+                }),
+            ),
         );
 
         // Override pattern is subnet.*, so vpc.main should be unchanged
@@ -752,10 +789,13 @@ mod tests {
         let mut current_state = BTreeMap::new();
         current_state.insert(
             "instance.web".to_string(),
-            serde_json::json!({
-                "sizing": { "instance_type": "t3.micro" },
-                "network": { "cidr_block": "10.0.0.0/16" }
-            }),
+            cr(
+                "aws.ec2.Instance",
+                serde_json::json!({
+                    "sizing": { "instance_type": "t3.micro" },
+                    "network": { "cidr_block": "10.0.0.0/16" }
+                }),
+            ),
         );
 
         // Apply both layers: base (t3.small), then production (t3.2xlarge)

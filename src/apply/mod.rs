@@ -108,9 +108,12 @@ pub fn execute_plan_with_config(
     parsed_files: &[SmeltFile],
     secret_store: Option<&SecretStore>,
 ) -> ApplySummary {
-    // Build a config lookup from parsed files
-    let config_map = build_config_map(parsed_files);
-    let dep_map = build_dependency_map(parsed_files);
+    // Expand components so config/dep maps include scoped resources
+    let expanded = expand_components_from_files(parsed_files);
+
+    // Build a config lookup from parsed files + expanded resources
+    let config_map = build_config_map(parsed_files, &expanded);
+    let dep_map = build_dependency_map(parsed_files, &expanded);
     let secret_paths_map = build_secret_paths(parsed_files);
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -709,49 +712,61 @@ fn is_valid_binding_name(name: &str) -> bool {
 }
 
 /// Build a map of resource_id -> list of dependency bindings.
-fn build_dependency_map(files: &[SmeltFile]) -> HashMap<String, Vec<DepBinding>> {
+fn build_dependency_map(
+    files: &[SmeltFile],
+    expanded: &[crate::ast::ResourceDecl],
+) -> HashMap<String, Vec<DepBinding>> {
     let mut map: HashMap<String, Vec<DepBinding>> = HashMap::new();
+
+    let add_resource = |map: &mut HashMap<String, Vec<DepBinding>>,
+                        resource: &crate::ast::ResourceDecl| {
+        let resource_id = format!("{}.{}", resource.kind, resource.name);
+        let bindings: Vec<DepBinding> = resource
+            .dependencies
+            .iter()
+            .filter_map(|dep| {
+                let segments = &dep.source.segments;
+                if segments.len() >= 2 {
+                    // SE-09: Validate binding names
+                    if !is_valid_binding_name(&dep.binding) {
+                        eprintln!(
+                            "warning: {resource_id}: invalid binding name '{}' \
+                             (must be lowercase alphanumeric + underscore)",
+                            dep.binding
+                        );
+                    }
+                    // 3+ segments means an output key:
+                    // needs vpc.main.arn -> vpc_arn
+                    //       ^^^^^^^^ target  ^^^ output_key
+                    let output_key = if segments.len() > 2 {
+                        Some(segments[2..].join("."))
+                    } else {
+                        None
+                    };
+                    Some(DepBinding {
+                        target: format!("{}.{}", segments[0], segments[1]),
+                        binding: dep.binding.clone(),
+                        output_key,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if !bindings.is_empty() {
+            map.insert(resource_id, bindings);
+        }
+    };
+
     for file in files {
         for decl in &file.declarations {
             if let Declaration::Resource(resource) = decl {
-                let resource_id = format!("{}.{}", resource.kind, resource.name);
-                let bindings: Vec<DepBinding> = resource
-                    .dependencies
-                    .iter()
-                    .filter_map(|dep| {
-                        let segments = &dep.source.segments;
-                        if segments.len() >= 2 {
-                            // SE-09: Validate binding names
-                            if !is_valid_binding_name(&dep.binding) {
-                                eprintln!(
-                                    "warning: {resource_id}: invalid binding name '{}' \
-                                     (must be lowercase alphanumeric + underscore)",
-                                    dep.binding
-                                );
-                            }
-                            // 3+ segments means an output key:
-                            // needs vpc.main.arn -> vpc_arn
-                            //       ^^^^^^^^ target  ^^^ output_key
-                            let output_key = if segments.len() > 2 {
-                                Some(segments[2..].join("."))
-                            } else {
-                                None
-                            };
-                            Some(DepBinding {
-                                target: format!("{}.{}", segments[0], segments[1]),
-                                binding: dep.binding.clone(),
-                                output_key,
-                            })
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                if !bindings.is_empty() {
-                    map.insert(resource_id, bindings);
-                }
+                add_resource(&mut map, resource);
             }
         }
+    }
+    for resource in expanded {
+        add_resource(&mut map, resource);
     }
     map
 }
@@ -934,8 +949,35 @@ fn collect_secret_paths(value: &Value, current_path: &str, paths: &mut HashSet<S
     }
 }
 
-/// Build a map of resource_id -> JSON config from parsed files.
-fn build_config_map(files: &[SmeltFile]) -> HashMap<String, serde_json::Value> {
+/// Expand component `use` declarations into concrete resource declarations.
+fn expand_components_from_files(files: &[SmeltFile]) -> Vec<crate::ast::ResourceDecl> {
+    use crate::ast::{ComponentDecl, Declaration};
+    let mut components: HashMap<String, &ComponentDecl> = HashMap::new();
+    for file in files {
+        for decl in &file.declarations {
+            if let Declaration::Component(c) = decl {
+                components.insert(c.name.clone(), c);
+            }
+        }
+    }
+    let mut expanded = Vec::new();
+    for file in files {
+        for decl in &file.declarations {
+            if let Declaration::Use(use_decl) = decl
+                && let Some(component) = components.get(&use_decl.component)
+            {
+                expanded.extend(crate::graph::expand_single_use_public(use_decl, component));
+            }
+        }
+    }
+    expanded
+}
+
+/// Build a map of resource_id -> JSON config from parsed files and expanded resources.
+fn build_config_map(
+    files: &[SmeltFile],
+    expanded: &[crate::ast::ResourceDecl],
+) -> HashMap<String, serde_json::Value> {
     let mut map = HashMap::new();
     for file in files {
         for decl in &file.declarations {
@@ -945,6 +987,11 @@ fn build_config_map(files: &[SmeltFile]) -> HashMap<String, serde_json::Value> {
                 map.insert(resource_id, config);
             }
         }
+    }
+    for resource in expanded {
+        let resource_id = format!("{}.{}", resource.kind, resource.name);
+        let config = resource_to_json(resource);
+        map.insert(resource_id, config);
     }
     map
 }
@@ -1257,7 +1304,7 @@ mod tests {
         )
         .unwrap();
 
-        let config_map = build_config_map(&[file]);
+        let config_map = build_config_map(&[file], &[]);
         assert_eq!(config_map.len(), 2);
 
         let vpc_config = &config_map["vpc.main"];
@@ -1327,8 +1374,8 @@ mod tests {
         )
         .unwrap();
 
-        let config_map = build_config_map(&[file.clone()]);
-        let dep_map = build_dependency_map(&[file]);
+        let config_map = build_config_map(&[file.clone()], &[]);
+        let dep_map = build_dependency_map(&[file], &[]);
 
         let mut provider_ids: ProviderIdMap = HashMap::new();
         provider_ids.insert("vpc.main".to_string(), "vpc-abc123".to_string());
@@ -1378,8 +1425,8 @@ mod tests {
         )
         .unwrap();
 
-        let config_map = build_config_map(&[file.clone()]);
-        let dep_map = build_dependency_map(&[file]);
+        let config_map = build_config_map(&[file.clone()], &[]);
+        let dep_map = build_dependency_map(&[file], &[]);
 
         // No provider_ids populated — vpc.main hasn't been created
         let provider_ids: ProviderIdMap = HashMap::new();
@@ -1419,8 +1466,8 @@ mod tests {
         )
         .unwrap();
 
-        let config_map = build_config_map(&[file.clone()]);
-        let dep_map = build_dependency_map(&[file]);
+        let config_map = build_config_map(&[file.clone()], &[]);
+        let dep_map = build_dependency_map(&[file], &[]);
 
         let mut provider_ids: ProviderIdMap = HashMap::new();
         provider_ids.insert("vpc.main".to_string(), "vpc-abc123".to_string());
@@ -1530,7 +1577,7 @@ mod tests {
         )
         .unwrap();
 
-        let dep_map = build_dependency_map(&[file]);
+        let dep_map = build_dependency_map(&[file], &[]);
 
         // VPC has no deps
         assert!(!dep_map.contains_key("vpc.main"));
@@ -1565,8 +1612,8 @@ mod tests {
         )
         .unwrap();
 
-        let config_map = build_config_map(&[file.clone()]);
-        let dep_map = build_dependency_map(&[file]);
+        let config_map = build_config_map(&[file.clone()], &[]);
+        let dep_map = build_dependency_map(&[file], &[]);
 
         let mut provider_ids: ProviderIdMap = HashMap::new();
         provider_ids.insert("vpc.main".to_string(), "vpc-abc123".to_string());
@@ -1623,7 +1670,7 @@ mod tests {
         )
         .unwrap();
 
-        let dep_map = build_dependency_map(&[file]);
+        let dep_map = build_dependency_map(&[file], &[]);
         let subnet_deps = &dep_map["subnet.a"];
         assert_eq!(subnet_deps.len(), 2);
 

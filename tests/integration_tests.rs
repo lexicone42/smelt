@@ -1,12 +1,13 @@
 //! Integration tests using the mock provider to exercise the full apply pipeline:
-//! output passing, parallel execution, partial failures, replacement, and state management.
+//! output passing, parallel execution, partial failures, replacement, deletion,
+//! component expansion, layer overrides, and state management.
 
 use std::collections::BTreeMap;
 
 use smelt::apply::{self, ApplyOutcome};
 use smelt::graph::DependencyGraph;
 use smelt::parser;
-use smelt::plan;
+use smelt::plan::{self, CurrentResource};
 use smelt::provider::ProviderRegistry;
 use smelt::provider::mock::MockProvider;
 use smelt::store::Store;
@@ -25,6 +26,27 @@ fn setup() -> (std::path::PathBuf, Store, ProviderRegistry) {
     registry.register(Box::new(MockProvider::new()));
 
     (dir, store, registry)
+}
+
+/// Load current state from the store for plan comparison.
+fn load_state(store: &Store, env: &str) -> BTreeMap<String, CurrentResource> {
+    let tree_hash = store.get_ref(env).unwrap();
+    let tree = store.get_tree(&tree_hash).unwrap();
+    let mut state = BTreeMap::new();
+    for (name, entry) in &tree.children {
+        if let smelt::store::TreeEntry::Object(hash) = entry
+            && let Ok(obj) = store.get_object(hash)
+        {
+            state.insert(
+                name.clone(),
+                CurrentResource {
+                    type_path: obj.type_path,
+                    config: obj.config,
+                },
+            );
+        }
+    }
+    state
 }
 
 #[test]
@@ -377,17 +399,7 @@ fn update_existing_resource() {
     )
     .unwrap();
 
-    // Load current state from store
-    let tree_hash = store.get_ref("test").unwrap();
-    let tree = store.get_tree(&tree_hash).unwrap();
-    let mut current_state = BTreeMap::new();
-    for (name, entry) in &tree.children {
-        if let smelt::store::TreeEntry::Object(hash) = entry
-            && let Ok(obj) = store.get_object(hash)
-        {
-            current_state.insert(name.clone(), obj.config);
-        }
-    }
+    let current_state = load_state(&store, "test");
 
     let graph = DependencyGraph::build(&[file_v2.clone()]).unwrap();
     let plan = plan::build_plan("test", &[file_v2.clone()], &current_state, &graph);
@@ -423,7 +435,7 @@ fn delete_resource() {
     apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file_v1], None);
 
     // Now remove the subnet from the config
-    let _file_v2 = parser::parse(
+    let file_v2 = parser::parse(
         r#"
         resource vpc "main" : mock.test.Vpc {
             network { cidr_block = "10.0.0.0/16" }
@@ -432,26 +444,28 @@ fn delete_resource() {
     )
     .unwrap();
 
-    // Load current state
+    // Load current state (has both vpc.main and subnet.a)
+    let current_state = load_state(&store, "test");
+    assert_eq!(current_state.len(), 2);
+
+    // Build plan from v2 (only VPC) — should detect subnet.a needs deletion
+    let graph_v2 = DependencyGraph::build(&[file_v2.clone()]).unwrap();
+    let plan = plan::build_plan("test", &[file_v2.clone()], &current_state, &graph_v2);
+
+    assert_eq!(plan.summary.unchanged, 1); // VPC unchanged
+    assert_eq!(plan.summary.delete, 1); // subnet.a deleted
+
+    // Execute the plan — subnet should be deleted from provider and state
+    let summary =
+        apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file_v2], None);
+    assert_eq!(summary.deleted, 1);
+    assert_eq!(summary.failed, 0);
+
+    // Verify state now only has the VPC
     let tree_hash = store.get_ref("test").unwrap();
     let tree = store.get_tree(&tree_hash).unwrap();
-    let mut current_state = BTreeMap::new();
-    for (name, entry) in &tree.children {
-        if let smelt::store::TreeEntry::Object(hash) = entry
-            && let Ok(obj) = store.get_object(hash)
-        {
-            current_state.insert(name.clone(), obj.config);
-        }
-    }
-
-    // The plan needs both files' resources in the graph for delete detection,
-    // but v2 only has the VPC. The graph is built from v2, so the plan
-    // won't see subnet.a in desired state but will see it in current state.
-    // However, since subnet.a isn't in the graph from v2, it won't be in
-    // destroy_order. This is a known limitation — smelt only deletes resources
-    // it knows about from the graph.
-    // For this test, we manually verify the state has 2 resources before.
-    assert_eq!(current_state.len(), 2);
+    assert_eq!(tree.children.len(), 1);
+    assert!(tree.children.contains_key("vpc.main"));
 }
 
 #[test]
@@ -473,16 +487,7 @@ fn idempotent_apply() {
     apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file.clone()], None);
 
     // Second apply with same config — should detect no changes
-    let tree_hash = store.get_ref("test").unwrap();
-    let tree = store.get_tree(&tree_hash).unwrap();
-    let mut current_state = BTreeMap::new();
-    for (name, entry) in &tree.children {
-        if let smelt::store::TreeEntry::Object(hash) = entry
-            && let Ok(obj) = store.get_object(hash)
-        {
-            current_state.insert(name.clone(), obj.config);
-        }
-    }
+    let current_state = load_state(&store, "test");
 
     let plan = plan::build_plan("test", &[file.clone()], &current_state, &graph);
     assert_eq!(plan.summary.unchanged, 1);
@@ -655,4 +660,189 @@ fn apply_result_json_serialization() {
             .unwrap()
             .starts_with("mock-vpc-")
     );
+}
+
+#[test]
+fn component_expansion_creates_scoped_resources() {
+    let (project, store, registry) = setup();
+
+    let file = parser::parse(
+        r#"
+        component "web-stack" {
+            param app_name : String
+
+            resource vpc "net" : mock.test.Vpc {
+                network { cidr_block = "10.0.0.0/16" }
+            }
+            resource subnet "web" : mock.test.Subnet {
+                needs vpc.net -> vpc_id
+                network { cidr_block = "10.0.1.0/24" }
+            }
+        }
+        use "web-stack" as "api" {
+            app_name = "api-service"
+        }
+    "#,
+    )
+    .unwrap();
+
+    let graph = DependencyGraph::build(&[file.clone()]).unwrap();
+    let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
+
+    // Component expands to 2 resources with scoped names: api__vpc.net and api__subnet.web
+    assert_eq!(plan.summary.create, 2);
+
+    let resource_ids: Vec<&str> = plan.actions().map(|a| a.resource_id.as_str()).collect();
+    assert!(
+        resource_ids.contains(&"api__vpc.net"),
+        "expected api__vpc.net, got {resource_ids:?}"
+    );
+    assert!(
+        resource_ids.contains(&"api__subnet.web"),
+        "expected api__subnet.web, got {resource_ids:?}"
+    );
+
+    let summary =
+        apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file], None);
+
+    assert_eq!(summary.created, 2);
+    assert_eq!(summary.failed, 0);
+
+    // Verify state has scoped resource names
+    let tree_hash = store.get_ref("test").unwrap();
+    let tree = store.get_tree(&tree_hash).unwrap();
+    assert!(tree.children.contains_key("api__vpc.net"));
+    assert!(tree.children.contains_key("api__subnet.web"));
+}
+
+#[test]
+fn layer_override_applied_in_plan() {
+    let (project, store, registry) = setup();
+
+    // First apply: create with base config
+    let file = parser::parse(
+        r#"
+        resource vpc "main" : mock.test.Vpc {
+            network { cidr_block = "10.0.0.0/16" }
+            sizing { instance_type = "t3.large" }
+        }
+        layer "staging" over "base" {
+            override vpc.* {
+                sizing { instance_type = "t3.small" }
+            }
+        }
+    "#,
+    )
+    .unwrap();
+
+    // Apply in "default" environment (no layer) to create base state
+    let graph = DependencyGraph::build(&[file.clone()]).unwrap();
+    let plan = plan::build_plan("default", &[file.clone()], &BTreeMap::new(), &graph);
+    apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file.clone()], None);
+
+    // Now plan for "staging" with the layer override — should detect the change
+    let current_state = load_state(&store, "default");
+    let plan = plan::build_plan("staging", &[file.clone()], &current_state, &graph);
+
+    assert_eq!(plan.summary.update, 1);
+
+    let action = plan.actions().next().unwrap();
+    assert_eq!(action.changes.len(), 1);
+    assert_eq!(action.changes[0].path, "sizing.instance_type");
+}
+
+#[test]
+fn delete_all_resources() {
+    let (project, store, registry) = setup();
+
+    // Create a resource
+    let file = parser::parse(
+        r#"
+        resource vpc "main" : mock.test.Vpc {
+            network { cidr_block = "10.0.0.0/16" }
+        }
+    "#,
+    )
+    .unwrap();
+
+    let graph = DependencyGraph::build(&[file.clone()]).unwrap();
+    let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
+    apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file], None);
+
+    // Now desired config is empty — all resources should be deleted
+    let empty_file = parser::parse("").unwrap();
+    let current_state = load_state(&store, "test");
+    assert_eq!(current_state.len(), 1);
+
+    let graph_empty = DependencyGraph::build(&[empty_file.clone()]).unwrap();
+    let plan = plan::build_plan("test", &[empty_file.clone()], &current_state, &graph_empty);
+
+    assert_eq!(plan.summary.delete, 1);
+    assert_eq!(plan.summary.create, 0);
+
+    let summary =
+        apply::execute_plan_with_config(&plan, &registry, &store, &project, &[empty_file], None);
+    assert_eq!(summary.deleted, 1);
+
+    // State should be empty
+    let tree_hash = store.get_ref("test").unwrap();
+    let tree = store.get_tree(&tree_hash).unwrap();
+    assert!(tree.children.is_empty());
+}
+
+#[test]
+fn delete_preserves_dependency_order() {
+    let (project, store, registry) = setup();
+
+    // Create VPC -> Subnet -> Instance
+    let file = parser::parse(
+        r#"
+        resource vpc "main" : mock.test.Vpc {
+            network { cidr_block = "10.0.0.0/16" }
+        }
+        resource subnet "a" : mock.test.Subnet {
+            needs vpc.main -> vpc_id
+            network { cidr_block = "10.0.1.0/24" }
+        }
+        resource instance "web" : mock.test.Instance {
+            needs subnet.a -> subnet_id
+            compute { instance_type = "t3.micro" }
+        }
+    "#,
+    )
+    .unwrap();
+
+    let graph = DependencyGraph::build(&[file.clone()]).unwrap();
+    let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
+    apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file], None);
+
+    // Remove subnet and instance, keep VPC
+    let file_v2 = parser::parse(
+        r#"
+        resource vpc "main" : mock.test.Vpc {
+            network { cidr_block = "10.0.0.0/16" }
+        }
+    "#,
+    )
+    .unwrap();
+
+    let current_state = load_state(&store, "test");
+    assert_eq!(current_state.len(), 3);
+
+    let graph_v2 = DependencyGraph::build(&[file_v2.clone()]).unwrap();
+    let plan = plan::build_plan("test", &[file_v2.clone()], &current_state, &graph_v2);
+
+    assert_eq!(plan.summary.unchanged, 1); // VPC
+    assert_eq!(plan.summary.delete, 2); // subnet + instance
+
+    let summary =
+        apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file_v2], None);
+    assert_eq!(summary.deleted, 2);
+    assert_eq!(summary.failed, 0);
+
+    // Only VPC remains
+    let tree_hash = store.get_ref("test").unwrap();
+    let tree = store.get_tree(&tree_hash).unwrap();
+    assert_eq!(tree.children.len(), 1);
+    assert!(tree.children.contains_key("vpc.main"));
 }
