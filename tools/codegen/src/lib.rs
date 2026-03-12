@@ -4,11 +4,20 @@ pub mod introspect;
 pub mod manifest;
 
 /// Convert a PascalCase or camelCase string to snake_case.
+/// Handles consecutive uppercase (acronyms): "DBInstance" → "db_instance",
+/// "LoadBalancerARN" → "load_balancer_arn".
 pub fn snake_case(s: &str) -> String {
     let mut result = String::with_capacity(s.len() + 4);
-    for (i, ch) in s.chars().enumerate() {
+    let chars: Vec<char> = s.chars().collect();
+    for (i, &ch) in chars.iter().enumerate() {
         if ch.is_uppercase() && i > 0 {
-            result.push('_');
+            let prev_upper = chars[i - 1].is_uppercase();
+            let next_lower = chars.get(i + 1).is_some_and(|c| c.is_lowercase());
+            // Insert underscore before: a new word after lowercase, or
+            // the last char of an acronym before a lowercase (e.g., the 'I' in "DBInstance").
+            if !prev_upper || next_lower {
+                result.push('_');
+            }
         }
         result.push(ch.to_ascii_lowercase());
     }

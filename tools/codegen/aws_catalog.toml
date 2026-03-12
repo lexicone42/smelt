@@ -1,0 +1,2056 @@
+# AWS Resource Catalog — declarative field definitions (no SDK introspection).
+#
+# Unlike the GCP catalog which introspects SDK model.rs files, the AWS catalog
+# defines fields explicitly. This is because:
+# 1. AWS SDK types live across many files in src/types/, not a single model.rs
+# 2. AWS CRUD patterns are more diverse than GCP's 3 API styles
+# 3. The hand-written schemas are already well-defined
+#
+# Usage:
+#   cargo run -- aws-batch --catalog aws_catalog.toml --output-dir /tmp/aws-codegen
+
+# ─── CloudWatch Logs: LogGroup ───────────────────────────────────────────────
+# Pattern: name-get, set_tags, name as provider_id
+
+[[resource]]
+struct_name = "LogGroup"
+sdk_crate = "aws-sdk-cloudwatchlogs"
+sdk_client = "logs"
+type_path = "logs.LogGroup"
+
+crud_create = "create_log_group"
+crud_read = "describe_log_groups"
+crud_delete = "delete_log_group"
+
+aws_client_field = "logs_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "log_groups"
+aws_id_param = "log_group_name"
+aws_id_source = "config_name"
+aws_tag_style = "set_tags"
+aws_read_id_param = "log_group_name_prefix"
+
+[[resource.aws_outputs]]
+name = "log_group_arn"
+expression = "resource.arn().unwrap_or(\"\")"
+
+[[resource.aws_outputs]]
+name = "log_group_name"
+expression = "resource.log_group_name().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Log group name (e.g., /ecs/my-service)"
+sdk_param = "log_group_name"
+
+[[resource.fields]]
+name = "retention_days"
+section = "reliability"
+type = "Integer"
+default = 0
+description = "Log retention in days (0 = never expire)"
+sdk_param = "retention_in_days"
+skip_create = true
+aws_post_create_method = "put_retention_policy"
+
+[[resource.fields]]
+name = "kms_key_id"
+section = "security"
+type = "String"
+description = "KMS key for encryption"
+
+# ─── SNS: Topic ──────────────────────────────────────────────────────────────
+# Pattern: arn-response, typed_tags, arn as provider_id
+
+[[resource]]
+struct_name = "Topic"
+sdk_crate = "aws-sdk-sns"
+sdk_client = "sns"
+type_path = "sns.Topic"
+
+crud_create = "create_topic"
+crud_read = "get_topic_attributes"
+crud_delete = "delete_topic"
+
+aws_client_field = "sns_client"
+aws_read_style = "get_attributes"
+aws_id_param = "topic_arn"
+aws_id_source = "response_field"
+aws_response_id_field = "topic_arn"
+aws_tag_style = "typed_tags"
+
+[[resource.aws_outputs]]
+name = "topic_arn"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "topic_name"
+expression = "provider_id.rsplit(':').next().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Topic name"
+
+[[resource.fields]]
+name = "fifo"
+section = "identity"
+type = "Bool"
+default = false
+description = "FIFO topic"
+aws_attr_key = "FifoTopic"
+
+# ─── Lambda: Function ────────────────────────────────────────────────────────
+# Pattern: name-get, set_tags, name as provider_id
+
+[[resource]]
+struct_name = "Function"
+sdk_crate = "aws-sdk-lambda"
+sdk_client = "lambda"
+type_path = "lambda.Function"
+
+crud_create = "create_function"
+crud_read = "get_function"
+crud_update = "update_function_configuration"
+crud_delete = "delete_function"
+aws_updatable = true
+
+aws_client_field = "lambda_client"
+aws_read_style = "get_single"
+aws_response_accessor = "configuration"
+aws_id_param = "function_name"
+aws_id_source = "config_name"
+aws_tag_style = "set_tags"
+
+[[resource.aws_outputs]]
+name = "function_arn"
+expression = "resource.function_arn().unwrap_or(\"\")"
+
+[[resource.aws_outputs]]
+name = "function_name"
+expression = "resource.function_name().unwrap_or(\"\")"
+
+[[resource.aws_outputs]]
+name = "last_modified"
+expression = "resource.last_modified().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Function name"
+sdk_param = "function_name"
+
+[[resource.fields]]
+name = "description"
+section = "identity"
+type = "String"
+description = "Function description"
+
+[[resource.fields]]
+name = "runtime"
+section = "sizing"
+type = "String"
+required = true
+description = "Runtime (python3.12, nodejs20.x, etc.)"
+aws_enum = true
+
+[[resource.fields]]
+name = "handler"
+section = "sizing"
+type = "String"
+default = "index.handler"
+description = "Entry point handler"
+
+[[resource.fields]]
+name = "memory_size"
+section = "sizing"
+type = "Integer"
+default = 128
+description = "Memory in MB (128-10240)"
+
+[[resource.fields]]
+name = "timeout"
+section = "sizing"
+type = "Integer"
+default = 30
+description = "Timeout in seconds (1-900)"
+
+[[resource.fields]]
+name = "role_arn"
+section = "security"
+type = "String"
+required = true
+description = "Execution IAM role ARN"
+sdk_param = "role"
+
+# ─── SQS: Queue ──────────────────────────────────────────────────────────────
+# Pattern: queue_url as provider_id, get_queue_attributes, set_queue_attributes
+# Read takes queue_url directly; create returns queue_url from response.
+# Tags are inline key-value pairs on create_queue (not typed Tag structs).
+
+[[resource]]
+struct_name = "Queue"
+sdk_crate = "aws-sdk-sqs"
+sdk_client = "sqs"
+type_path = "sqs.Queue"
+
+crud_create = "create_queue"
+crud_read = "get_queue_attributes"
+crud_update = "set_queue_attributes"
+crud_delete = "delete_queue"
+aws_updatable = true
+
+aws_client_field = "sqs_client"
+aws_read_style = "get_attributes"
+aws_id_param = "queue_url"
+aws_id_source = "response_field"
+aws_response_id_field = "queue_url"
+aws_tag_style = "inline_kv"
+
+[[resource.aws_outputs]]
+name = "queue_url"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "queue_arn"
+expression = "attrs.get(&aws_sdk_sqs::types::QueueAttributeName::QueueArn).cloned().unwrap_or_default()"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Queue name"
+sdk_param = "queue_name"
+
+[[resource.fields]]
+name = "fifo"
+section = "identity"
+type = "Bool"
+default = false
+description = "FIFO queue"
+aws_attr_key = "FifoQueue"
+
+[[resource.fields]]
+name = "delay_seconds"
+section = "reliability"
+type = "Integer"
+default = 0
+description = "Delivery delay in seconds (0–900)"
+aws_attr_key = "DelaySeconds"
+
+[[resource.fields]]
+name = "message_retention_seconds"
+section = "reliability"
+type = "Integer"
+default = 345600
+description = "Message retention period in seconds (60–1209600)"
+aws_attr_key = "MessageRetentionPeriod"
+
+[[resource.fields]]
+name = "visibility_timeout"
+section = "reliability"
+type = "Integer"
+default = 30
+description = "Visibility timeout in seconds (0–43200)"
+aws_attr_key = "VisibilityTimeout"
+
+# ─── KMS: Key ────────────────────────────────────────────────────────────────
+# Pattern: key_id as provider_id, describe_key, schedule_key_deletion.
+# Post-create alias created from identity.name via create_alias (baked into create fn).
+# Tags use typed KMS Tag builder (tag_key / tag_value).
+
+[[resource]]
+struct_name = "KmsKey"
+sdk_crate = "aws-sdk-kms"
+sdk_client = "kms"
+type_path = "kms.Key"
+
+crud_create = "create_key"
+crud_read = "describe_key"
+crud_update = "update_key_description"
+crud_delete = "schedule_key_deletion"
+aws_updatable = true
+
+aws_client_field = "kms_client"
+aws_read_style = "get_single"
+aws_response_accessor = "key_metadata"
+aws_id_param = "key_id"
+aws_id_source = "response_field"
+aws_response_id_field = "key_id"
+aws_tag_style = "typed_tags"
+
+[[resource.aws_outputs]]
+name = "key_id"
+expression = "resource.key_id()"
+
+[[resource.aws_outputs]]
+name = "key_arn"
+expression = "resource.arn().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Key alias (becomes alias/name if prefix absent)"
+
+[[resource.fields]]
+name = "description"
+section = "identity"
+type = "String"
+description = "Key description"
+
+[[resource.fields]]
+name = "key_usage"
+section = "security"
+type = "Enum"
+default = "ENCRYPT_DECRYPT"
+description = "Key usage type"
+aws_enum = true
+
+[[resource.fields]]
+name = "key_spec"
+section = "security"
+type = "Enum"
+default = "SYMMETRIC_DEFAULT"
+description = "Key material spec"
+aws_enum = true
+
+[[resource.fields]]
+name = "key_policy"
+section = "security"
+type = "String"
+description = "Key policy JSON document"
+
+[[resource.fields]]
+name = "enabled"
+section = "security"
+type = "Bool"
+default = true
+description = "Key enabled state"
+
+# ─── SSM: Parameter ──────────────────────────────────────────────────────────
+# Pattern: name as provider_id (config_name), put_parameter for both create and update.
+# Tags applied post-create via add_tags_to_resource with ResourceTypeForTagging::Parameter.
+# type and tier are SDK enum fields (aws_enum = true).
+
+[[resource]]
+struct_name = "Parameter"
+sdk_crate = "aws-sdk-ssm"
+sdk_client = "ssm"
+type_path = "ssm.Parameter"
+
+crud_create = "put_parameter"
+crud_read = "get_parameter"
+crud_update = "put_parameter"
+crud_delete = "delete_parameter"
+aws_updatable = true
+
+aws_client_field = "ssm_client"
+aws_read_style = "get_single"
+aws_response_accessor = "parameter"
+aws_id_param = "name"
+aws_id_source = "config_name"
+aws_tag_style = "post_create"
+
+[[resource.aws_outputs]]
+name = "parameter_name"
+expression = "resource.name().unwrap_or(\"\")"
+
+[[resource.aws_outputs]]
+name = "parameter_arn"
+expression = "resource.arn().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Parameter name (path-style recommended, e.g., /app/config/key)"
+
+[[resource.fields]]
+name = "description"
+section = "identity"
+type = "String"
+description = "Parameter description"
+
+[[resource.fields]]
+name = "type"
+section = "sizing"
+type = "Enum"
+default = "String"
+description = "Parameter type"
+aws_enum = true
+
+[[resource.fields]]
+name = "value"
+section = "sizing"
+type = "String"
+required = true
+description = "Parameter value"
+
+[[resource.fields]]
+name = "tier"
+section = "sizing"
+type = "Enum"
+default = "Standard"
+description = "Parameter tier (Standard or Advanced)"
+aws_enum = true
+
+# ─── Secrets Manager: Secret ─────────────────────────────────────────────────
+# Pattern: arn as provider_id (response_field), describe_secret for read.
+# Tags use typed Tag builder (key / value — note: different from KMS tag_key/tag_value).
+# secret_string is sensitive; update also calls put_secret_value if provided.
+
+[[resource]]
+struct_name = "Secret"
+sdk_crate = "aws-sdk-secretsmanager"
+sdk_client = "secretsmanager"
+type_path = "secretsmanager.Secret"
+
+crud_create = "create_secret"
+crud_read = "describe_secret"
+crud_update = "update_secret"
+crud_delete = "delete_secret"
+aws_updatable = true
+
+aws_client_field = "secretsmanager_client"
+aws_read_style = "get_single"
+aws_id_param = "secret_id"
+aws_id_source = "response_field"
+aws_response_id_field = "arn"
+aws_tag_style = "typed_tags"
+aws_tag_infallible = true
+
+[[resource.aws_outputs]]
+name = "secret_arn"
+expression = "result.arn().unwrap_or(\"\")"
+
+[[resource.aws_outputs]]
+name = "secret_name"
+expression = "result.name().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Secret name"
+
+[[resource.fields]]
+name = "description"
+section = "identity"
+type = "String"
+description = "Secret description"
+
+[[resource.fields]]
+name = "secret_string"
+section = "security"
+type = "String"
+description = "Secret string value (sensitive)"
+sensitive = true
+
+[[resource.fields]]
+name = "kms_key_id"
+section = "security"
+type = "String"
+description = "KMS key ID for encryption at rest"
+
+# ─── IAM: Role ──────────────────────────────────────────────────────────────
+# Pattern: get_single, typed_tags, name as provider_id
+
+[[resource]]
+struct_name = "Role"
+sdk_crate = "aws-sdk-iam"
+sdk_client = "iam"
+type_path = "iam.Role"
+
+crud_create = "create_role"
+crud_read = "get_role"
+crud_delete = "delete_role"
+
+aws_client_field = "iam_client"
+aws_read_style = "get_single"
+aws_response_accessor = "role"
+aws_id_param = "role_name"
+aws_id_source = "config_name"
+aws_tag_style = "typed_tags"
+
+[[resource.aws_outputs]]
+name = "role_arn"
+expression = "resource.arn()"
+
+[[resource.aws_outputs]]
+name = "role_name"
+expression = "resource.role_name()"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Role name"
+sdk_param = "role_name"
+
+[[resource.fields]]
+name = "description"
+section = "identity"
+type = "String"
+description = "Role description"
+
+[[resource.fields]]
+name = "path"
+section = "identity"
+type = "String"
+default = "/"
+description = "IAM path"
+
+[[resource.fields]]
+name = "assume_role_policy"
+section = "security"
+type = "String"
+required = true
+description = "Trust policy document (JSON)"
+sdk_param = "assume_role_policy_document"
+
+# ─── IAM: InstanceProfile ──────────────────────────────────────────────────
+# Pattern: get_single, no tags, name as provider_id
+
+[[resource]]
+struct_name = "InstanceProfile"
+sdk_crate = "aws-sdk-iam"
+sdk_client = "iam"
+type_path = "iam.InstanceProfile"
+
+crud_create = "create_instance_profile"
+crud_read = "get_instance_profile"
+crud_delete = "delete_instance_profile"
+
+aws_client_field = "iam_client"
+aws_read_style = "get_single"
+aws_response_accessor = "instance_profile"
+aws_id_param = "instance_profile_name"
+aws_id_source = "config_name"
+aws_tag_style = "none"
+
+[[resource.aws_outputs]]
+name = "instance_profile_arn"
+expression = "resource.arn()"
+
+[[resource.aws_outputs]]
+name = "instance_profile_name"
+expression = "resource.instance_profile_name()"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Instance profile name"
+sdk_param = "instance_profile_name"
+
+[[resource.fields]]
+name = "path"
+section = "identity"
+type = "String"
+description = "IAM path"
+
+# ─── ECR: Repository ───────────────────────────────────────────────────────
+# Pattern: describe_list, typed_tags, name as provider_id
+
+[[resource]]
+struct_name = "Repository"
+sdk_crate = "aws-sdk-ecr"
+sdk_client = "ecr"
+type_path = "ecr.Repository"
+
+crud_create = "create_repository"
+crud_read = "describe_repositories"
+crud_delete = "delete_repository"
+
+aws_client_field = "ecr_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "repositories"
+aws_id_param = "repository_name"
+aws_id_source = "config_name"
+aws_tag_style = "typed_tags"
+aws_read_id_param = "repository_names"
+
+[[resource.aws_outputs]]
+name = "repository_uri"
+expression = "resource.repository_uri().unwrap_or(\"\")"
+
+[[resource.aws_outputs]]
+name = "repository_arn"
+expression = "resource.repository_arn().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Repository name"
+sdk_param = "repository_name"
+
+[[resource.fields]]
+name = "scan_on_push"
+section = "security"
+type = "Bool"
+default = true
+description = "Scan images on push"
+
+[[resource.fields]]
+name = "image_tag_mutability"
+section = "security"
+type = "String"
+default = "MUTABLE"
+description = "Tag mutability (MUTABLE or IMMUTABLE)"
+aws_enum = true
+
+# ─── ECS: Cluster ──────────────────────────────────────────────────────────
+# Pattern: describe_list, typed_tags, arn as provider_id
+
+[[resource]]
+struct_name = "Cluster"
+sdk_crate = "aws-sdk-ecs"
+sdk_client = "ecs"
+type_path = "ecs.Cluster"
+
+crud_create = "create_cluster"
+crud_read = "describe_clusters"
+crud_delete = "delete_cluster"
+
+aws_client_field = "ecs_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "clusters"
+aws_id_param = "cluster_name"
+aws_id_source = "response_field"
+aws_response_id_field = "cluster_arn"
+aws_tag_style = "typed_tags"
+aws_read_id_param = "clusters"
+
+[[resource.aws_outputs]]
+name = "cluster_arn"
+expression = "resource.cluster_arn().unwrap_or(\"\")"
+
+[[resource.aws_outputs]]
+name = "cluster_name"
+expression = "resource.cluster_name().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Cluster name"
+sdk_param = "cluster_name"
+
+# ─── EC2: Vpc ──────────────────────────────────────────────────────────────
+# Pattern: describe_list, tag_specification, response_field (vpc_id)
+
+[[resource]]
+struct_name = "Vpc"
+sdk_crate = "aws-sdk-ec2"
+sdk_client = "ec2"
+type_path = "ec2.Vpc"
+
+crud_create = "create_vpc"
+crud_read = "describe_vpcs"
+crud_delete = "delete_vpc"
+
+aws_client_field = "ec2_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "vpcs"
+aws_id_param = "vpc_id"
+aws_id_source = "response_field"
+aws_response_id_field = "vpc_id"
+aws_tag_style = "tag_specification"
+aws_tag_resource_type = "Vpc"
+aws_read_id_param = "vpc_ids"
+
+[[resource.aws_outputs]]
+name = "vpc_id"
+expression = "provider_id"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "VPC name (set as Name tag)"
+
+[[resource.fields]]
+name = "cidr_block"
+section = "network"
+type = "String"
+required = true
+description = "IPv4 CIDR block"
+
+[[resource.fields]]
+name = "dns_hostnames"
+section = "network"
+type = "Bool"
+default = false
+description = "Enable DNS hostnames"
+
+[[resource.fields]]
+name = "dns_support"
+section = "network"
+type = "Bool"
+default = true
+description = "Enable DNS resolution"
+
+# ─── EC2: Subnet ───────────────────────────────────────────────────────────
+# Pattern: describe_list, tag_specification, response_field (subnet_id)
+
+[[resource]]
+struct_name = "Subnet"
+sdk_crate = "aws-sdk-ec2"
+sdk_client = "ec2"
+type_path = "ec2.Subnet"
+
+crud_create = "create_subnet"
+crud_read = "describe_subnets"
+crud_delete = "delete_subnet"
+
+aws_client_field = "ec2_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "subnets"
+aws_id_param = "subnet_id"
+aws_id_source = "response_field"
+aws_response_id_field = "subnet_id"
+aws_tag_style = "tag_specification"
+aws_tag_resource_type = "Subnet"
+aws_read_id_param = "subnet_ids"
+
+[[resource.aws_outputs]]
+name = "subnet_id"
+expression = "provider_id"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Subnet name (set as Name tag)"
+
+[[resource.fields]]
+name = "cidr_block"
+section = "network"
+type = "String"
+required = true
+description = "IPv4 CIDR block"
+
+[[resource.fields]]
+name = "availability_zone"
+section = "network"
+type = "String"
+required = true
+description = "Availability zone"
+
+[[resource.fields]]
+name = "vpc_id"
+section = "network"
+type = "String"
+required = true
+description = "VPC ID"
+
+[[resource.fields]]
+name = "public_ip_on_launch"
+section = "network"
+type = "Bool"
+default = false
+description = "Auto-assign public IP"
+sdk_param = "map_public_ip_on_launch"
+
+# ─── EC2: SecurityGroup ────────────────────────────────────────────────────
+# Pattern: describe_list, tag_specification, response_field (group_id)
+
+[[resource]]
+struct_name = "SecurityGroup"
+sdk_crate = "aws-sdk-ec2"
+sdk_client = "ec2"
+type_path = "ec2.SecurityGroup"
+
+crud_create = "create_security_group"
+crud_read = "describe_security_groups"
+crud_delete = "delete_security_group"
+
+aws_client_field = "ec2_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "security_groups"
+aws_id_param = "group_id"
+aws_id_source = "response_field"
+aws_response_id_field = "group_id"
+aws_tag_style = "tag_specification"
+aws_tag_resource_type = "SecurityGroup"
+aws_read_id_param = "group_ids"
+
+[[resource.aws_outputs]]
+name = "group_id"
+expression = "provider_id"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Security group name"
+sdk_param = "group_name"
+
+[[resource.fields]]
+name = "description"
+section = "identity"
+type = "String"
+default = "Managed by smelt"
+description = "Group description"
+
+[[resource.fields]]
+name = "vpc_id"
+section = "security"
+type = "String"
+required = true
+description = "VPC ID"
+
+# ─── EC2: InternetGateway ──────────────────────────────────────────────────
+# Pattern: describe_list, tag_specification, response_field (igw_id)
+
+[[resource]]
+struct_name = "InternetGateway"
+sdk_crate = "aws-sdk-ec2"
+sdk_client = "ec2"
+type_path = "ec2.InternetGateway"
+
+crud_create = "create_internet_gateway"
+crud_read = "describe_internet_gateways"
+crud_delete = "delete_internet_gateway"
+
+aws_client_field = "ec2_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "internet_gateways"
+aws_id_param = "internet_gateway_id"
+aws_id_source = "response_field"
+aws_response_id_field = "internet_gateway_id"
+aws_tag_style = "tag_specification"
+aws_tag_resource_type = "InternetGateway"
+aws_read_id_param = "internet_gateway_ids"
+
+[[resource.aws_outputs]]
+name = "internet_gateway_id"
+expression = "provider_id"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Internet gateway name (set as Name tag)"
+
+# ─── EC2: RouteTable ───────────────────────────────────────────────────────
+# Pattern: describe_list, tag_specification, response_field (route_table_id)
+
+[[resource]]
+struct_name = "RouteTable"
+sdk_crate = "aws-sdk-ec2"
+sdk_client = "ec2"
+type_path = "ec2.RouteTable"
+
+crud_create = "create_route_table"
+crud_read = "describe_route_tables"
+crud_delete = "delete_route_table"
+
+aws_client_field = "ec2_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "route_tables"
+aws_id_param = "route_table_id"
+aws_id_source = "response_field"
+aws_response_id_field = "route_table_id"
+aws_tag_style = "tag_specification"
+aws_tag_resource_type = "RouteTable"
+aws_read_id_param = "route_table_ids"
+
+[[resource.aws_outputs]]
+name = "route_table_id"
+expression = "provider_id"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Route table name (set as Name tag)"
+
+[[resource.fields]]
+name = "vpc_id"
+section = "network"
+type = "String"
+required = true
+description = "VPC ID"
+
+# ─── EC2: NatGateway ───────────────────────────────────────────────────────
+# Pattern: describe_list, tag_specification, response_field (nat_gateway_id)
+
+[[resource]]
+struct_name = "NatGateway"
+sdk_crate = "aws-sdk-ec2"
+sdk_client = "ec2"
+type_path = "ec2.NatGateway"
+
+crud_create = "create_nat_gateway"
+crud_read = "describe_nat_gateways"
+crud_delete = "delete_nat_gateway"
+
+aws_client_field = "ec2_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "nat_gateways"
+aws_id_param = "nat_gateway_id"
+aws_id_source = "response_field"
+aws_response_id_field = "nat_gateway_id"
+aws_tag_style = "tag_specification"
+aws_tag_resource_type = "NatGateway"
+aws_read_id_param = "nat_gateway_ids"
+
+[[resource.aws_outputs]]
+name = "nat_gateway_id"
+expression = "provider_id"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "NAT gateway name (set as Name tag)"
+
+[[resource.fields]]
+name = "subnet_id"
+section = "network"
+type = "String"
+required = true
+description = "Subnet ID"
+
+[[resource.fields]]
+name = "allocation_id"
+section = "network"
+type = "String"
+required = true
+description = "Elastic IP allocation ID"
+
+# ─── EC2: ElasticIp ────────────────────────────────────────────────────────
+# Pattern: tag_specification, response_field (allocation_id)
+
+[[resource]]
+struct_name = "ElasticIp"
+sdk_crate = "aws-sdk-ec2"
+sdk_client = "ec2"
+type_path = "ec2.ElasticIp"
+
+crud_create = "allocate_address"
+crud_read = "describe_addresses"
+crud_delete = "release_address"
+
+aws_client_field = "ec2_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "addresses"
+aws_id_param = "allocation_id"
+aws_id_source = "response_field"
+aws_response_id_field = "allocation_id"
+aws_tag_style = "tag_specification"
+aws_tag_resource_type = "ElasticIp"
+aws_read_id_param = "allocation_ids"
+
+[[resource.aws_outputs]]
+name = "allocation_id"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "public_ip"
+expression = "resource.public_ip().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Elastic IP name (set as Name tag)"
+
+[[resource.fields]]
+name = "domain"
+section = "network"
+type = "String"
+default = "vpc"
+description = "Address domain (vpc)"
+
+# ─── EC2: KeyPair ──────────────────────────────────────────────────────────
+# Pattern: tag_specification, response_field (key_pair_id)
+
+[[resource]]
+struct_name = "KeyPair"
+sdk_crate = "aws-sdk-ec2"
+sdk_client = "ec2"
+type_path = "ec2.KeyPair"
+
+crud_create = "create_key_pair"
+crud_read = "describe_key_pairs"
+crud_delete = "delete_key_pair"
+
+aws_client_field = "ec2_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "key_pairs"
+aws_id_param = "key_pair_id"
+aws_id_source = "response_field"
+aws_response_id_field = "key_pair_id"
+aws_tag_style = "tag_specification"
+aws_tag_resource_type = "KeyPair"
+aws_read_id_param = "key_pair_ids"
+
+[[resource.aws_outputs]]
+name = "key_pair_id"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "key_name"
+expression = "resource.key_name().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Key pair name"
+sdk_param = "key_name"
+
+[[resource.fields]]
+name = "key_type"
+section = "security"
+type = "String"
+default = "rsa"
+description = "Key type (rsa or ed25519)"
+aws_enum = true
+
+# ─── RDS: DBInstance ───────────────────────────────────────────────────────
+# Pattern: describe_list, typed_tags, name as provider_id
+
+[[resource]]
+struct_name = "DBInstance"
+sdk_crate = "aws-sdk-rds"
+sdk_client = "rds"
+type_path = "rds.DBInstance"
+
+crud_create = "create_db_instance"
+crud_read = "describe_db_instances"
+crud_delete = "delete_db_instance"
+
+aws_client_field = "rds_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "db_instances"
+aws_id_param = "db_instance_identifier"
+aws_id_source = "config_name"
+aws_tag_style = "typed_tags"
+aws_tag_infallible = true
+
+[[resource.aws_outputs]]
+name = "endpoint"
+expression = "resource.endpoint().and_then(|e| e.address()).unwrap_or(\"\")"
+
+[[resource.aws_outputs]]
+name = "db_instance_arn"
+expression = "resource.db_instance_arn().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "DB instance identifier"
+sdk_param = "db_instance_identifier"
+
+[[resource.fields]]
+name = "engine"
+section = "sizing"
+type = "String"
+required = true
+description = "Database engine (postgres, mysql, etc.)"
+
+[[resource.fields]]
+name = "engine_version"
+section = "sizing"
+type = "String"
+description = "Engine version"
+
+[[resource.fields]]
+name = "instance_class"
+section = "sizing"
+type = "String"
+required = true
+description = "Instance class (db.t3.micro, etc.)"
+sdk_param = "db_instance_class"
+
+[[resource.fields]]
+name = "allocated_storage"
+section = "sizing"
+type = "Integer"
+default = 20
+description = "Storage size in GB"
+
+[[resource.fields]]
+name = "storage_type"
+section = "sizing"
+type = "String"
+default = "gp3"
+description = "Storage type (gp3, io1, etc.)"
+
+[[resource.fields]]
+name = "master_username"
+section = "security"
+type = "String"
+required = true
+description = "Master username"
+
+[[resource.fields]]
+name = "master_password"
+section = "security"
+type = "String"
+required = true
+description = "Master password"
+sensitive = true
+sdk_param = "master_user_password"
+
+[[resource.fields]]
+name = "db_subnet_group_name"
+section = "network"
+type = "String"
+description = "DB subnet group name"
+
+[[resource.fields]]
+name = "publicly_accessible"
+section = "network"
+type = "Bool"
+default = false
+description = "Allow public access"
+
+[[resource.fields]]
+name = "multi_az"
+section = "reliability"
+type = "Bool"
+default = false
+description = "Multi-AZ deployment"
+
+# ─── RDS: DBSubnetGroup ───────────────────────────────────────────────────
+# Pattern: describe_list, typed_tags, name as provider_id
+
+[[resource]]
+struct_name = "DBSubnetGroup"
+sdk_crate = "aws-sdk-rds"
+sdk_client = "rds"
+type_path = "rds.DBSubnetGroup"
+
+crud_create = "create_db_subnet_group"
+crud_read = "describe_db_subnet_groups"
+crud_delete = "delete_db_subnet_group"
+
+aws_client_field = "rds_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "db_subnet_groups"
+aws_id_param = "db_subnet_group_name"
+aws_id_source = "config_name"
+aws_tag_style = "typed_tags"
+aws_tag_infallible = true
+
+[[resource.aws_outputs]]
+name = "db_subnet_group_name"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "db_subnet_group_arn"
+expression = "resource.db_subnet_group_arn().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Subnet group name"
+sdk_param = "db_subnet_group_name"
+
+[[resource.fields]]
+name = "description"
+section = "identity"
+type = "String"
+default = "Managed by smelt"
+description = "Subnet group description"
+sdk_param = "db_subnet_group_description"
+
+# ─── EFS: FileSystem ──────────────────────────────────────────────────────
+# Pattern: describe_list, typed_tags, response_field (file_system_id)
+
+[[resource]]
+struct_name = "FileSystem"
+sdk_crate = "aws-sdk-efs"
+sdk_client = "efs"
+type_path = "efs.FileSystem"
+
+crud_create = "create_file_system"
+crud_read = "describe_file_systems"
+crud_update = "update_file_system"
+crud_delete = "delete_file_system"
+aws_updatable = true
+
+aws_client_field = "efs_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "file_systems"
+aws_id_param = "file_system_id"
+aws_id_source = "response_field"
+aws_response_id_field = "file_system_id"
+aws_tag_style = "typed_tags"
+
+[[resource.aws_outputs]]
+name = "file_system_id"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "file_system_arn"
+expression = "resource.file_system_arn().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "File system name (used as creation token)"
+sdk_param = "creation_token"
+
+[[resource.fields]]
+name = "performance_mode"
+section = "sizing"
+type = "String"
+default = "generalPurpose"
+description = "Performance mode"
+aws_enum = true
+
+[[resource.fields]]
+name = "throughput_mode"
+section = "sizing"
+type = "String"
+default = "bursting"
+description = "Throughput mode"
+aws_enum = true
+
+[[resource.fields]]
+name = "encrypted"
+section = "security"
+type = "Bool"
+default = true
+description = "Enable encryption at rest"
+
+# ─── EFS: MountTarget ─────────────────────────────────────────────────────
+# Pattern: describe_list, no tags, response_field (mount_target_id)
+
+[[resource]]
+struct_name = "MountTarget"
+sdk_crate = "aws-sdk-efs"
+sdk_client = "efs"
+type_path = "efs.MountTarget"
+
+crud_create = "create_mount_target"
+crud_read = "describe_mount_targets"
+crud_delete = "delete_mount_target"
+
+aws_client_field = "efs_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "mount_targets"
+aws_id_param = "mount_target_id"
+aws_id_source = "response_field"
+aws_response_id_field = "mount_target_id"
+aws_tag_style = "none"
+
+[[resource.aws_outputs]]
+name = "mount_target_id"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "ip_address"
+expression = "resource.ip_address().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Mount target name (smelt tracking)"
+
+[[resource.fields]]
+name = "file_system_id"
+section = "network"
+type = "String"
+required = true
+description = "EFS file system ID"
+
+[[resource.fields]]
+name = "subnet_id"
+section = "network"
+type = "String"
+required = true
+description = "Subnet ID"
+
+# ─── ACM: Certificate ─────────────────────────────────────────────────────
+# Pattern: get_single, typed_tags, response_field (certificate_arn)
+
+[[resource]]
+struct_name = "Certificate"
+sdk_crate = "aws-sdk-acm"
+sdk_client = "acm"
+type_path = "acm.Certificate"
+
+crud_create = "request_certificate"
+crud_read = "describe_certificate"
+crud_delete = "delete_certificate"
+
+aws_client_field = "acm_client"
+aws_read_style = "get_single"
+aws_response_accessor = "certificate"
+aws_id_param = "certificate_arn"
+aws_id_source = "response_field"
+aws_response_id_field = "certificate_arn"
+aws_tag_style = "typed_tags"
+
+[[resource.aws_outputs]]
+name = "certificate_arn"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "domain_name"
+expression = "resource.domain_name().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Domain name for certificate"
+sdk_param = "domain_name"
+
+[[resource.fields]]
+name = "validation_method"
+section = "security"
+type = "String"
+default = "DNS"
+description = "Validation method (DNS or EMAIL)"
+aws_enum = true
+
+# ─── ElastiCache: ReplicationGroup ─────────────────────────────────────────
+# Pattern: describe_list, typed_tags, name as provider_id
+
+[[resource]]
+struct_name = "ReplicationGroup"
+sdk_crate = "aws-sdk-elasticache"
+sdk_client = "elasticache"
+type_path = "elasticache.ReplicationGroup"
+
+crud_create = "create_replication_group"
+crud_read = "describe_replication_groups"
+crud_update = "modify_replication_group"
+crud_delete = "delete_replication_group"
+aws_updatable = true
+
+aws_client_field = "elasticache_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "replication_groups"
+aws_id_param = "replication_group_id"
+aws_id_source = "config_name"
+aws_tag_style = "typed_tags"
+aws_tag_infallible = true
+
+[[resource.aws_outputs]]
+name = "replication_group_id"
+expression = "provider_id"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Replication group ID"
+sdk_param = "replication_group_id"
+
+[[resource.fields]]
+name = "description"
+section = "identity"
+type = "String"
+default = "smelt managed"
+description = "Replication group description"
+sdk_param = "replication_group_description"
+
+[[resource.fields]]
+name = "node_type"
+section = "sizing"
+type = "String"
+required = true
+description = "Cache node type (cache.t3.micro, etc.)"
+sdk_param = "cache_node_type"
+
+[[resource.fields]]
+name = "engine"
+section = "sizing"
+type = "String"
+default = "redis"
+description = "Cache engine"
+
+[[resource.fields]]
+name = "engine_version"
+section = "sizing"
+type = "String"
+description = "Engine version"
+
+[[resource.fields]]
+name = "num_cache_clusters"
+section = "sizing"
+type = "Integer"
+default = 1
+description = "Number of cache clusters"
+
+[[resource.fields]]
+name = "automatic_failover"
+section = "reliability"
+type = "Bool"
+default = false
+description = "Enable automatic failover"
+sdk_param = "automatic_failover_enabled"
+
+# ─── ELBv2: LoadBalancer ──────────────────────────────────────────────────
+# Pattern: describe_list, typed_tags, response_field (load_balancer_arn)
+
+[[resource]]
+struct_name = "LoadBalancer"
+sdk_crate = "aws-sdk-elasticloadbalancingv2"
+sdk_client = "elbv2"
+type_path = "elbv2.LoadBalancer"
+
+crud_create = "create_load_balancer"
+crud_read = "describe_load_balancers"
+crud_delete = "delete_load_balancer"
+
+aws_client_field = "elbv2_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "load_balancers"
+aws_id_param = "load_balancer_arn"
+aws_id_source = "response_field"
+aws_response_id_field = "load_balancer_arn"
+aws_tag_style = "typed_tags"
+aws_tag_infallible = true
+aws_read_id_param = "load_balancer_arns"
+
+[[resource.aws_outputs]]
+name = "load_balancer_arn"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "dns_name"
+expression = "resource.dns_name().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Load balancer name"
+
+[[resource.fields]]
+name = "scheme"
+section = "network"
+type = "String"
+default = "internet-facing"
+description = "Scheme (internet-facing or internal)"
+aws_enum = true
+
+# ─── ELBv2: TargetGroup ──────────────────────────────────────────────────
+# Pattern: describe_list, no tags, response_field (target_group_arn)
+
+[[resource]]
+struct_name = "TargetGroup"
+sdk_crate = "aws-sdk-elasticloadbalancingv2"
+sdk_client = "elbv2"
+type_path = "elbv2.TargetGroup"
+
+crud_create = "create_target_group"
+crud_read = "describe_target_groups"
+crud_update = "modify_target_group"
+crud_delete = "delete_target_group"
+aws_updatable = true
+
+aws_client_field = "elbv2_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "target_groups"
+aws_id_param = "target_group_arn"
+aws_id_source = "response_field"
+aws_response_id_field = "target_group_arn"
+aws_tag_style = "none"
+aws_read_id_param = "target_group_arns"
+
+[[resource.aws_outputs]]
+name = "target_group_arn"
+expression = "provider_id"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Target group name"
+
+[[resource.fields]]
+name = "port"
+section = "network"
+type = "Integer"
+required = true
+description = "Listener port"
+
+[[resource.fields]]
+name = "protocol"
+section = "network"
+type = "String"
+default = "HTTP"
+description = "Protocol (HTTP, HTTPS, TCP)"
+aws_enum = true
+
+[[resource.fields]]
+name = "target_type"
+section = "network"
+type = "String"
+default = "instance"
+description = "Target type (instance, ip, lambda)"
+aws_enum = true
+
+[[resource.fields]]
+name = "vpc_id"
+section = "network"
+type = "String"
+required = true
+description = "VPC ID"
+
+[[resource.fields]]
+name = "health_check_path"
+section = "reliability"
+type = "String"
+default = "/"
+description = "Health check path"
+
+# ─── ELBv2: Listener ─────────────────────────────────────────────────────
+# Pattern: describe_list, no tags, response_field (listener_arn)
+
+[[resource]]
+struct_name = "Listener"
+sdk_crate = "aws-sdk-elasticloadbalancingv2"
+sdk_client = "elbv2"
+type_path = "elbv2.Listener"
+
+crud_create = "create_listener"
+crud_read = "describe_listeners"
+crud_update = "modify_listener"
+crud_delete = "delete_listener"
+aws_updatable = true
+
+aws_client_field = "elbv2_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "listeners"
+aws_id_param = "listener_arn"
+aws_id_source = "response_field"
+aws_response_id_field = "listener_arn"
+aws_tag_style = "none"
+aws_read_id_param = "listener_arns"
+
+[[resource.aws_outputs]]
+name = "listener_arn"
+expression = "provider_id"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Listener name (smelt tracking)"
+
+[[resource.fields]]
+name = "port"
+section = "network"
+type = "Integer"
+required = true
+description = "Listener port"
+
+[[resource.fields]]
+name = "protocol"
+section = "network"
+type = "String"
+default = "HTTP"
+description = "Protocol (HTTP, HTTPS, TCP)"
+aws_enum = true
+
+[[resource.fields]]
+name = "load_balancer_arn"
+section = "network"
+type = "String"
+required = true
+description = "Load balancer ARN"
+
+# ─── EventBridge: Rule ────────────────────────────────────────────────────
+# Pattern: get_single (describe_rule), typed_tags, name as provider_id
+# put_rule is idempotent — used for both create and update.
+
+[[resource]]
+struct_name = "Rule"
+sdk_crate = "aws-sdk-eventbridge"
+sdk_client = "eventbridge"
+type_path = "eventbridge.Rule"
+
+crud_create = "put_rule"
+crud_read = "describe_rule"
+crud_update = "put_rule"
+crud_delete = "delete_rule"
+aws_updatable = true
+
+aws_client_field = "eventbridge_client"
+aws_read_style = "get_single"
+aws_id_param = "name"
+aws_id_source = "config_name"
+aws_tag_style = "typed_tags"
+
+[[resource.aws_outputs]]
+name = "rule_arn"
+expression = "resource.arn().unwrap_or(\"\")"
+
+[[resource.aws_outputs]]
+name = "rule_name"
+expression = "resource.name().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Rule name"
+
+[[resource.fields]]
+name = "description"
+section = "identity"
+type = "String"
+description = "Rule description"
+
+[[resource.fields]]
+name = "event_pattern"
+section = "sizing"
+type = "String"
+description = "Event pattern JSON"
+
+[[resource.fields]]
+name = "schedule_expression"
+section = "sizing"
+type = "String"
+description = "Schedule expression (rate or cron)"
+
+[[resource.fields]]
+name = "state"
+section = "sizing"
+type = "String"
+default = "ENABLED"
+description = "Rule state (ENABLED or DISABLED)"
+aws_enum = true
+aws_enum_type = "RuleState"
+
+[[resource.fields]]
+name = "event_bus_name"
+section = "network"
+type = "String"
+default = "default"
+description = "Event bus name"
+
+# ─── CloudWatch: Alarm ────────────────────────────────────────────────────
+# Pattern: describe_list, typed_tags, name as provider_id
+# put_metric_alarm is idempotent upsert.
+
+[[resource]]
+struct_name = "Alarm"
+sdk_crate = "aws-sdk-cloudwatch"
+sdk_client = "cloudwatch"
+type_path = "cloudwatch.Alarm"
+
+crud_create = "put_metric_alarm"
+crud_read = "describe_alarms"
+crud_update = "put_metric_alarm"
+crud_delete = "delete_alarms"
+aws_updatable = true
+
+aws_client_field = "cloudwatch_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "metric_alarms"
+aws_id_param = "alarm_name"
+aws_id_source = "config_name"
+aws_tag_style = "typed_tags"
+aws_tag_infallible = true
+aws_read_id_param = "alarm_names"
+aws_delete_id_param = "alarm_names"
+
+[[resource.aws_outputs]]
+name = "alarm_arn"
+expression = "resource.alarm_arn().unwrap_or(\"\")"
+
+[[resource.aws_outputs]]
+name = "alarm_name"
+expression = "resource.alarm_name().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Alarm name"
+sdk_param = "alarm_name"
+
+[[resource.fields]]
+name = "description"
+section = "identity"
+type = "String"
+description = "Alarm description"
+sdk_param = "alarm_description"
+
+[[resource.fields]]
+name = "namespace"
+section = "sizing"
+type = "String"
+required = true
+description = "CloudWatch namespace"
+
+[[resource.fields]]
+name = "metric_name"
+section = "sizing"
+type = "String"
+required = true
+description = "Metric name"
+
+[[resource.fields]]
+name = "statistic"
+section = "sizing"
+type = "String"
+default = "Average"
+description = "Statistic (Average, Sum, etc.)"
+aws_enum = true
+
+[[resource.fields]]
+name = "period"
+section = "sizing"
+type = "Integer"
+default = 300
+description = "Period in seconds"
+
+[[resource.fields]]
+name = "evaluation_periods"
+section = "sizing"
+type = "Integer"
+default = 1
+description = "Number of evaluation periods"
+
+[[resource.fields]]
+name = "threshold"
+section = "sizing"
+type = "Float"
+required = true
+description = "Alarm threshold"
+
+[[resource.fields]]
+name = "comparison_operator"
+section = "sizing"
+type = "String"
+required = true
+description = "Comparison operator"
+aws_enum = true
+
+# ─── Cognito: UserPool ────────────────────────────────────────────────────
+# Pattern: get_single (describe_user_pool), no tags, response_field (user_pool_id)
+
+[[resource]]
+struct_name = "UserPool"
+sdk_crate = "aws-sdk-cognitoidentityprovider"
+sdk_client = "cognito"
+type_path = "cognito.UserPool"
+
+crud_create = "create_user_pool"
+crud_read = "describe_user_pool"
+crud_update = "update_user_pool"
+crud_delete = "delete_user_pool"
+aws_updatable = true
+
+aws_client_field = "cognito_client"
+aws_read_style = "get_single"
+aws_response_accessor = "user_pool"
+aws_id_param = "user_pool_id"
+aws_id_source = "response_field"
+aws_response_id_field = "id"
+aws_tag_style = "none"
+
+[[resource.aws_outputs]]
+name = "user_pool_id"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "user_pool_arn"
+expression = "resource.arn().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "User pool name"
+sdk_param = "pool_name"
+sdk_read_field = "name"
+
+[[resource.fields]]
+name = "mfa_configuration"
+section = "security"
+type = "String"
+default = "OFF"
+description = "MFA configuration (OFF, ON, OPTIONAL)"
+aws_enum = true
+aws_enum_type = "UserPoolMfaType"
+
+# ─── SES: EmailIdentity ──────────────────────────────────────────────────
+# Pattern: get_single (get_email_identity), typed_tags, name as provider_id
+
+[[resource]]
+struct_name = "EmailIdentity"
+sdk_crate = "aws-sdk-sesv2"
+sdk_client = "ses"
+type_path = "ses.EmailIdentity"
+
+crud_create = "create_email_identity"
+crud_read = "get_email_identity"
+crud_delete = "delete_email_identity"
+
+aws_client_field = "ses_client"
+aws_read_style = "get_single"
+aws_id_param = "email_identity"
+aws_id_source = "config_name"
+aws_tag_style = "typed_tags"
+
+[[resource.aws_outputs]]
+name = "email_identity"
+expression = "provider_id"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Email address or domain"
+sdk_param = "email_identity"
+
+# ─── SFN: StateMachine ───────────────────────────────────────────────────
+# Pattern: get_single (describe_state_machine), typed_tags, response_field (arn)
+
+[[resource]]
+struct_name = "StateMachine"
+sdk_crate = "aws-sdk-sfn"
+sdk_client = "sfn"
+type_path = "sfn.StateMachine"
+
+crud_create = "create_state_machine"
+crud_read = "describe_state_machine"
+crud_update = "update_state_machine"
+crud_delete = "delete_state_machine"
+aws_updatable = true
+
+aws_client_field = "sfn_client"
+aws_read_style = "get_single"
+aws_id_param = "state_machine_arn"
+aws_id_source = "response_field"
+aws_response_id_field = "state_machine_arn"
+aws_response_id_non_optional = true
+aws_tag_style = "typed_tags"
+aws_tag_infallible = true
+
+[[resource.aws_outputs]]
+name = "state_machine_arn"
+expression = "provider_id"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "State machine name"
+sdk_non_optional = true
+
+[[resource.fields]]
+name = "definition"
+section = "sizing"
+type = "String"
+required = true
+description = "ASL definition (JSON)"
+sdk_non_optional = true
+
+[[resource.fields]]
+name = "role_arn"
+section = "security"
+type = "String"
+required = true
+sdk_non_optional = true
+description = "Execution IAM role ARN"
+
+# ─── API Gateway: Api ────────────────────────────────────────────────────
+# Pattern: get_single (get_api), set_tags (HashMap), response_field (api_id)
+
+[[resource]]
+struct_name = "Api"
+sdk_crate = "aws-sdk-apigatewayv2"
+sdk_client = "apigateway"
+type_path = "apigateway.Api"
+
+crud_create = "create_api"
+crud_read = "get_api"
+crud_update = "update_api"
+crud_delete = "delete_api"
+aws_updatable = true
+
+aws_client_field = "apigateway_client"
+aws_read_style = "get_single"
+aws_id_param = "api_id"
+aws_id_source = "response_field"
+aws_response_id_field = "api_id"
+aws_tag_style = "set_tags"
+
+[[resource.aws_outputs]]
+name = "api_id"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "api_endpoint"
+expression = "resource.api_endpoint().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "API name"
+
+[[resource.fields]]
+name = "description"
+section = "identity"
+type = "String"
+description = "API description"
+
+[[resource.fields]]
+name = "protocol_type"
+section = "network"
+type = "String"
+default = "HTTP"
+description = "Protocol type (HTTP or WEBSOCKET)"
+aws_enum = true
+
+# ─── DynamoDB: Table ─────────────────────────────────────────────────────
+# Pattern: get_single (describe_table), typed_tags, response_field (table_name)
+
+[[resource]]
+struct_name = "Table"
+sdk_crate = "aws-sdk-dynamodb"
+sdk_client = "dynamodb"
+type_path = "dynamodb.Table"
+
+crud_create = "create_table"
+crud_read = "describe_table"
+crud_update = "update_table"
+crud_delete = "delete_table"
+aws_updatable = true
+
+aws_client_field = "dynamodb_client"
+aws_read_style = "get_single"
+aws_response_accessor = "table"
+aws_id_param = "table_name"
+aws_id_source = "config_name"
+aws_tag_style = "typed_tags"
+
+[[resource.aws_outputs]]
+name = "table_arn"
+expression = "resource.table_arn().unwrap_or(\"\")"
+
+[[resource.aws_outputs]]
+name = "table_name"
+expression = "resource.table_name().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Table name"
+sdk_param = "table_name"
+
+[[resource.fields]]
+name = "partition_key"
+section = "sizing"
+type = "String"
+required = true
+description = "Partition key attribute name"
+
+[[resource.fields]]
+name = "partition_key_type"
+section = "sizing"
+type = "String"
+default = "S"
+description = "Partition key type (S, N, B)"
+
+[[resource.fields]]
+name = "sort_key"
+section = "sizing"
+type = "String"
+description = "Sort key attribute name"
+
+[[resource.fields]]
+name = "billing_mode"
+section = "sizing"
+type = "String"
+default = "PAY_PER_REQUEST"
+description = "Billing mode"
+aws_enum = true
+
+# ─── Route53: HostedZone ────────────────────────────────────────────────
+# Pattern: get_single (get_hosted_zone), no tags, response_field (zone_id)
+
+[[resource]]
+struct_name = "HostedZone"
+sdk_crate = "aws-sdk-route53"
+sdk_client = "route53"
+type_path = "route53.HostedZone"
+
+crud_create = "create_hosted_zone"
+crud_read = "get_hosted_zone"
+crud_delete = "delete_hosted_zone"
+
+aws_client_field = "route53_client"
+aws_read_style = "get_single"
+aws_response_accessor = "hosted_zone"
+aws_id_param = "id"
+aws_id_source = "response_field"
+aws_response_id_field = "id"
+aws_tag_style = "none"
+
+[[resource.aws_outputs]]
+name = "hosted_zone_id"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "name"
+expression = "resource.name().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Domain name"

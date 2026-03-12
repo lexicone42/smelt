@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use crate::manifest::{ApiStyle, FieldDef, ResourceManifest, Scope};
+use crate::manifest::{ApiStyle, AwsIdSource, AwsReadStyle, AwsTagStyle, FieldDef, ResourceManifest, Scope};
 use crate::{raw_field, safe_ident, snake_case};
 
 pub fn generate_provider_code(manifest: &ResourceManifest) -> String {
@@ -371,40 +371,355 @@ fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
 }
 
 fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
+    let client_field = m.resource.aws_client_field.as_deref().unwrap_or("client");
     let create_method = snake_case(&m.crud.create);
+    let model_name = &m.resource.sdk_model;
+    let id_source = m.resource.aws_id_source.clone().unwrap_or(AwsIdSource::ConfigName);
+    let tag_style = m.resource.aws_tag_style.clone().unwrap_or(AwsTagStyle::None);
 
-    let _ = writeln!(out, "    // Make API call");
-    let _ = writeln!(
-        out,
-        "    let result = self.client"
-    );
+    // Tags
+    match &tag_style {
+        AwsTagStyle::TagSpecification => {
+            let rt = m.resource.aws_tag_resource_type.as_deref().unwrap_or(model_name);
+            let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
+            let _ = writeln!(out, "    let tag_spec = Self::build_tags(config, {sdk_crate_mod}::types::ResourceType::{rt});");
+        }
+        AwsTagStyle::SetTags | AwsTagStyle::TypedTags | AwsTagStyle::InlineKv => {
+            let _ = writeln!(out, "    let tags = super::extract_tags(config);");
+        }
+        AwsTagStyle::PostCreate | AwsTagStyle::None => {}
+    }
+    let _ = writeln!(out);
+
+    // Build request — required fields go inline on the builder chain
+    let _ = writeln!(out, "    let mut req = self.{client_field}");
     let _ = writeln!(out, "        .{create_method}()");
 
     for (name, field) in &m.fields {
-        if field.output_only || field.skip {
+        if field.output_only || field.skip || !field.required {
             continue;
         }
-        let sdk_field = field.sdk_field.as_deref().unwrap_or(name);
-        let setter = snake_case(sdk_field);
-        let _ = writeln!(
-            out,
-            "        .{setter}({name})"
-        );
+        let sdk_param = field.sdk_field.as_deref().unwrap_or(name);
+        let setter = snake_case(sdk_param);
+        let var = safe_ident(name);
+
+        if field.aws_enum {
+            // SDK expects an enum type — pass the string value which converts via From<&str>
+            let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
+            let enum_type = field.aws_enum_type.as_deref()
+                .map(String::from)
+                .unwrap_or_else(|| capitalize(sdk_param));
+            let _ = writeln!(out, "        .{setter}({sdk_crate_mod}::types::{enum_type}::from({var}.as_str()))");
+        } else {
+            match field.field_type.as_str() {
+                "String" => {
+                    let _ = writeln!(out, "        .{setter}(&{var})");
+                }
+                "Integer" | "Integer_u32" | "Integer_u64" => {
+                    let _ = writeln!(out, "        .{setter}({var} as i32)");
+                }
+                "Float" => {
+                    let _ = writeln!(out, "        .{setter}({var})");
+                }
+                "Bool" => {
+                    let _ = writeln!(out, "        .{setter}({var})");
+                }
+                _ => {}
+            }
+        }
     }
 
-    let _ = writeln!(out, "        .send()");
-    let _ = writeln!(out, "        .await");
-    let _ = writeln!(
-        out,
-        "        .map_err(|e| ProviderError::ApiError(format!(\"{} {}: {{e}}\")))?;",
-        capitalize(&m.crud.create),
-        m.resource.sdk_model
-    );
+    let _ = writeln!(out, "    ;");
     let _ = writeln!(out);
 
-    write_provider_id_construction(out, m);
+    // Set optional fields — distinguished by whether they have defaults
+    for (name, field) in &m.fields {
+        if field.output_only || field.skip || field.required || field.skip_create {
+            continue;
+        }
+        let sdk_param = field.sdk_field.as_deref().unwrap_or(name);
+        let setter = snake_case(sdk_param);
+        let var = safe_ident(name);
+
+        let has_default = field.default.is_some();
+
+        // Fields with aws_attr_key use .attributes(key, value) instead of typed setters
+        if let Some(ref attr_key) = field.aws_attr_key {
+            match field.field_type.as_str() {
+                "Bool" => {
+                    if has_default {
+                        let _ = writeln!(out, "    if {var} {{");
+                        let _ = writeln!(out, "        req = req.attributes(\"{attr_key}\", \"true\");");
+                        let _ = writeln!(out, "    }}");
+                    } else {
+                        let _ = writeln!(out, "    if let Some(true) = {var} {{");
+                        let _ = writeln!(out, "        req = req.attributes(\"{attr_key}\", \"true\");");
+                        let _ = writeln!(out, "    }}");
+                    }
+                }
+                "String" => {
+                    if has_default {
+                        let _ = writeln!(out, "    req = req.attributes(\"{attr_key}\", &{var});");
+                    } else {
+                        let _ = writeln!(out, "    if let Some(ref v) = {var} {{");
+                        let _ = writeln!(out, "        req = req.attributes(\"{attr_key}\", v);");
+                        let _ = writeln!(out, "    }}");
+                    }
+                }
+                "Integer" | "Integer_u32" | "Integer_u64" => {
+                    if has_default {
+                        let _ = writeln!(out, "    req = req.attributes(\"{attr_key}\", {var}.to_string());");
+                    } else {
+                        let _ = writeln!(out, "    if let Some(v) = {var} {{");
+                        let _ = writeln!(out, "        req = req.attributes(\"{attr_key}\", v.to_string());");
+                        let _ = writeln!(out, "    }}");
+                    }
+                }
+                _ => {}
+            }
+            continue;
+        }
+
+        if field.aws_enum {
+            // SDK enum type — convert from string via From<&str>
+            let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
+            let enum_type = field.aws_enum_type.as_deref()
+                .map(String::from)
+                .unwrap_or_else(|| capitalize(sdk_param));
+            if has_default {
+                let _ = writeln!(out, "    req = req.{setter}({sdk_crate_mod}::types::{enum_type}::from({var}.as_str()));");
+            } else {
+                let _ = writeln!(out, "    if let Some(ref v) = {var} {{");
+                let _ = writeln!(out, "        req = req.{setter}({sdk_crate_mod}::types::{enum_type}::from(v.as_str()));");
+                let _ = writeln!(out, "    }}");
+            }
+            continue;
+        }
+
+        match field.field_type.as_str() {
+            "String" => {
+                if has_default {
+                    // Extracted as String via str_or — set directly
+                    let _ = writeln!(out, "    req = req.{setter}(&{var});");
+                } else {
+                    // Extracted as Option<String> via optional_str
+                    let _ = writeln!(out, "    if let Some(ref v) = {var} {{");
+                    let _ = writeln!(out, "        req = req.{setter}(v);");
+                    let _ = writeln!(out, "    }}");
+                }
+            }
+            "Integer" | "Integer_u32" | "Integer_u64" => {
+                if has_default {
+                    // Extracted as i64 via i64_or — set directly
+                    let _ = writeln!(out, "    req = req.{setter}({var} as i32);");
+                } else {
+                    let _ = writeln!(out, "    if let Some(v) = {var} {{");
+                    let _ = writeln!(out, "        req = req.{setter}(v as i32);");
+                    let _ = writeln!(out, "    }}");
+                }
+            }
+            "Float" => {
+                if has_default {
+                    let _ = writeln!(out, "    req = req.{setter}({var});");
+                } else {
+                    let _ = writeln!(out, "    if let Some(v) = {var} {{");
+                    let _ = writeln!(out, "        req = req.{setter}(v);");
+                    let _ = writeln!(out, "    }}");
+                }
+            }
+            "Bool" => {
+                if has_default {
+                    let _ = writeln!(out, "    req = req.{setter}({var});");
+                } else {
+                    let _ = writeln!(out, "    if let Some(v) = {var} {{");
+                    let _ = writeln!(out, "        req = req.{setter}(v);");
+                    let _ = writeln!(out, "    }}");
+                }
+            }
+            _ => {
+                let _ = writeln!(out, "    // TODO: set optional {name} via .{setter}()");
+            }
+        }
+    }
+
+    // Apply tags
+    match &tag_style {
+        AwsTagStyle::TagSpecification => {
+            let _ = writeln!(out, "    req = req.tag_specifications(tag_spec);");
+        }
+        AwsTagStyle::SetTags => {
+            let _ = writeln!(out, "    req = req.set_tags(Some(tags));");
+        }
+        AwsTagStyle::TypedTags => {
+            let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
+            let _ = writeln!(out, "    for (k, v) in &tags {{");
+            if m.resource.aws_tag_infallible {
+                let _ = writeln!(out, "        req = req.tags(");
+                let _ = writeln!(out, "            {sdk_crate_mod}::types::Tag::builder()");
+                let _ = writeln!(out, "                .key(k)");
+                let _ = writeln!(out, "                .value(v)");
+                let _ = writeln!(out, "                .build()");
+                let _ = writeln!(out, "        );");
+            } else {
+                let _ = writeln!(out, "        req = req.tags(");
+                let _ = writeln!(out, "            {sdk_crate_mod}::types::Tag::builder()");
+                let _ = writeln!(out, "                .key(k)");
+                let _ = writeln!(out, "                .value(v)");
+                let _ = writeln!(out, "                .build()");
+                let _ = writeln!(out, "                .map_err(|e| ProviderError::InvalidConfig(format!(\"failed to build Tag: {{e}}\")))?");
+                let _ = writeln!(out, "        );");
+            }
+            let _ = writeln!(out, "    }}");
+        }
+        AwsTagStyle::InlineKv => {
+            let _ = writeln!(out, "    for (k, v) in &tags {{");
+            let _ = writeln!(out, "        req = req.tags(k, v);");
+            let _ = writeln!(out, "    }}");
+        }
+        AwsTagStyle::PostCreate | AwsTagStyle::None => {}
+    }
+    let _ = writeln!(out);
+
+    // Send request
     let read_fn = crud_fn_name("read", &m.resource.type_path);
-    let _ = writeln!(out, "    self.{read_fn}(&provider_id).await");
+    match id_source {
+        AwsIdSource::ConfigName => {
+            // Don't need the result — just fire and check for errors
+            let _ = writeln!(out, "    req");
+            let _ = writeln!(out, "        .send()");
+            let _ = writeln!(out, "        .await");
+            let _ = writeln!(
+                out,
+                "        .map_err(|e| ProviderError::ApiError(format!(\"{create_method}: {{e}}\")))?;"
+            );
+            let _ = writeln!(out);
+
+            // Post-create actions (fields that need separate API calls)
+            write_aws_post_create_actions(out, m, "name");
+
+            let _ = writeln!(out, "    self.{read_fn}(&name).await");
+        }
+        AwsIdSource::ResponseField => {
+            // Need to capture result to extract provider_id
+            let _ = writeln!(out, "    let result = req");
+            let _ = writeln!(out, "        .send()");
+            let _ = writeln!(out, "        .await");
+            let _ = writeln!(
+                out,
+                "        .map_err(|e| ProviderError::ApiError(format!(\"{create_method}: {{e}}\")))?;"
+            );
+            let _ = writeln!(out);
+
+            // If response has a nested container (e.g., result.user_pool()?.id()),
+            // extract through it first
+            let field = m.resource.aws_response_id_field.as_deref().unwrap_or("id");
+            let accessor = snake_case(field);
+            let non_opt = m.resource.aws_response_id_non_optional;
+            if let Some(ref container) = m.resource.aws_response_accessor {
+                let _ = writeln!(out, "    let container = result");
+                let _ = writeln!(out, "        .{container}()");
+                if non_opt {
+                    let _ = writeln!(out, "    ;");
+                } else {
+                    let _ = writeln!(out, "        .ok_or_else(|| ProviderError::ApiError(\"{create_method} returned no {container}\".into()))?;");
+                }
+                let _ = writeln!(out, "    let provider_id = container");
+                let _ = writeln!(out, "        .{accessor}()");
+                if !non_opt {
+                    let _ = writeln!(out, "        .ok_or_else(|| ProviderError::ApiError(\"{create_method} returned no {field}\".into()))?;");
+                } else {
+                    let _ = writeln!(out, "    ;");
+                }
+            } else {
+                let _ = writeln!(out, "    let provider_id = result");
+                let _ = writeln!(out, "        .{accessor}()");
+                if !non_opt {
+                    let _ = writeln!(out, "        .ok_or_else(|| ProviderError::ApiError(\"{create_method} returned no {field}\".into()))?;");
+                } else {
+                    let _ = writeln!(out, "    ;");
+                }
+            }
+            let _ = writeln!(out);
+
+            // Post-create actions (fields that need separate API calls)
+            write_aws_post_create_actions(out, m, "provider_id");
+
+            let _ = writeln!(out, "    self.{read_fn}(provider_id).await");
+        }
+    }
+}
+
+/// Emit post-create API calls for fields with `skip_create = true` + `aws_post_create_method`.
+fn write_aws_post_create_actions(out: &mut String, m: &ResourceManifest, id_var: &str) {
+    let client_field = m.resource.aws_client_field.as_deref().unwrap_or("client");
+    let id_param = m.resource.aws_id_param.as_deref().unwrap_or("name");
+    let id_setter = snake_case(id_param);
+
+    for (name, field) in &m.fields {
+        if !field.skip_create {
+            continue;
+        }
+        let Some(ref method) = field.aws_post_create_method else {
+            continue;
+        };
+        let sdk_param = field.sdk_field.as_deref().unwrap_or(name);
+        let setter = snake_case(sdk_param);
+        let var = safe_ident(name);
+        let method_snake = snake_case(method);
+
+        // Emit conditional post-create call
+        match field.field_type.as_str() {
+            "Integer" | "Integer_u32" | "Integer_u64" => {
+                let default_val = field.default.as_ref()
+                    .and_then(|v| v.as_integer())
+                    .unwrap_or(0);
+                let _ = writeln!(out, "    if {var} != {default_val} {{");
+                let _ = writeln!(out, "        self.{client_field}");
+                let _ = writeln!(out, "            .{method_snake}()");
+                let _ = writeln!(out, "            .{id_setter}(&{id_var})");
+                let _ = writeln!(out, "            .{setter}({var} as i32)");
+                let _ = writeln!(out, "            .send()");
+                let _ = writeln!(out, "            .await");
+                let _ = writeln!(
+                    out,
+                    "            .map_err(|e| ProviderError::ApiError(format!(\"{method_snake}: {{e}}\")))?;"
+                );
+                let _ = writeln!(out, "    }}");
+            }
+            "String" => {
+                let _ = writeln!(out, "    if !{var}.is_empty() {{");
+                let _ = writeln!(out, "        self.{client_field}");
+                let _ = writeln!(out, "            .{method_snake}()");
+                let _ = writeln!(out, "            .{id_setter}(&{id_var})");
+                let _ = writeln!(out, "            .{setter}(&{var})");
+                let _ = writeln!(out, "            .send()");
+                let _ = writeln!(out, "            .await");
+                let _ = writeln!(
+                    out,
+                    "            .map_err(|e| ProviderError::ApiError(format!(\"{method_snake}: {{e}}\")))?;"
+                );
+                let _ = writeln!(out, "    }}");
+            }
+            "Bool" => {
+                let _ = writeln!(out, "    if {var} {{");
+                let _ = writeln!(out, "        self.{client_field}");
+                let _ = writeln!(out, "            .{method_snake}()");
+                let _ = writeln!(out, "            .{id_setter}(&{id_var})");
+                let _ = writeln!(out, "            .{setter}({var})");
+                let _ = writeln!(out, "            .send()");
+                let _ = writeln!(out, "            .await");
+                let _ = writeln!(
+                    out,
+                    "            .map_err(|e| ProviderError::ApiError(format!(\"{method_snake}: {{e}}\")))?;"
+                );
+                let _ = writeln!(out, "    }}");
+            }
+            _ => {
+                let _ = writeln!(out, "    // TODO: post-create {method_snake} for {name}");
+            }
+        }
+        let _ = writeln!(out);
+    }
 }
 
 // ── Read function ───────────────────────────────────────────────────────────
@@ -418,12 +733,12 @@ fn write_read_fn(out: &mut String, m: &ResourceManifest) {
     let _ = writeln!(out, "    provider_id: &str,");
     let _ = writeln!(out, ") -> Result<ResourceOutput, ProviderError> {{");
 
-    // Parse provider_id
-    write_provider_id_parsing(out, m);
-
     if is_gcp {
+        // GCP needs provider_id parsing (zone/region extraction)
+        write_provider_id_parsing(out, m);
         write_gcp_read_body(out, m);
     } else {
+        // AWS uses provider_id directly
         write_aws_read_body(out, m);
     }
 
@@ -505,25 +820,142 @@ fn write_gcp_read_body(out: &mut String, m: &ResourceManifest) {
 }
 
 fn write_aws_read_body(out: &mut String, m: &ResourceManifest) {
-    let model_var = safe_ident(&snake_case(&m.resource.sdk_model));
+    let client_field = m.resource.aws_client_field.as_deref().unwrap_or("client");
     let read_method = snake_case(&m.crud.read);
+    let read_style = m.resource.aws_read_style.clone().unwrap_or(AwsReadStyle::GetSingle);
+    let id_param = m.resource.aws_id_param.as_deref().unwrap_or("name");
+    let id_setter = snake_case(id_param);
+    let model_name = &m.resource.sdk_model;
 
-    let _ = writeln!(out, "    let response = self.client");
+    // Make API call — use aws_read_id_param if set (e.g., log_group_name_prefix)
+    let read_id_setter = m.resource.aws_read_id_param.as_deref()
+        .map(|p| snake_case(p))
+        .unwrap_or_else(|| id_setter.clone());
+    let _ = writeln!(out, "    let result = self.{client_field}");
     let _ = writeln!(out, "        .{read_method}()");
-    let _ = writeln!(out, "        // TODO: set identifier parameters");
+    let _ = writeln!(out, "        .{read_id_setter}(provider_id)");
     let _ = writeln!(out, "        .send()");
     let _ = writeln!(out, "        .await");
     let _ = writeln!(
         out,
-        "        .map_err(|e| ProviderError::ApiError(format!(\"Read {{}}: {{e}}\", provider_id)))?;"
+        "        .map_err(|e| ProviderError::ApiError(format!(\"{read_method}: {{e}}\")))?;"
     );
     let _ = writeln!(out);
-    let _ = writeln!(out, "    let {model_var} = response; // TODO: extract from response");
+
+    // Extract resource from response
+    match read_style {
+        AwsReadStyle::DescribeList => {
+            let default_list = format!("{}s", snake_case(model_name));
+            let list_accessor = m.resource.aws_list_accessor.as_deref()
+                .unwrap_or(&default_list);
+            let _ = writeln!(out, "    let resource = result");
+            let _ = writeln!(out, "        .{list_accessor}()");
+            let _ = writeln!(out, "        .first()");
+            let _ = writeln!(out, "        .ok_or_else(|| ProviderError::NotFound(format!(\"{model_name} {{provider_id}}\")))?;");
+        }
+        AwsReadStyle::GetSingle => {
+            if let Some(ref accessor) = m.resource.aws_response_accessor {
+                let _ = writeln!(out, "    let resource = result");
+                let _ = writeln!(out, "        .{accessor}()");
+                let _ = writeln!(out, "        .ok_or_else(|| ProviderError::NotFound(format!(\"{model_name} {{provider_id}}\")))?;");
+            } else {
+                let _ = writeln!(out, "    let resource = &result;");
+            }
+        }
+        AwsReadStyle::GetAttributes => {
+            // GetAttributes: resource access goes through attrs HashMap, no need for resource binding
+        }
+        AwsReadStyle::HeadCheck => {
+            let _ = writeln!(out, "    let resource = &result;");
+        }
+    }
     let _ = writeln!(out);
 
-    write_state_json(out, m, &model_var);
+    // For GetAttributes, extract the attribute map
+    let is_attrs = matches!(read_style, AwsReadStyle::GetAttributes);
+    if is_attrs {
+        let _ = writeln!(out, "    let attrs = result.attributes().cloned().unwrap_or_default();");
+        let _ = writeln!(out);
+    }
 
+    // Build state JSON
+    let sections = group_fields_by_section(&m.fields);
+    let _ = writeln!(out, "    let state = serde_json::json!({{");
+    for (section_name, fields) in &sections {
+        let _ = writeln!(out, "        \"{section_name}\": {{");
+        for (field_name, field) in fields {
+            if field.output_only {
+                continue;
+            }
+            let sdk_field = field.sdk_read_field.as_deref()
+                .or(field.sdk_field.as_deref())
+                .unwrap_or(field_name);
+            let accessor = snake_case(sdk_field);
+
+            // For config_name resources, the "name" field is the provider_id itself —
+            // don't try to read it from the response object.
+            let expr = if field_name == &"name" && matches!(m.resource.aws_id_source, Some(AwsIdSource::ConfigName)) {
+                "provider_id".to_string()
+            } else if is_attrs {
+                // GetAttributes: look up from attribute HashMap
+                // For "name" field with ResponseField id_source, extract from provider_id
+                if field_name == &"name" && matches!(m.resource.aws_id_source, Some(AwsIdSource::ResponseField)) {
+                    // Name is typically extracted from the ARN/URL-based provider_id
+                    "provider_id.rsplit(':').next().unwrap_or(\"\")".to_string()
+                } else if let Some(ref attr_key) = field.aws_attr_key {
+                    // Use explicit attribute key from catalog
+                    match field.field_type.as_str() {
+                        "String" => format!("attrs.get(\"{attr_key}\").map(|v| v.as_str()).unwrap_or(\"\")"),
+                        "Bool" => format!("attrs.get(\"{attr_key}\").map(|v| v == \"true\").unwrap_or(false)"),
+                        "Integer" | "Integer_u32" | "Integer_u64" => format!("attrs.get(\"{attr_key}\").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0)"),
+                        _ => format!("attrs.get(\"{attr_key}\").map(|v| v.as_str()).unwrap_or(\"\")"),
+                    }
+                } else {
+                    // Derive attribute key from field name (PascalCase convention)
+                    let attr_key = capitalize(&accessor);
+                    match field.field_type.as_str() {
+                        "String" => format!("attrs.get(\"{attr_key}\").map(|v| v.as_str()).unwrap_or(\"\")"),
+                        "Bool" => format!("attrs.get(\"{attr_key}\").map(|v| v == \"true\").unwrap_or(false)"),
+                        "Integer" | "Integer_u32" | "Integer_u64" => format!("attrs.get(\"{attr_key}\").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0)"),
+                        _ => format!("attrs.get(\"{attr_key}\").map(|v| v.as_str()).unwrap_or(\"\")"),
+                    }
+                }
+            } else if field.aws_enum {
+                // SDK enum type — convert to string via .as_str()
+                if field.sdk_non_optional {
+                    format!("resource.{accessor}().as_str()")
+                } else {
+                    format!("resource.{accessor}().map(|r| r.as_str()).unwrap_or(\"\")")
+                }
+            } else if field.sdk_non_optional {
+                // Non-optional SDK field — accessor returns T directly
+                format!("resource.{accessor}()")
+            } else {
+                // Standard typed accessor pattern (returns Option<T>)
+                match field.field_type.as_str() {
+                    "String" => format!("resource.{accessor}().unwrap_or(\"\")"),
+                    "Bool" => format!("resource.{accessor}().unwrap_or(false)"),
+                    "Integer" | "Integer_u32" | "Integer_u64" => format!("resource.{accessor}().unwrap_or(0)"),
+                    "Float" => format!("resource.{accessor}().unwrap_or(0.0)"),
+                    _ => format!("resource.{accessor}()"),
+                }
+            };
+            let _ = writeln!(out, "            \"{field_name}\": {expr},");
+        }
+        let _ = writeln!(out, "        }},");
+    }
+    let _ = writeln!(out, "    }});");
+    let _ = writeln!(out);
+
+    // Build outputs
     let _ = writeln!(out, "    let mut outputs = HashMap::new();");
+    for output in &m.resource.aws_outputs {
+        let _ = writeln!(
+            out,
+            "    outputs.insert(\"{}\".into(), serde_json::json!({}));",
+            output.name, output.expression
+        );
+    }
     let _ = writeln!(out);
 
     let _ = writeln!(out, "    Ok(ResourceOutput {{");
@@ -545,11 +977,11 @@ fn write_update_fn(out: &mut String, m: &ResourceManifest) {
     let _ = writeln!(out, ") -> Result<ResourceOutput, ProviderError> {{");
 
     if m.crud.update.is_some() {
-        write_provider_id_parsing(out, m);
-
         if m.resource.provider == "gcp" {
+            write_provider_id_parsing(out, m);
             write_gcp_update_body(out, m);
         } else {
+            // AWS uses provider_id directly
             write_aws_update_body(out, m);
         }
     } else {
@@ -674,16 +1106,98 @@ fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
 }
 
 fn write_aws_update_body(out: &mut String, m: &ResourceManifest) {
-    let update_method = snake_case(m.crud.update.as_deref().unwrap_or("modify"));
+    let client_field = m.resource.aws_client_field.as_deref().unwrap_or("client");
+    let update_method = snake_case(m.crud.update.as_deref().unwrap_or("update"));
+    let id_param = m.resource.aws_id_param.as_deref().unwrap_or("name");
+    let id_setter = snake_case(id_param);
 
-    let _ = writeln!(out, "    self.client");
+    // Extract fields from config using optional_* (update only sets what's present)
+    for (name, field) in &m.fields {
+        if field.output_only || field.skip || field.required {
+            continue;
+        }
+        let section = &field.section;
+        let path = format!("/{section}/{name}");
+        let var = safe_ident(name);
+
+        match field.field_type.as_str() {
+            "String" => {
+                let _ = writeln!(out, "    let {var} = config.optional_str(\"{path}\");");
+            }
+            "Integer" | "Integer_u32" | "Integer_u64" => {
+                let _ = writeln!(out, "    let {var} = config.optional_i64(\"{path}\");");
+            }
+            "Float" => {
+                let _ = writeln!(out, "    let {var} = config.optional_f64(\"{path}\");");
+            }
+            "Bool" => {
+                let _ = writeln!(out, "    let {var} = config.optional_bool(\"{path}\");");
+            }
+            _ => {}
+        }
+    }
+    let _ = writeln!(out);
+
+    let _ = writeln!(out, "    let mut req = self.{client_field}");
     let _ = writeln!(out, "        .{update_method}()");
-    let _ = writeln!(out, "        // TODO: set fields from config");
-    let _ = writeln!(out, "        .send()");
+    let _ = writeln!(out, "        .{id_setter}(provider_id)");
+    let _ = writeln!(out, "    ;");
+    let _ = writeln!(out);
+
+    // Set updatable fields conditionally
+    for (name, field) in &m.fields {
+        if field.output_only || field.skip || field.required {
+            continue;
+        }
+        let sdk_param = field.sdk_field.as_deref().unwrap_or(name);
+        let setter = snake_case(sdk_param);
+        let var = safe_ident(name);
+
+        if field.aws_enum {
+            // SDK enum type — convert from string via From<&str>
+            let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
+            let enum_type = field.aws_enum_type.as_deref()
+                .map(String::from)
+                .unwrap_or_else(|| capitalize(sdk_param));
+            let _ = writeln!(out, "    if let Some(v) = {var} {{");
+            let _ = writeln!(out, "        req = req.{setter}({sdk_crate_mod}::types::{enum_type}::from(v));");
+            let _ = writeln!(out, "    }}");
+            continue;
+        }
+
+        match field.field_type.as_str() {
+            "String" => {
+                let _ = writeln!(out, "    if let Some(v) = {var} {{");
+                let _ = writeln!(out, "        req = req.{setter}(v);");
+                let _ = writeln!(out, "    }}");
+            }
+            "Integer" | "Integer_u32" | "Integer_u64" => {
+                let _ = writeln!(out, "    if let Some(v) = {var} {{");
+                let _ = writeln!(out, "        req = req.{setter}(v as i32);");
+                let _ = writeln!(out, "    }}");
+            }
+            "Float" => {
+                let _ = writeln!(out, "    if let Some(v) = {var} {{");
+                let _ = writeln!(out, "        req = req.{setter}(v);");
+                let _ = writeln!(out, "    }}");
+            }
+            "Bool" => {
+                let _ = writeln!(out, "    if let Some(v) = {var} {{");
+                let _ = writeln!(out, "        req = req.{setter}(v);");
+                let _ = writeln!(out, "    }}");
+            }
+            _ => {
+                let _ = writeln!(out, "    // TODO: set optional {name} via .{setter}()");
+            }
+        }
+    }
+    let _ = writeln!(out);
+
+    let _ = writeln!(out, "    req.send()");
     let _ = writeln!(out, "        .await");
     let _ = writeln!(
         out,
-        "        .map_err(|e| ProviderError::ApiError(format!(\"Update: {{e}}\")))?;"
+        "        .map_err(|e| ProviderError::ApiError(format!(\"{update_method}: {{e}}\")))?;"
     );
     let _ = writeln!(out);
 
@@ -708,9 +1222,8 @@ fn write_delete_fn(out: &mut String, m: &ResourceManifest) {
         return;
     }
 
-    write_provider_id_parsing(out, m);
-
     if m.resource.provider == "gcp" {
+        write_provider_id_parsing(out, m);
         let client_accessor = m.resource.client_accessor.clone().unwrap_or_else(|| snake_case(&m.resource.sdk_client));
         let model_name = &m.resource.sdk_model;
         let delete_method = m.crud.delete.as_deref().unwrap();
@@ -752,14 +1265,21 @@ fn write_delete_fn(out: &mut String, m: &ResourceManifest) {
             "        .map_err(|e| super::classify_gcp_error(\"Delete{model_name}\", e))?;"
         );
     } else {
-        let _ = writeln!(out, "    self.client");
-        let _ = writeln!(out, "        .delete()");
-        let _ = writeln!(out, "        // TODO: set identifier");
+        let client_field = m.resource.aws_client_field.as_deref().unwrap_or("client");
+        let delete_method = snake_case(m.crud.delete.as_deref().unwrap());
+        let id_param = m.resource.aws_id_param.as_deref().unwrap_or("name");
+        let delete_id_setter = m.resource.aws_delete_id_param.as_deref()
+            .map(|p| snake_case(p))
+            .unwrap_or_else(|| snake_case(id_param));
+
+        let _ = writeln!(out, "    self.{client_field}");
+        let _ = writeln!(out, "        .{delete_method}()");
+        let _ = writeln!(out, "        .{delete_id_setter}(provider_id)");
         let _ = writeln!(out, "        .send()");
         let _ = writeln!(out, "        .await");
         let _ = writeln!(
             out,
-            "        .map_err(|e| ProviderError::ApiError(format!(\"Delete: {{e}}\")))?;"
+            "        .map_err(|e| ProviderError::ApiError(format!(\"{delete_method}: {{e}}\")))?;"
         );
     }
 
@@ -811,26 +1331,35 @@ fn sdk_crate_to_mod(sdk_crate: &str) -> String {
     sdk_crate.replace('-', "_")
 }
 
+/// Convert type_path to snake_case function suffix.
+/// "logs.LogGroup" → "logs_log_group", "lambda.Function" → "lambda_function"
+fn type_path_to_snake(type_path: &str) -> String {
+    type_path
+        .split('.')
+        .map(|part| snake_case(part))
+        .collect::<Vec<_>>()
+        .join("_")
+}
+
 fn schema_fn_name(type_path: &str) -> String {
-    format!(
-        "{}_schema",
-        type_path.replace('.', "_").to_lowercase()
-    )
+    format!("{}_schema", type_path_to_snake(type_path))
 }
 
 fn crud_fn_name(operation: &str, type_path: &str) -> String {
-    format!(
-        "{operation}_{}",
-        type_path.replace('.', "_").to_lowercase()
-    )
+    format!("{operation}_{}", type_path_to_snake(type_path))
 }
 
+/// Convert snake_case to PascalCase: "comparison_operator" → "ComparisonOperator"
 fn capitalize(s: &str) -> String {
-    let mut chars = s.chars();
-    match chars.next() {
-        None => String::new(),
-        Some(c) => c.to_uppercase().chain(chars).collect(),
-    }
+    s.split('_')
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(c) => c.to_uppercase().chain(chars).collect(),
+            }
+        })
+        .collect()
 }
 
 fn field_type_expr(type_str: &str, variants: &[String]) -> String {
@@ -970,11 +1499,23 @@ fn write_field_extraction(out: &mut String, name: &str, field: &FieldDef, sdk_cr
             }
         }
         "Float" => {
-            // Float extraction — use pointer + as_f64
-            let _ = writeln!(
-                out,
-                "    let {var} = config.pointer(\"{path}\").and_then(|v| v.as_f64());"
-            );
+            if field.required {
+                let _ = writeln!(
+                    out,
+                    "    let {var} = config.require_f64(\"{path}\")?;"
+                );
+            } else if let Some(ref default) = field.default {
+                let _ = writeln!(
+                    out,
+                    "    let {var} = config.f64_or(\"{path}\", {});",
+                    toml_to_json_literal(default)
+                );
+            } else {
+                let _ = writeln!(
+                    out,
+                    "    let {var} = config.optional_f64(\"{path}\");"
+                );
+            }
         }
         s if s.starts_with("Enum(") => {
             // Enums are extracted as strings from config, then converted via from_name() in the setter

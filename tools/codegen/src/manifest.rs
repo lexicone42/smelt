@@ -122,6 +122,67 @@ pub struct ResourceMeta {
     /// Used for resources where labels are type-specific config (e.g., NotificationChannel email_address).
     #[serde(default)]
     pub raw_labels: bool,
+
+    // ── AWS-specific fields ─────────────────────────────────────────────────
+
+    /// AWS: client field name on AwsProvider (e.g., "ec2_client", "lambda_client").
+    #[serde(default)]
+    pub aws_client_field: Option<String>,
+    /// AWS: read style — determines SDK call pattern for read operations.
+    #[serde(default)]
+    pub aws_read_style: Option<AwsReadStyle>,
+    /// AWS: accessor method on describe response to get the list (e.g., "vpcs", "log_groups").
+    /// Used with DescribeList read style.
+    #[serde(default)]
+    pub aws_list_accessor: Option<String>,
+    /// AWS: accessor method on response to extract single resource (e.g., "vpc", "role", "configuration").
+    /// Used with GetSingle and DescribeList (after .first()).
+    #[serde(default)]
+    pub aws_response_accessor: Option<String>,
+    /// AWS: parameter name for the identifier on read/delete calls (e.g., "vpc_ids", "function_name").
+    #[serde(default)]
+    pub aws_id_param: Option<String>,
+    /// AWS: where the provider_id comes from on create.
+    #[serde(default)]
+    pub aws_id_source: Option<AwsIdSource>,
+    /// AWS: field on create response that contains the provider_id (e.g., "vpc_id", "topic_arn").
+    /// Used with ResponseField id_source.
+    #[serde(default)]
+    pub aws_response_id_field: Option<String>,
+    /// AWS: tag handling style.
+    #[serde(default)]
+    pub aws_tag_style: Option<AwsTagStyle>,
+    /// AWS: EC2 ResourceType enum variant for TagSpecification (e.g., "Vpc", "Subnet").
+    #[serde(default)]
+    pub aws_tag_resource_type: Option<String>,
+    /// AWS: named outputs extracted from read response. Each entry is (name, accessor_expression).
+    /// e.g., [("function_arn", "config.function_arn().unwrap_or(\"\")")]
+    #[serde(default)]
+    pub aws_outputs: Vec<AwsOutput>,
+    /// AWS: whether the update function exists (if false, resource is replace-only)
+    #[serde(default)]
+    pub aws_updatable: bool,
+    /// AWS: Tag::builder().build() is infallible (returns Tag, not Result<Tag>).
+    /// When true, codegen drops the .map_err()? chain on tag building.
+    #[serde(default)]
+    pub aws_tag_infallible: bool,
+    /// AWS: override the ID parameter name on read calls (e.g., "log_group_name_prefix").
+    #[serde(default)]
+    pub aws_read_id_param: Option<String>,
+    /// AWS: override the ID parameter name on delete calls (e.g., "alarm_names" for list-based delete).
+    #[serde(default)]
+    pub aws_delete_id_param: Option<String>,
+    /// AWS: the create response ID field returns &str (not Option<&str>).
+    /// When true, codegen uses `.field()` instead of `.field().ok_or_else(...)`.
+    #[serde(default)]
+    pub aws_response_id_non_optional: bool,
+}
+
+/// AWS output field extracted from read response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AwsOutput {
+    pub name: String,
+    pub expression: String,
 }
 
 /// Resource scope — determines how provider_id is constructed and which
@@ -166,6 +227,66 @@ pub enum ApiStyle {
 impl Default for ApiStyle {
     fn default() -> Self {
         Self::Compute
+    }
+}
+
+/// AWS read style — determines how the read function calls the SDK.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AwsReadStyle {
+    /// describe_*(id_filter) → list.first() — e.g., EC2 VPC, Subnet
+    DescribeList,
+    /// get_*(id) → response.accessor() — e.g., Lambda, IAM Role
+    GetSingle,
+    /// get_*_attributes(id) → attribute map — e.g., SQS, SNS
+    GetAttributes,
+    /// head_*(id) + separate calls for state — e.g., S3
+    HeadCheck,
+}
+
+impl Default for AwsReadStyle {
+    fn default() -> Self {
+        Self::GetSingle
+    }
+}
+
+/// AWS provider ID source — where the provider_id comes from on create.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AwsIdSource {
+    /// Provider ID = user-chosen name from config (/identity/name)
+    ConfigName,
+    /// Provider ID = field on create response (e.g., vpc_id, queue_url)
+    ResponseField,
+}
+
+impl Default for AwsIdSource {
+    fn default() -> Self {
+        Self::ConfigName
+    }
+}
+
+/// AWS tag handling style.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AwsTagStyle {
+    /// EC2-style TagSpecification with ResourceType enum
+    TagSpecification,
+    /// Lambda-style: .set_tags(Some(HashMap<String, String>))
+    SetTags,
+    /// SNS/IAM-style: .tags(Tag::builder().key(k).value(v).build())
+    TypedTags,
+    /// SQS-style: .tags(key, value) inline on create builder
+    InlineKv,
+    /// SSM-style: tags applied via separate API call after create
+    PostCreate,
+    /// No tag support on create
+    None,
+}
+
+impl Default for AwsTagStyle {
+    fn default() -> Self {
+        Self::SetTags
     }
 }
 
@@ -226,6 +347,32 @@ pub struct FieldDef {
     /// Empty for non-oneof fields.
     #[serde(default)]
     pub oneof_variants: Vec<OneofVariant>,
+    /// AWS: attribute key for GetAttributes-style reads.
+    /// When set, create uses `.attributes(key, value)` and read uses `attrs.get(key)`.
+    #[serde(default)]
+    pub aws_attr_key: Option<String>,
+    /// AWS: field uses an SDK enum type, not a raw string.
+    /// On create: `EnumType::from(value)`. On read: `.as_str()`.
+    #[serde(default)]
+    pub aws_enum: bool,
+    /// AWS: override the auto-derived enum type name.
+    /// By default, codegen uses `capitalize(sdk_param)` (e.g., `mfa_configuration` → `MfaConfiguration`).
+    /// Set this when the SDK type name doesn't match (e.g., `UserPoolMfaType`).
+    #[serde(default)]
+    pub aws_enum_type: Option<String>,
+    /// SDK field name to use for reading (response accessor), when different from `sdk_field`.
+    /// `sdk_field` is used for the create/update builder setter, this is for reading.
+    #[serde(default)]
+    pub sdk_read_field: Option<String>,
+    /// AWS: skip this field from the main create API call.
+    #[serde(default)]
+    pub skip_create: bool,
+    /// AWS: separate API method to call after create for this field.
+    #[serde(default)]
+    pub aws_post_create_method: Option<String>,
+    /// AWS: SDK response accessor returns T (not Option<T>) — skip `.unwrap_or()` on read.
+    #[serde(default)]
+    pub sdk_non_optional: bool,
 }
 
 fn default_true() -> bool {
@@ -367,6 +514,13 @@ impl ResourceManifest {
                     optional: f.optional,
                     sdk_type_path,
                     oneof_variants: Vec::new(),
+                    aws_attr_key: None,
+                    aws_enum: false,
+                    aws_enum_type: None,
+                    sdk_read_field: None,
+                    skip_create: false,
+                    aws_post_create_method: None,
+                    sdk_non_optional: false,
                 },
             );
         }
@@ -400,6 +554,21 @@ impl ResourceManifest {
                 skip_name_on_create: false,
                 full_name_on_model: false,
                 raw_labels: false,
+                aws_client_field: None,
+                aws_read_style: None,
+                aws_list_accessor: None,
+                aws_response_accessor: None,
+                aws_id_param: None,
+                aws_id_source: None,
+                aws_response_id_field: None,
+                aws_tag_style: None,
+                aws_tag_resource_type: None,
+                aws_outputs: Vec::new(),
+                aws_updatable: false,
+                aws_tag_infallible: false,
+                aws_read_id_param: None,
+                aws_delete_id_param: None,
+                aws_response_id_non_optional: false,
             },
             crud,
             fields: field_defs,

@@ -100,6 +100,13 @@ fn arb_field_def() -> impl Strategy<Value = FieldDef> {
                 optional,
                 sdk_type_path: None,
                 oneof_variants: Vec::new(),
+                aws_attr_key: None,
+                aws_enum: false,
+                aws_enum_type: None,
+                sdk_read_field: None,
+                skip_create: false,
+                aws_post_create_method: None,
+                sdk_non_optional: false,
             }
         })
 }
@@ -132,6 +139,13 @@ fn arb_manifest() -> impl Strategy<Value = ResourceManifest> {
                 optional: true,
                 sdk_type_path: None,
                 oneof_variants: Vec::new(),
+                aws_attr_key: None,
+                aws_enum: false,
+                aws_enum_type: None,
+                sdk_read_field: None,
+                skip_create: false,
+                aws_post_create_method: None,
+                sdk_non_optional: false,
             });
 
             let type_path = format!("{service}.{model}");
@@ -174,6 +188,21 @@ fn arb_manifest() -> impl Strategy<Value = ResourceManifest> {
                     skip_name_on_create: false,
                     full_name_on_model: false,
                     raw_labels: false,
+                    aws_client_field: None,
+                    aws_read_style: None,
+                    aws_list_accessor: None,
+                    aws_response_accessor: None,
+                    aws_id_param: None,
+                    aws_id_source: None,
+                    aws_response_id_field: None,
+                    aws_tag_style: None,
+                    aws_tag_resource_type: None,
+                    aws_outputs: Vec::new(),
+                    aws_updatable: false,
+                    aws_tag_infallible: false,
+                    aws_read_id_param: None,
+                    aws_delete_id_param: None,
+                    aws_response_id_non_optional: false,
                 },
                 crud: CrudMethods {
                     create: "insert".into(),
@@ -383,6 +412,12 @@ fn integer_codegen_uses_try_from() {
         optional: true,
         sdk_type_path: None,
         oneof_variants: Vec::new(),
+        aws_attr_key: None,
+        aws_enum: false,
+        aws_enum_type: None,
+        sdk_read_field: None,
+        skip_create: false,
+        aws_post_create_method: None,
     });
     fields.insert("count".into(), FieldDef {
         section: "config".into(),
@@ -399,6 +434,12 @@ fn integer_codegen_uses_try_from() {
         optional: true,
         sdk_type_path: None,
         oneof_variants: Vec::new(),
+        aws_attr_key: None,
+        aws_enum: false,
+        aws_enum_type: None,
+        sdk_read_field: None,
+        skip_create: false,
+        aws_post_create_method: None,
     });
 
     let manifest = ResourceManifest {
@@ -430,6 +471,19 @@ fn integer_codegen_uses_try_from() {
             skip_name_on_create: false,
             full_name_on_model: false,
             raw_labels: false,
+            aws_client_field: None,
+            aws_read_style: None,
+            aws_list_accessor: None,
+            aws_response_accessor: None,
+            aws_id_param: None,
+            aws_id_source: None,
+            aws_response_id_field: None,
+            aws_tag_style: None,
+            aws_tag_resource_type: None,
+            aws_outputs: Vec::new(),
+            aws_updatable: false,
+                    aws_tag_infallible: false,
+            aws_read_id_param: None,
         },
         crud: CrudMethods {
             create: "insert".into(),
@@ -473,6 +527,12 @@ fn oneof_uses_field_section_not_config() {
         optional: true,
         sdk_type_path: None,
         oneof_variants: Vec::new(),
+        aws_attr_key: None,
+        aws_enum: false,
+        aws_enum_type: None,
+        sdk_read_field: None,
+        skip_create: false,
+        aws_post_create_method: None,
     });
     fields.insert("expiration".into(), FieldDef {
         section: "security".into(),
@@ -502,6 +562,12 @@ fn oneof_uses_field_section_not_config() {
                 boxed: true,
             },
         ],
+        aws_attr_key: None,
+        aws_enum: false,
+        aws_enum_type: None,
+        sdk_read_field: None,
+        skip_create: false,
+        aws_post_create_method: None,
     });
 
     let manifest = ResourceManifest {
@@ -533,6 +599,19 @@ fn oneof_uses_field_section_not_config() {
             skip_name_on_create: false,
             full_name_on_model: false,
             raw_labels: false,
+            aws_client_field: None,
+            aws_read_style: None,
+            aws_list_accessor: None,
+            aws_response_accessor: None,
+            aws_id_param: None,
+            aws_id_source: None,
+            aws_response_id_field: None,
+            aws_tag_style: None,
+            aws_tag_resource_type: None,
+            aws_outputs: Vec::new(),
+            aws_updatable: false,
+                    aws_tag_infallible: false,
+            aws_read_id_param: None,
         },
         crud: CrudMethods {
             create: "create_secret".into(),

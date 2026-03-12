@@ -1,10 +1,11 @@
 //! smelt-codegen: Generate smelt provider code from SDK crate introspection.
 //!
-//! Four modes:
+//! Five modes:
 //! 1. `introspect` — Parse an SDK model struct and generate a resource manifest
 //! 2. `generate`   — Read a resource manifest and emit Rust provider code
 //! 3. `scan`       — Discover all resource-like structs in an SDK model file
-//! 4. `batch`      — Generate all resources from a catalog TOML
+//! 4. `batch`      — Generate all resources from a GCP catalog TOML
+//! 5. `aws-batch`  — Generate all resources from an AWS catalog TOML (declarative, no introspection)
 //!
 //! Supports both GCP (`google-cloud-*`) and AWS (`aws-sdk-*`) SDK crates.
 
@@ -65,9 +66,20 @@ enum Command {
         provider: String,
     },
 
-    /// Batch-generate all resources from a catalog TOML
+    /// Batch-generate all GCP resources from a catalog TOML (with SDK introspection)
     Batch {
         /// Path to the catalog TOML file
+        #[arg(long)]
+        catalog: String,
+
+        /// Output directory for generated files
+        #[arg(long)]
+        output_dir: String,
+    },
+
+    /// Batch-generate all AWS resources from a catalog TOML (declarative, no introspection)
+    AwsBatch {
+        /// Path to the AWS catalog TOML file
         #[arg(long)]
         catalog: String,
 
@@ -203,8 +215,13 @@ fn main() {
         }
 
         Command::Batch { catalog, output_dir } => {
-            eprintln!("Batch generating from {catalog} -> {output_dir}");
+            eprintln!("Batch generating (GCP) from {catalog} -> {output_dir}");
             catalog::batch_generate(&catalog, &output_dir);
+        }
+
+        Command::AwsBatch { catalog, output_dir } => {
+            eprintln!("Batch generating (AWS) from {catalog} -> {output_dir}");
+            catalog::batch_generate_aws(&catalog, &output_dir);
         }
     }
 }

@@ -364,6 +364,15 @@ pub trait ConfigExt {
     /// Extract an optional i64 field (None if absent).
     fn optional_i64(&self, path: &str) -> Option<i64>;
 
+    /// Extract a required f64 field.
+    fn require_f64(&self, path: &str) -> Result<f64, ProviderError>;
+
+    /// Extract an optional f64 field with a default.
+    fn f64_or(&self, path: &str, default: f64) -> f64;
+
+    /// Extract an optional f64 field (None if absent).
+    fn optional_f64(&self, path: &str) -> Option<f64>;
+
     /// Extract an optional array field.
     fn optional_array(&self, path: &str) -> Option<&Vec<serde_json::Value>>;
 }
@@ -420,6 +429,22 @@ impl ConfigExt for serde_json::Value {
 
     fn optional_i64(&self, path: &str) -> Option<i64> {
         self.pointer(path).and_then(|v| v.as_i64())
+    }
+
+    fn require_f64(&self, path: &str) -> Result<f64, ProviderError> {
+        self.pointer(path).and_then(|v| v.as_f64()).ok_or_else(|| {
+            ProviderError::InvalidConfig(format!("{} is required", pointer_to_field(path)))
+        })
+    }
+
+    fn f64_or(&self, path: &str, default: f64) -> f64 {
+        self.pointer(path)
+            .and_then(|v| v.as_f64())
+            .unwrap_or(default)
+    }
+
+    fn optional_f64(&self, path: &str) -> Option<f64> {
+        self.pointer(path).and_then(|v| v.as_f64())
     }
 
     fn optional_array(&self, path: &str) -> Option<&Vec<serde_json::Value>> {

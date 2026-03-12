@@ -10,7 +10,10 @@ use serde::Deserialize;
 
 use crate::generate;
 use crate::introspect;
-use crate::manifest::{ApiStyle, FieldDef, ResourceManifest, Scope};
+use crate::manifest::{
+    ApiStyle, AwsIdSource, AwsOutput, AwsReadStyle, AwsTagStyle,
+    CrudMethods, FieldDef, ResourceManifest, ResourceMeta, Scope,
+};
 use crate::snake_case;
 
 #[derive(Debug, Deserialize)]
@@ -87,6 +90,104 @@ pub struct CatalogEntry {
     /// e.g. { type = "identity" } moves the `type` field from its inferred section to `identity`.
     #[serde(default)]
     pub field_sections: BTreeMap<String, String>,
+
+    // ── AWS-specific catalog fields ─────────────────────────────────────
+
+    /// AWS: client field name on AwsProvider (e.g., "ec2_client")
+    #[serde(default)]
+    pub aws_client_field: Option<String>,
+    /// AWS: read style
+    #[serde(default)]
+    pub aws_read_style: Option<AwsReadStyle>,
+    /// AWS: list accessor for describe-style reads (e.g., "vpcs")
+    #[serde(default)]
+    pub aws_list_accessor: Option<String>,
+    /// AWS: response accessor for extracting resource (e.g., "vpc", "role")
+    #[serde(default)]
+    pub aws_response_accessor: Option<String>,
+    /// AWS: ID parameter name (e.g., "vpc_ids", "function_name")
+    #[serde(default)]
+    pub aws_id_param: Option<String>,
+    /// AWS: ID source on create
+    #[serde(default)]
+    pub aws_id_source: Option<AwsIdSource>,
+    /// AWS: response field for provider_id (e.g., "vpc_id", "topic_arn")
+    #[serde(default)]
+    pub aws_response_id_field: Option<String>,
+    /// AWS: tag style
+    #[serde(default)]
+    pub aws_tag_style: Option<AwsTagStyle>,
+    /// AWS: EC2 resource type for TagSpecification
+    #[serde(default)]
+    pub aws_tag_resource_type: Option<String>,
+    /// AWS: named outputs from read response
+    #[serde(default)]
+    pub aws_outputs: Vec<AwsOutput>,
+    /// AWS: whether update is supported (if false, replace-only)
+    #[serde(default)]
+    pub aws_updatable: Option<bool>,
+    /// AWS: Tag::builder().build() is infallible (returns Tag, not Result<Tag>).
+    #[serde(default)]
+    pub aws_tag_infallible: Option<bool>,
+    /// AWS: override the ID parameter name used on read calls.
+    /// E.g., "log_group_name_prefix" when read uses a prefix filter instead of exact match.
+    #[serde(default)]
+    pub aws_read_id_param: Option<String>,
+    /// AWS: override the ID parameter name on delete calls (e.g., "alarm_names" for list-based delete).
+    #[serde(default)]
+    pub aws_delete_id_param: Option<String>,
+    /// AWS: create response ID field returns &str not Option<&str>.
+    #[serde(default)]
+    pub aws_response_id_non_optional: Option<bool>,
+    /// AWS: explicit field definitions (skips SDK introspection)
+    #[serde(default)]
+    pub fields: Vec<AwsCatalogField>,
+}
+
+/// Explicit field definition for AWS catalog entries (no SDK introspection needed).
+#[derive(Debug, Deserialize)]
+pub struct AwsCatalogField {
+    pub name: String,
+    pub section: String,
+    #[serde(rename = "type")]
+    pub field_type: String,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub default: Option<toml::Value>,
+    #[serde(default)]
+    pub sensitive: bool,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub variants: Vec<String>,
+    /// SDK parameter name for the field on create (e.g., "log_group_name" for "name")
+    #[serde(default)]
+    pub sdk_param: Option<String>,
+    /// AWS: attribute key for GetAttributes-style APIs (e.g., "FifoTopic" for fifo field)
+    #[serde(default)]
+    pub aws_attr_key: Option<String>,
+    /// AWS: when true, the SDK setter expects an enum type, not a string.
+    /// The codegen will use `Type::from(value)` on create and `.as_str()` on read.
+    #[serde(default)]
+    pub aws_enum: bool,
+    /// AWS: override the auto-derived enum type name.
+    #[serde(default)]
+    pub aws_enum_type: Option<String>,
+    /// SDK field name for reading (response accessor), when different from `sdk_param`.
+    #[serde(default)]
+    pub sdk_read_field: Option<String>,
+    /// AWS: skip this field from the main create API call.
+    /// Used when a field must be set via a separate post-create API (e.g., retention_in_days).
+    #[serde(default)]
+    pub skip_create: bool,
+    /// AWS: SDK response accessor returns T (not Option<T>) — skip `.unwrap_or()`.
+    #[serde(default)]
+    pub sdk_non_optional: bool,
+    /// AWS: separate API method to call after create for this field.
+    /// E.g., "put_retention_policy" for retention_in_days on LogGroup.
+    #[serde(default)]
+    pub aws_post_create_method: Option<String>,
 }
 
 
@@ -293,6 +394,13 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
                 optional: false,
                 sdk_type_path: None,
                 oneof_variants: Vec::new(),
+                aws_attr_key: None,
+                aws_enum: false,
+                aws_enum_type: None,
+                sdk_read_field: None,
+                skip_create: false,
+                aws_post_create_method: None,
+                sdk_non_optional: false,
             });
         }
 
@@ -360,6 +468,13 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
                     optional: true,
                     sdk_type_path: None,
                     oneof_variants: Vec::new(),
+                    aws_attr_key: None,
+                    aws_enum: false,
+                    aws_enum_type: None,
+                    sdk_read_field: None,
+                    skip_create: false,
+                    aws_post_create_method: None,
+                sdk_non_optional: false,
                 },
             );
         }
@@ -452,6 +567,206 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
 
     eprintln!();
     eprintln!("Batch complete: {success_count} generated, {skip_count} skipped");
+}
+
+/// Run batch generation from an AWS catalog file.
+/// Unlike GCP batch generation, AWS catalogs define fields explicitly (no SDK introspection).
+pub fn batch_generate_aws(catalog_path: &str, output_dir: &str) {
+    let catalog_str = std::fs::read_to_string(catalog_path)
+        .unwrap_or_else(|e| panic!("Cannot read catalog {catalog_path}: {e}"));
+
+    let catalog: Catalog = toml::from_str(&catalog_str)
+        .unwrap_or_else(|e| panic!("Invalid catalog: {e}"));
+
+    // Group entries by service (first part of type_path)
+    let mut by_service: BTreeMap<String, Vec<(String, &CatalogEntry)>> = BTreeMap::new();
+    let mut success_count = 0;
+
+    for entry in &catalog.resource {
+        let type_path = entry.type_path.clone().unwrap_or_else(|| {
+            let service = entry.sdk_crate.strip_prefix("aws-sdk-").unwrap_or(&entry.sdk_crate);
+            format!("{service}.{}", entry.struct_name)
+        });
+
+        // Build manifest from explicit field definitions
+        let mut fields = BTreeMap::new();
+        for f in &entry.fields {
+            fields.insert(
+                f.name.clone(),
+                FieldDef {
+                    section: f.section.clone(),
+                    sdk_field: f.sdk_param.clone(),
+                    field_type: f.field_type.clone(),
+                    required: f.required,
+                    default: f.default.clone(),
+                    sensitive: f.sensitive,
+                    description: f.description.clone(),
+                    variants: f.variants.clone(),
+                    output_only: false,
+                    deprecated: false,
+                    skip: false,
+                    optional: !f.required,
+                    sdk_type_path: None,
+                    oneof_variants: Vec::new(),
+                    aws_attr_key: f.aws_attr_key.clone(),
+                    aws_enum: f.aws_enum,
+                    aws_enum_type: f.aws_enum_type.clone(),
+                    sdk_read_field: f.sdk_read_field.clone(),
+                    skip_create: f.skip_create,
+                    aws_post_create_method: f.aws_post_create_method.clone(),
+                    sdk_non_optional: f.sdk_non_optional,
+                },
+            );
+        }
+
+        // Ensure name field exists
+        if !fields.contains_key("name") {
+            fields.insert(
+                "name".into(),
+                FieldDef {
+                    section: "identity".into(),
+                    sdk_field: None,
+                    field_type: "String".into(),
+                    required: true,
+                    default: None,
+                    sensitive: false,
+                    description: Some("Resource name".into()),
+                    variants: Vec::new(),
+                    output_only: false,
+                    deprecated: false,
+                    skip: false,
+                    optional: false,
+                    sdk_type_path: None,
+                    oneof_variants: Vec::new(),
+                    aws_attr_key: None,
+                    aws_enum: false,
+                    aws_enum_type: None,
+                    sdk_read_field: None,
+                    skip_create: false,
+                    aws_post_create_method: None,
+                sdk_non_optional: false,
+                },
+            );
+        }
+
+        let manifest = ResourceManifest {
+            resource: ResourceMeta {
+                type_path: type_path.clone(),
+                description: format!("{} resource", entry.struct_name),
+                provider: "aws".into(),
+                sdk_crate: entry.sdk_crate.clone(),
+                sdk_model: entry.struct_name.clone(),
+                sdk_client: entry.sdk_client.clone(),
+                provider_id_format: "{name}".into(),
+                scope: entry.scope.clone(),
+                api_style: ApiStyle::Compute, // unused for AWS
+                parent_format: None,
+                resource_id_setter: None,
+                resource_body_setter: None,
+                client_accessor: None,
+                resource_id_param: None,
+                parent_setter: None,
+                resource_name_param: None,
+                has_update_mask: false,
+                output_field: None,
+                lro_create: false,
+                lro_update: false,
+                lro_delete: false,
+                parent_binding: None,
+                parent_binding_section: None,
+                resource_noun: None,
+                skip_name_on_create: false,
+                full_name_on_model: false,
+                raw_labels: false,
+                aws_client_field: entry.aws_client_field.clone(),
+                aws_read_style: entry.aws_read_style.clone(),
+                aws_list_accessor: entry.aws_list_accessor.clone(),
+                aws_response_accessor: entry.aws_response_accessor.clone(),
+                aws_id_param: entry.aws_id_param.clone(),
+                aws_id_source: entry.aws_id_source.clone(),
+                aws_response_id_field: entry.aws_response_id_field.clone(),
+                aws_tag_style: entry.aws_tag_style.clone(),
+                aws_tag_resource_type: entry.aws_tag_resource_type.clone(),
+                aws_outputs: entry.aws_outputs.clone(),
+                aws_updatable: entry.aws_updatable.unwrap_or(false),
+                aws_tag_infallible: entry.aws_tag_infallible.unwrap_or(false),
+                aws_read_id_param: entry.aws_read_id_param.clone(),
+                aws_delete_id_param: entry.aws_delete_id_param.clone(),
+                aws_response_id_non_optional: entry.aws_response_id_non_optional.unwrap_or(false),
+            },
+            crud: CrudMethods {
+                create: entry.crud_create.clone().unwrap_or_else(|| "create".into()),
+                read: entry.crud_read.clone().unwrap_or_else(|| "describe".into()),
+                update: entry.crud_update.clone(),
+                delete: entry.crud_delete.clone(),
+            },
+            fields,
+            replacement_fields: Vec::new(),
+            output_fields: Vec::new(),
+        };
+
+        let code = generate::generate_provider_code(&manifest);
+
+        let service = type_path.split('.').next().unwrap_or("unknown").to_string();
+        by_service.entry(service).or_default().push((code, entry));
+        success_count += 1;
+    }
+
+    // Write output files grouped by service
+    std::fs::create_dir_all(output_dir)
+        .unwrap_or_else(|e| panic!("Cannot create output dir {output_dir}: {e}"));
+
+    for (service, entries) in &by_service {
+        let mut combined = String::new();
+        combined.push_str("// Generated by smelt-codegen batch (aws) — do not edit by hand.\n");
+        combined.push_str(&format!("// Service: {service}\n"));
+        combined.push_str(&format!("// Resources: {}\n\n", entries.len()));
+        combined.push_str("use crate::provider::*;\n");
+        combined.push_str("use std::collections::HashMap;\n\n");
+        combined.push_str("use super::AwsProvider;\n\n");
+
+        let mut methods = String::new();
+        let mut standalone = String::new();
+
+        for (code, _entry) in entries {
+            let body = strip_header(code);
+            let (method_part, standalone_part) = split_methods_and_standalone(&body);
+
+            for line in method_part.lines() {
+                if line.is_empty() {
+                    methods.push('\n');
+                } else {
+                    methods.push_str("    ");
+                    methods.push_str(line);
+                    methods.push('\n');
+                }
+            }
+            methods.push('\n');
+
+            if !standalone_part.is_empty() {
+                standalone.push_str(&standalone_part);
+                standalone.push('\n');
+            }
+        }
+
+        combined.push_str("impl AwsProvider {\n");
+        combined.push_str(&methods);
+        combined.push_str("}\n\n");
+        combined.push_str(&standalone);
+
+        let filename = format!("{service}.rs");
+        let path = Path::new(output_dir).join(&filename);
+        std::fs::write(&path, &combined)
+            .unwrap_or_else(|e| panic!("Cannot write {}: {e}", path.display()));
+        eprintln!(
+            "  Generated: {} ({} resources)",
+            path.display(),
+            entries.len()
+        );
+    }
+
+    eprintln!();
+    eprintln!("AWS batch complete: {success_count} generated");
 }
 
 /// Strip the generated header and imports, returning just the function bodies.
