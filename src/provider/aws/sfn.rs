@@ -126,12 +126,22 @@ impl AwsProvider {
     pub(super) async fn update_sfn_state_machine(
         &self,
         provider_id: &str,
-        _config: &serde_json::Value,
+        config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let req = self
+        let definition = config.optional_str("/sizing/definition");
+        let role_arn = config.optional_str("/security/role_arn");
+
+        let mut req = self
             .sfn_client
             .update_state_machine()
             .state_machine_arn(provider_id);
+
+        if let Some(v) = definition {
+            req = req.definition(v);
+        }
+        if let Some(v) = role_arn {
+            req = req.role_arn(v);
+        }
 
         req.send()
             .await

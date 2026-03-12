@@ -209,6 +209,7 @@ aws_updatable = true
 
 aws_client_field = "sqs_client"
 aws_read_style = "get_attributes"
+aws_attr_name_type = "QueueAttributeName"
 aws_id_param = "queue_url"
 aws_id_source = "response_field"
 aws_response_id_field = "queue_url"
@@ -381,14 +382,17 @@ name = "description"
 section = "identity"
 type = "String"
 description = "Parameter description"
+skip_read = true
 
 [[resource.fields]]
 name = "type"
 section = "sizing"
-type = "Enum"
+type = "String"
 default = "String"
 description = "Parameter type"
 aws_enum = true
+aws_enum_type = "ParameterType"
+sdk_param = "r#type"
 
 [[resource.fields]]
 name = "value"
@@ -400,10 +404,12 @@ description = "Parameter value"
 [[resource.fields]]
 name = "tier"
 section = "sizing"
-type = "Enum"
+type = "String"
 default = "Standard"
 description = "Parameter tier (Standard or Advanced)"
 aws_enum = true
+aws_enum_type = "ParameterTier"
+skip_read = true
 
 # ─── Secrets Manager: Secret ─────────────────────────────────────────────────
 # Pattern: arn as provider_id (response_field), describe_secret for read.
@@ -429,6 +435,7 @@ aws_id_source = "response_field"
 aws_response_id_field = "arn"
 aws_tag_style = "typed_tags"
 aws_tag_infallible = true
+aws_delete_extra_setters = ["recovery_window_in_days(30)"]
 
 [[resource.aws_outputs]]
 name = "secret_arn"
@@ -457,6 +464,7 @@ section = "security"
 type = "String"
 description = "Secret string value (sensitive)"
 sensitive = true
+skip_read = true
 
 [[resource.fields]]
 name = "kms_key_id"
@@ -606,6 +614,8 @@ section = "security"
 type = "Bool"
 default = true
 description = "Scan images on push"
+aws_builder_wrapper = "ImageScanningConfiguration"
+aws_builder_type = "ImageScanningConfiguration"
 
 [[resource.fields]]
 name = "image_tag_mutability"
@@ -634,8 +644,11 @@ aws_list_accessor = "clusters"
 aws_id_param = "cluster_name"
 aws_id_source = "response_field"
 aws_response_id_field = "cluster_arn"
+aws_response_accessor = "cluster"
 aws_tag_style = "typed_tags"
+aws_tag_infallible = true
 aws_read_id_param = "clusters"
+aws_delete_id_param = "cluster"
 
 [[resource.aws_outputs]]
 name = "cluster_arn"
@@ -1055,6 +1068,9 @@ aws_id_param = "db_instance_identifier"
 aws_id_source = "config_name"
 aws_tag_style = "typed_tags"
 aws_tag_infallible = true
+aws_delete_extra_setters = [
+    "skip_final_snapshot(true)",
+]
 
 [[resource.aws_outputs]]
 name = "endpoint"
@@ -1122,12 +1138,14 @@ required = true
 description = "Master password"
 sensitive = true
 sdk_param = "master_user_password"
+skip_read = true
 
 [[resource.fields]]
 name = "db_subnet_group_name"
 section = "network"
 type = "String"
 description = "DB subnet group name"
+read_expression = "resource.db_subnet_group().and_then(|g| g.db_subnet_group_name()).unwrap_or(\"\")"
 
 [[resource.fields]]
 name = "publicly_accessible"
@@ -1188,6 +1206,15 @@ default = "Managed by smelt"
 description = "Subnet group description"
 sdk_param = "db_subnet_group_description"
 
+[[resource.fields]]
+name = "subnet_ids"
+section = "network"
+type = "StringArray"
+required = true
+description = "List of subnet IDs"
+sdk_param = "subnet_ids"
+read_expression = "resource.subnets().iter().filter_map(|s| s.subnet_identifier().map(String::from)).collect::<Vec<_>>()"
+
 # ─── EFS: FileSystem ──────────────────────────────────────────────────────
 # Pattern: describe_list, typed_tags, response_field (file_system_id)
 
@@ -1199,9 +1226,7 @@ type_path = "efs.FileSystem"
 
 crud_create = "create_file_system"
 crud_read = "describe_file_systems"
-crud_update = "update_file_system"
 crud_delete = "delete_file_system"
-aws_updatable = true
 
 aws_client_field = "efs_client"
 aws_read_style = "describe_list"
@@ -1209,6 +1234,7 @@ aws_list_accessor = "file_systems"
 aws_id_param = "file_system_id"
 aws_id_source = "response_field"
 aws_response_id_field = "file_system_id"
+aws_response_id_non_optional = true
 aws_tag_style = "typed_tags"
 
 [[resource.aws_outputs]]
@@ -1226,14 +1252,25 @@ type = "String"
 required = true
 description = "File system name (used as creation token)"
 sdk_param = "creation_token"
+sdk_read_field = "creation_token"
+sdk_non_optional = true
+
+[[resource.fields]]
+name = "encrypted"
+section = "security"
+type = "Bool"
+default = true
+description = "Enable encryption at rest (immutable after creation)"
+sdk_non_optional = true
 
 [[resource.fields]]
 name = "performance_mode"
 section = "sizing"
 type = "String"
 default = "generalPurpose"
-description = "Performance mode"
+description = "Performance mode (immutable after creation)"
 aws_enum = true
+sdk_non_optional = true
 
 [[resource.fields]]
 name = "throughput_mode"
@@ -1242,13 +1279,6 @@ type = "String"
 default = "bursting"
 description = "Throughput mode"
 aws_enum = true
-
-[[resource.fields]]
-name = "encrypted"
-section = "security"
-type = "Bool"
-default = true
-description = "Enable encryption at rest"
 
 # ─── EFS: MountTarget ─────────────────────────────────────────────────────
 # Pattern: describe_list, no tags, response_field (mount_target_id)
@@ -1269,6 +1299,7 @@ aws_list_accessor = "mount_targets"
 aws_id_param = "mount_target_id"
 aws_id_source = "response_field"
 aws_response_id_field = "mount_target_id"
+aws_response_id_non_optional = true
 aws_tag_style = "none"
 
 [[resource.aws_outputs]]
@@ -1285,6 +1316,8 @@ section = "identity"
 type = "String"
 required = true
 description = "Mount target name (smelt tracking)"
+skip_create = true
+skip_read = true
 
 [[resource.fields]]
 name = "file_system_id"
@@ -1292,12 +1325,14 @@ section = "network"
 type = "String"
 required = true
 description = "EFS file system ID"
+sdk_non_optional = true
 
 [[resource.fields]]
 name = "subnet_id"
 section = "network"
 type = "String"
 required = true
+sdk_non_optional = true
 description = "Subnet ID"
 
 # ─── ACM: Certificate ─────────────────────────────────────────────────────
@@ -1320,6 +1355,7 @@ aws_id_param = "certificate_arn"
 aws_id_source = "response_field"
 aws_response_id_field = "certificate_arn"
 aws_tag_style = "typed_tags"
+aws_create_no_container = true
 
 [[resource.aws_outputs]]
 name = "certificate_arn"
@@ -1344,6 +1380,7 @@ type = "String"
 default = "DNS"
 description = "Validation method (DNS or EMAIL)"
 aws_enum = true
+skip_read = true
 
 # ─── ElastiCache: ReplicationGroup ─────────────────────────────────────────
 # Pattern: describe_list, typed_tags, name as provider_id
@@ -1367,6 +1404,7 @@ aws_id_param = "replication_group_id"
 aws_id_source = "config_name"
 aws_tag_style = "typed_tags"
 aws_tag_infallible = true
+aws_update_extra_setters = ["apply_immediately(true)"]
 
 [[resource.aws_outputs]]
 name = "replication_group_id"
@@ -1387,6 +1425,7 @@ type = "String"
 default = "smelt managed"
 description = "Replication group description"
 sdk_param = "replication_group_description"
+sdk_read_field = "description"
 
 [[resource.fields]]
 name = "node_type"
@@ -1395,6 +1434,7 @@ type = "String"
 required = true
 description = "Cache node type (cache.t3.micro, etc.)"
 sdk_param = "cache_node_type"
+updatable = true
 
 [[resource.fields]]
 name = "engine"
@@ -1402,12 +1442,16 @@ section = "sizing"
 type = "String"
 default = "redis"
 description = "Cache engine"
+skip_update = true
+skip_read = true
 
 [[resource.fields]]
 name = "engine_version"
 section = "sizing"
 type = "String"
 description = "Engine version"
+skip_update = true
+skip_read = true
 
 [[resource.fields]]
 name = "num_cache_clusters"
@@ -1415,6 +1459,8 @@ section = "sizing"
 type = "Integer"
 default = 1
 description = "Number of cache clusters"
+skip_update = true
+skip_read = true
 
 [[resource.fields]]
 name = "automatic_failover"
@@ -1423,6 +1469,7 @@ type = "Bool"
 default = false
 description = "Enable automatic failover"
 sdk_param = "automatic_failover_enabled"
+read_expression = "resource.automatic_failover().map(|af| af.as_str() == \"enabled\").unwrap_or(false)"
 
 # ─── ELBv2: LoadBalancer ──────────────────────────────────────────────────
 # Pattern: describe_list, typed_tags, response_field (load_balancer_arn)
@@ -1443,6 +1490,7 @@ aws_list_accessor = "load_balancers"
 aws_id_param = "load_balancer_arn"
 aws_id_source = "response_field"
 aws_response_id_field = "load_balancer_arn"
+aws_create_list_accessor = "load_balancers"
 aws_tag_style = "typed_tags"
 aws_tag_infallible = true
 aws_read_id_param = "load_balancer_arns"
@@ -1461,6 +1509,17 @@ section = "identity"
 type = "String"
 required = true
 description = "Load balancer name"
+read_expression = "resource.load_balancer_name().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "type"
+section = "network"
+type = "String"
+default = "application"
+description = "LB type (application or network)"
+aws_enum = true
+aws_enum_type = "LoadBalancerTypeEnum"
+sdk_param = "r#type"
 
 [[resource.fields]]
 name = "scheme"
@@ -1469,6 +1528,24 @@ type = "String"
 default = "internet-facing"
 description = "Scheme (internet-facing or internal)"
 aws_enum = true
+aws_enum_type = "LoadBalancerSchemeEnum"
+
+[[resource.fields]]
+name = "subnet_ids"
+section = "network"
+type = "StringArray"
+required = true
+description = "Subnets to deploy in"
+sdk_param = "subnets"
+skip_read = true
+
+[[resource.fields]]
+name = "security_group_ids"
+section = "security"
+type = "StringArray"
+description = "Security groups (ALB only)"
+sdk_param = "security_groups"
+skip_read = true
 
 # ─── ELBv2: TargetGroup ──────────────────────────────────────────────────
 # Pattern: describe_list, no tags, response_field (target_group_arn)
@@ -1491,6 +1568,7 @@ aws_list_accessor = "target_groups"
 aws_id_param = "target_group_arn"
 aws_id_source = "response_field"
 aws_response_id_field = "target_group_arn"
+aws_create_list_accessor = "target_groups"
 aws_tag_style = "none"
 aws_read_id_param = "target_group_arns"
 
@@ -1504,13 +1582,14 @@ section = "identity"
 type = "String"
 required = true
 description = "Target group name"
+read_expression = "resource.target_group_name().unwrap_or(\"\")"
 
 [[resource.fields]]
 name = "port"
 section = "network"
 type = "Integer"
 required = true
-description = "Listener port"
+description = "Target group port"
 
 [[resource.fields]]
 name = "protocol"
@@ -1519,6 +1598,8 @@ type = "String"
 default = "HTTP"
 description = "Protocol (HTTP, HTTPS, TCP)"
 aws_enum = true
+aws_enum_type = "ProtocolEnum"
+skip_update = true
 
 [[resource.fields]]
 name = "target_type"
@@ -1527,6 +1608,8 @@ type = "String"
 default = "instance"
 description = "Target type (instance, ip, lambda)"
 aws_enum = true
+aws_enum_type = "TargetTypeEnum"
+skip_update = true
 
 [[resource.fields]]
 name = "vpc_id"
@@ -1534,6 +1617,7 @@ section = "network"
 type = "String"
 required = true
 description = "VPC ID"
+skip_update = true
 
 [[resource.fields]]
 name = "health_check_path"
@@ -1563,6 +1647,7 @@ aws_list_accessor = "listeners"
 aws_id_param = "listener_arn"
 aws_id_source = "response_field"
 aws_response_id_field = "listener_arn"
+aws_create_list_accessor = "listeners"
 aws_tag_style = "none"
 aws_read_id_param = "listener_arns"
 
@@ -1576,6 +1661,8 @@ section = "identity"
 type = "String"
 required = true
 description = "Listener name (smelt tracking)"
+skip_create = true
+skip_read = true
 
 [[resource.fields]]
 name = "port"
@@ -1591,6 +1678,7 @@ type = "String"
 default = "HTTP"
 description = "Protocol (HTTP, HTTPS, TCP)"
 aws_enum = true
+aws_enum_type = "ProtocolEnum"
 
 [[resource.fields]]
 name = "load_balancer_arn"
@@ -1598,6 +1686,7 @@ section = "network"
 type = "String"
 required = true
 description = "Load balancer ARN"
+skip_update = true
 
 # ─── EventBridge: Rule ────────────────────────────────────────────────────
 # Pattern: get_single (describe_rule), typed_tags, name as provider_id
@@ -1893,6 +1982,7 @@ type = "String"
 required = true
 description = "ASL definition (JSON)"
 sdk_non_optional = true
+updatable = true
 
 [[resource.fields]]
 name = "role_arn"
@@ -1901,6 +1991,7 @@ type = "String"
 required = true
 sdk_non_optional = true
 description = "Execution IAM role ARN"
+updatable = true
 
 # ─── API Gateway: Api ────────────────────────────────────────────────────
 # Pattern: get_single (get_api), set_tags (HashMap), response_field (api_id)
@@ -1949,7 +2040,7 @@ description = "API description"
 name = "protocol_type"
 section = "network"
 type = "String"
-default = "HTTP"
+required = true
 description = "Protocol type (HTTP or WEBSOCKET)"
 aws_enum = true
 
@@ -2054,3 +2145,230 @@ section = "identity"
 type = "String"
 required = true
 description = "Domain name"
+
+# ─── EKS: Cluster ───────────────────────────────────────────────────────────
+# Pattern: get_single (describe_cluster), set_tags, config_name
+# Uses multi-field nested builder for VpcConfigRequest
+
+[[resource]]
+struct_name = "Cluster"
+sdk_crate = "aws-sdk-eks"
+sdk_client = "eks"
+type_path = "eks.Cluster"
+aws_client_field = "eks_client"
+aws_read_style = "get_single"
+aws_response_accessor = "cluster"
+aws_id_param = "name"
+aws_id_source = "config_name"
+aws_tag_style = "set_tags"
+aws_updatable = true
+crud_create = "CreateCluster"
+crud_read = "DescribeCluster"
+crud_update = "UpdateClusterVersion"
+crud_delete = "DeleteCluster"
+
+[[resource.aws_builder_groups]]
+group = "vpc_config"
+setter = "resources_vpc_config"
+type_name = "VpcConfigRequest"
+read_accessor = "resources_vpc_config"
+
+[[resource.aws_outputs]]
+name = "cluster_arn"
+expression = "resource.arn().unwrap_or(\"\")"
+
+[[resource.aws_outputs]]
+name = "cluster_name"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "endpoint"
+expression = "resource.endpoint().unwrap_or(\"\")"
+
+[[resource.aws_outputs]]
+name = "certificate_authority"
+expression = "resource.certificate_authority().and_then(|ca| ca.data()).unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Cluster name"
+
+[[resource.fields]]
+name = "role_arn"
+section = "security"
+type = "String"
+required = true
+description = "IAM role ARN for the cluster"
+
+[[resource.fields]]
+name = "version"
+section = "sizing"
+type = "String"
+required = false
+description = "Kubernetes version (e.g. 1.28)"
+updatable = true
+
+[[resource.fields]]
+name = "subnet_ids"
+section = "network"
+type = "StringArray"
+required = true
+description = "Subnet IDs for the cluster"
+aws_builder_group = "vpc_config"
+sdk_param = "subnet_ids"
+
+[[resource.fields]]
+name = "security_group_ids"
+section = "security"
+type = "StringArray"
+required = false
+description = "Additional security group IDs"
+aws_builder_group = "vpc_config"
+sdk_param = "security_group_ids"
+skip_update = true
+
+[[resource.fields]]
+name = "endpoint_public_access"
+section = "network"
+type = "Bool"
+required = false
+default = true
+description = "Enable public API endpoint"
+aws_builder_group = "vpc_config"
+sdk_param = "endpoint_public_access"
+skip_read = true
+skip_update = true
+
+[[resource.fields]]
+name = "endpoint_private_access"
+section = "network"
+type = "Bool"
+required = false
+default = false
+description = "Enable private API endpoint"
+aws_builder_group = "vpc_config"
+sdk_param = "endpoint_private_access"
+skip_read = true
+skip_update = true
+
+# ─── EKS: NodeGroup ─────────────────────────────────────────────────────────
+# Pattern: get_single (describe_nodegroup), set_tags, composite provider_id
+# Uses multi-field nested builder for NodegroupScalingConfig + composite ID
+
+[[resource]]
+struct_name = "Nodegroup"
+sdk_crate = "aws-sdk-eks"
+sdk_client = "eks"
+type_path = "eks.NodeGroup"
+aws_client_field = "eks_client"
+aws_read_style = "get_single"
+aws_response_accessor = "nodegroup"
+aws_id_param = "cluster_name"
+aws_id_source = "config_name"
+aws_tag_style = "set_tags"
+aws_updatable = true
+aws_composite_id = ["cluster_name", "name:nodegroup_name"]
+crud_create = "CreateNodegroup"
+crud_read = "DescribeNodegroup"
+crud_update = "UpdateNodegroupConfig"
+crud_delete = "DeleteNodegroup"
+
+[[resource.aws_builder_groups]]
+group = "scaling_config"
+setter = "scaling_config"
+type_name = "NodegroupScalingConfig"
+
+[[resource.aws_outputs]]
+name = "nodegroup_arn"
+expression = "resource.nodegroup_arn().unwrap_or(\"\")"
+
+[[resource.aws_outputs]]
+name = "nodegroup_name"
+expression = "resource.nodegroup_name().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Node group name"
+sdk_param = "nodegroup_name"
+
+[[resource.fields]]
+name = "cluster_name"
+section = "network"
+type = "String"
+required = true
+description = "EKS cluster name"
+
+[[resource.fields]]
+name = "node_role_arn"
+section = "security"
+type = "String"
+required = true
+description = "IAM role ARN for node instances"
+sdk_param = "node_role"
+
+[[resource.fields]]
+name = "instance_types"
+section = "sizing"
+type = "StringArray"
+required = false
+description = "EC2 instance types for nodes"
+skip_read = true
+skip_update = true
+
+[[resource.fields]]
+name = "disk_size"
+section = "sizing"
+type = "Integer"
+required = false
+default = 20
+description = "Node disk size in GiB"
+skip_update = true
+
+[[resource.fields]]
+name = "subnet_ids"
+section = "network"
+type = "StringArray"
+required = true
+description = "Subnet IDs for node placement"
+sdk_param = "subnets"
+
+[[resource.fields]]
+name = "desired_size"
+section = "sizing"
+type = "Integer"
+required = false
+default = 2
+description = "Desired number of nodes"
+aws_builder_group = "scaling_config"
+
+[[resource.fields]]
+name = "min_size"
+section = "sizing"
+type = "Integer"
+required = false
+default = 1
+description = "Minimum number of nodes"
+aws_builder_group = "scaling_config"
+
+[[resource.fields]]
+name = "max_size"
+section = "sizing"
+type = "Integer"
+required = false
+default = 3
+description = "Maximum number of nodes"
+aws_builder_group = "scaling_config"
+
+# ─── AutoScaling: Group ──────────────────────────────────────────────────────
+# Pattern: describe_list, config_name
+# BLOCKED: needs join_csv for subnet_ids, custom tag builder (resource_id, propagate_at_launch)
+
+# ─── KMS: Key ────────────────────────────────────────────────────────────────
+# Pattern: get_single (describe_key), config_name → response_field hybrid
+# BLOCKED: needs post-create alias, custom tag fields (tag_key/tag_value), multi-step update

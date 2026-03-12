@@ -66,15 +66,13 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
+        let _result = self
             .ses_client
             .get_email_identity()
             .email_identity(provider_id)
             .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("get_email_identity: {e}")))?;
-
-        let _resource = &result;
 
         let state = serde_json::json!({
             "identity": {
@@ -92,6 +90,7 @@ impl AwsProvider {
         })
     }
 
+    #[allow(dead_code)]
     pub(super) async fn update_ses_email_identity(
         &self,
         _provider_id: &str,

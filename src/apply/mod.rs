@@ -1526,7 +1526,7 @@ mod tests {
     }
 
     #[test]
-    fn schema_validation_catches_invalid_enum() {
+    fn schema_validation_catches_missing_required_rds() {
         use crate::provider::Provider;
         use crate::provider::aws::AwsProvider;
 
@@ -1537,21 +1537,15 @@ mod tests {
             .find(|s| s.type_path == "rds.DBInstance")
             .unwrap();
 
+        // Missing required fields: engine, instance_class, master_username, master_password
         let config = serde_json::json!({
             "identity": { "name": "test-db" },
-            "sizing": {
-                "engine": "sqlite",  // invalid enum value
-                "instance_class": "db.t3.micro"
-            },
-            "security": {
-                "master_username": "admin",
-                "master_password": "secret"
-            }
+            "sizing": {}
         });
         let errors = rds_schema.schema.validate(&config);
         assert!(
-            errors.iter().any(|e| e.contains("sqlite")),
-            "should catch invalid enum value, got: {:?}",
+            errors.iter().any(|e| e.contains("engine")),
+            "should catch missing required field 'engine', got: {:?}",
             errors
         );
     }

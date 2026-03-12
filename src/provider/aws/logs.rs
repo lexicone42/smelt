@@ -138,6 +138,7 @@ impl AwsProvider {
         })
     }
 
+    #[allow(dead_code)]
     pub(super) async fn update_logs_log_group(
         &self,
         _provider_id: &str,

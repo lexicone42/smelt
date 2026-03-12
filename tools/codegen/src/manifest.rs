@@ -24,7 +24,7 @@ pub struct ResourceManifest {
     pub output_fields: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ResourceMeta {
     /// Smelt type path, e.g. "compute.Network"
     pub type_path: String,
@@ -131,6 +131,9 @@ pub struct ResourceMeta {
     /// AWS: read style — determines SDK call pattern for read operations.
     #[serde(default)]
     pub aws_read_style: Option<AwsReadStyle>,
+    /// AWS: enum type for attribute name keys in GetAttributes style (e.g., "QueueAttributeName").
+    #[serde(default)]
+    pub aws_attr_name_type: Option<String>,
     /// AWS: accessor method on describe response to get the list (e.g., "vpcs", "log_groups").
     /// Used with DescribeList read style.
     #[serde(default)]
@@ -176,6 +179,59 @@ pub struct ResourceMeta {
     /// When true, codegen uses `.field()` instead of `.field().ok_or_else(...)`.
     #[serde(default)]
     pub aws_response_id_non_optional: bool,
+    /// AWS: don't wrap create response in aws_response_accessor container.
+    /// When true, the create response extracts the ID field directly from `result`.
+    /// The `aws_response_accessor` is used only for the read response.
+    /// Example: ACM's `request_certificate` returns `certificate_arn` directly,
+    /// but `describe_certificate` wraps it in `.certificate()`.
+    #[serde(default)]
+    pub aws_create_no_container: bool,
+    /// AWS: create response wraps result in a list; use `.{accessor}().first()` to extract.
+    #[serde(default)]
+    pub aws_create_list_accessor: Option<String>,
+    /// AWS: extra setter chain on the delete builder.
+    /// Each entry is "method(value)" — e.g., "recovery_window_in_days(30)".
+    #[serde(default)]
+    pub aws_delete_extra_setters: Vec<String>,
+    /// AWS: extra setter chain on the update builder.
+    /// Each entry is "method(value)" — e.g., "apply_immediately(true)".
+    #[serde(default)]
+    pub aws_update_extra_setters: Vec<String>,
+    /// AWS: composite provider_id built from multiple config fields.
+    /// Each entry is "field_name" or "field_name:setter_name".
+    /// Parts are joined with ":" to form the provider_id.
+    /// On create: assembled from config variables.
+    /// On read/update/delete: parsed from provider_id and used as individual setters.
+    #[serde(default)]
+    pub aws_composite_id: Vec<CompositeIdPart>,
+    /// AWS: builder groups — collections of fields that are packed into a single nested builder type.
+    /// E.g., VpcConfigRequest groups subnet_ids + security_group_ids + endpoint_public/private_access.
+    #[serde(default)]
+    pub aws_builder_groups: Vec<AwsBuilderGroup>,
+}
+
+/// One part of a composite provider_id.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CompositeIdPart {
+    /// Field name in the catalog (used for config extraction and variable name)
+    pub field_name: String,
+    /// SDK setter name for read/update/delete (defaults to field_name)
+    pub setter: String,
+}
+
+/// A group of fields that are collected into a single nested SDK builder type.
+/// E.g., VpcConfigRequest groups subnet_ids, security_group_ids, endpoint_public_access.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AwsBuilderGroup {
+    /// Group identifier — matches field.aws_builder_group
+    pub group: String,
+    /// Setter name on the outer request builder (e.g., "resources_vpc_config")
+    pub setter: String,
+    /// SDK type name for the builder (e.g., "VpcConfigRequest")
+    pub type_name: String,
+    /// Accessor on read response for this group (defaults to setter if not specified)
+    #[serde(default)]
+    pub read_accessor: Option<String>,
 }
 
 /// AWS output field extracted from read response.
@@ -373,6 +429,40 @@ pub struct FieldDef {
     /// AWS: SDK response accessor returns T (not Option<T>) — skip `.unwrap_or()` on read.
     #[serde(default)]
     pub sdk_non_optional: bool,
+    /// AWS: skip this field from the read state JSON.
+    /// Used when the SDK response doesn't have a simple accessor for this field.
+    /// The field still appears in the schema and create extraction.
+    #[serde(default)]
+    pub skip_read: bool,
+    /// AWS: skip this field from the update method.
+    /// Used for immutable optional fields that should not be sent on modify.
+    #[serde(default)]
+    pub skip_update: bool,
+    /// AWS: custom Rust expression for reading this field from the SDK response.
+    /// Overrides the default `resource.field().unwrap_or(...)` accessor.
+    /// The variable `resource` is in scope. Example: `"resource.automatic_failover().map(|af| af.as_str() == \"enabled\").unwrap_or(false)"`.
+    #[serde(default)]
+    pub read_expression: Option<String>,
+    /// AWS: wrap this field in a nested builder on create and read through a nested accessor.
+    /// Value is the setter name on the request builder (e.g., "image_scanning_configuration").
+    /// On create: `req = req.WRAPPER(Type::builder().FIELD(value).build())`
+    /// On read: `resource.WRAPPER().and_then(|c| c.FIELD()).unwrap_or(default)`
+    #[serde(default)]
+    pub aws_builder_wrapper: Option<String>,
+    /// AWS: the SDK type name for the nested builder (e.g., "ImageScanningConfiguration").
+    /// Used with `aws_builder_wrapper` to generate the correct type path.
+    #[serde(default)]
+    pub aws_builder_type: Option<String>,
+    /// Include this field in the update path even though it's `required`.
+    /// Required fields are normally excluded from update (they're immutable identity).
+    /// Set this for required fields that ARE updatable (e.g., SFN definition, role_arn).
+    #[serde(default)]
+    pub updatable: bool,
+    /// AWS: builder group this field belongs to (e.g., "vpc_config", "scaling_config").
+    /// Fields in the same group are collected into a single nested builder type on create/update.
+    /// On read, the field is accessed through the group's read_accessor.
+    #[serde(default)]
+    pub aws_builder_group: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -521,6 +611,13 @@ impl ResourceManifest {
                     skip_create: false,
                     aws_post_create_method: None,
                     sdk_non_optional: false,
+                    aws_builder_wrapper: None,
+                    aws_builder_type: None,
+                    skip_read: false,
+                    skip_update: false,
+                    read_expression: None,
+                    updatable: false,
+                    aws_builder_group: None,
                 },
             );
         }
@@ -556,6 +653,7 @@ impl ResourceManifest {
                 raw_labels: false,
                 aws_client_field: None,
                 aws_read_style: None,
+                aws_attr_name_type: None,
                 aws_list_accessor: None,
                 aws_response_accessor: None,
                 aws_id_param: None,
@@ -569,6 +667,12 @@ impl ResourceManifest {
                 aws_read_id_param: None,
                 aws_delete_id_param: None,
                 aws_response_id_non_optional: false,
+                aws_create_no_container: false,
+                aws_create_list_accessor: None,
+                aws_delete_extra_setters: vec![],
+                aws_update_extra_setters: vec![],
+                aws_composite_id: vec![],
+                aws_builder_groups: vec![],
             },
             crud,
             fields: field_defs,

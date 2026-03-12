@@ -7,6 +7,10 @@ pub mod manifest;
 /// Handles consecutive uppercase (acronyms): "DBInstance" → "db_instance",
 /// "LoadBalancerARN" → "load_balancer_arn".
 pub fn snake_case(s: &str) -> String {
+    // Raw identifiers (e.g., "r#type") pass through unchanged
+    if s.starts_with("r#") {
+        return s.to_string();
+    }
     let mut result = String::with_capacity(s.len() + 4);
     let chars: Vec<char> = s.chars().collect();
     for (i, &ch) in chars.iter().enumerate() {

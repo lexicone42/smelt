@@ -113,6 +113,7 @@ impl AwsProvider {
         })
     }
 
+    #[allow(dead_code)]
     pub(super) async fn update_sns_topic(
         &self,
         _provider_id: &str,

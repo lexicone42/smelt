@@ -11,8 +11,8 @@ use serde::Deserialize;
 use crate::generate;
 use crate::introspect;
 use crate::manifest::{
-    ApiStyle, AwsIdSource, AwsOutput, AwsReadStyle, AwsTagStyle,
-    CrudMethods, FieldDef, ResourceManifest, ResourceMeta, Scope,
+    ApiStyle, AwsBuilderGroup, AwsIdSource, AwsOutput, AwsReadStyle, AwsTagStyle,
+    CompositeIdPart, CrudMethods, FieldDef, ResourceManifest, ResourceMeta, Scope,
 };
 use crate::snake_case;
 
@@ -99,6 +99,9 @@ pub struct CatalogEntry {
     /// AWS: read style
     #[serde(default)]
     pub aws_read_style: Option<AwsReadStyle>,
+    /// AWS: enum type for attribute name keys in GetAttributes style (e.g., "QueueAttributeName")
+    #[serde(default)]
+    pub aws_attr_name_type: Option<String>,
     /// AWS: list accessor for describe-style reads (e.g., "vpcs")
     #[serde(default)]
     pub aws_list_accessor: Option<String>,
@@ -139,6 +142,26 @@ pub struct CatalogEntry {
     /// AWS: create response ID field returns &str not Option<&str>.
     #[serde(default)]
     pub aws_response_id_non_optional: Option<bool>,
+    /// AWS: don't wrap create response in aws_response_accessor container.
+    #[serde(default)]
+    pub aws_create_no_container: Option<bool>,
+    /// AWS: create response wraps result in a list (e.g., "load_balancers"); use .first() to extract.
+    #[serde(default)]
+    pub aws_create_list_accessor: Option<String>,
+    /// AWS: extra setter chain on the delete builder (e.g., ["recovery_window_in_days(30)"]).
+    #[serde(default)]
+    pub aws_delete_extra_setters: Vec<String>,
+    /// AWS: extra setter chain on the update builder (e.g., ["apply_immediately(true)"]).
+    #[serde(default)]
+    pub aws_update_extra_setters: Vec<String>,
+    /// AWS: composite provider_id built from multiple config fields.
+    /// Each entry is "field_name" or "field_name:setter_name".
+    /// Parts are joined with ":" to form the provider_id.
+    #[serde(default)]
+    pub aws_composite_id: Vec<String>,
+    /// AWS: builder groups — collections of fields packed into nested builder types.
+    #[serde(default)]
+    pub aws_builder_groups: Vec<AwsBuilderGroupCatalog>,
     /// AWS: explicit field definitions (skips SDK introspection)
     #[serde(default)]
     pub fields: Vec<AwsCatalogField>,
@@ -188,6 +211,38 @@ pub struct AwsCatalogField {
     /// E.g., "put_retention_policy" for retention_in_days on LogGroup.
     #[serde(default)]
     pub aws_post_create_method: Option<String>,
+    /// AWS: wrap this field in a nested builder on create.
+    /// Value is the setter name on the request builder (e.g., "image_scanning_configuration").
+    #[serde(default)]
+    pub aws_builder_wrapper: Option<String>,
+    /// AWS: SDK type name for the nested builder (e.g., "ImageScanningConfiguration").
+    #[serde(default)]
+    pub aws_builder_type: Option<String>,
+    /// AWS: skip this field from the read state JSON.
+    #[serde(default)]
+    pub skip_read: Option<bool>,
+    /// AWS: skip this field from the update method.
+    #[serde(default)]
+    pub skip_update: Option<bool>,
+    /// AWS: custom Rust expression for reading this field.
+    #[serde(default)]
+    pub read_expression: Option<String>,
+    /// Include this required field in the update path.
+    #[serde(default)]
+    pub updatable: Option<bool>,
+    /// AWS: builder group this field belongs to (e.g., "vpc_config").
+    #[serde(default)]
+    pub aws_builder_group: Option<String>,
+}
+
+/// Builder group definition for AWS catalog entries.
+#[derive(Debug, Deserialize)]
+pub struct AwsBuilderGroupCatalog {
+    pub group: String,
+    pub setter: String,
+    pub type_name: String,
+    #[serde(default)]
+    pub read_accessor: Option<String>,
 }
 
 
@@ -401,6 +456,13 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
                 skip_create: false,
                 aws_post_create_method: None,
                 sdk_non_optional: false,
+                aws_builder_wrapper: None,
+                aws_builder_type: None,
+                skip_read: false,
+                skip_update: false,
+                read_expression: None,
+                updatable: false,
+                aws_builder_group: None,
             });
         }
 
@@ -474,7 +536,14 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
                     sdk_read_field: None,
                     skip_create: false,
                     aws_post_create_method: None,
-                sdk_non_optional: false,
+                    sdk_non_optional: false,
+                    aws_builder_wrapper: None,
+                    aws_builder_type: None,
+                    skip_read: false,
+                    skip_update: false,
+                    read_expression: None,
+                    updatable: false,
+                    aws_builder_group: None,
                 },
             );
         }
@@ -615,6 +684,13 @@ pub fn batch_generate_aws(catalog_path: &str, output_dir: &str) {
                     skip_create: f.skip_create,
                     aws_post_create_method: f.aws_post_create_method.clone(),
                     sdk_non_optional: f.sdk_non_optional,
+                    aws_builder_wrapper: f.aws_builder_wrapper.clone(),
+                    aws_builder_type: f.aws_builder_type.clone(),
+                    skip_read: f.skip_read.unwrap_or(false),
+                    skip_update: f.skip_update.unwrap_or(false),
+                    read_expression: f.read_expression.clone(),
+                    updatable: f.updatable.unwrap_or(false),
+                    aws_builder_group: f.aws_builder_group.clone(),
                 },
             );
         }
@@ -644,7 +720,14 @@ pub fn batch_generate_aws(catalog_path: &str, output_dir: &str) {
                     sdk_read_field: None,
                     skip_create: false,
                     aws_post_create_method: None,
-                sdk_non_optional: false,
+                    sdk_non_optional: false,
+                    aws_builder_wrapper: None,
+                    aws_builder_type: None,
+                    skip_read: false,
+                    skip_update: false,
+                    read_expression: None,
+                    updatable: false,
+                    aws_builder_group: None,
                 },
             );
         }
@@ -680,6 +763,7 @@ pub fn batch_generate_aws(catalog_path: &str, output_dir: &str) {
                 raw_labels: false,
                 aws_client_field: entry.aws_client_field.clone(),
                 aws_read_style: entry.aws_read_style.clone(),
+                aws_attr_name_type: entry.aws_attr_name_type.clone(),
                 aws_list_accessor: entry.aws_list_accessor.clone(),
                 aws_response_accessor: entry.aws_response_accessor.clone(),
                 aws_id_param: entry.aws_id_param.clone(),
@@ -693,6 +777,12 @@ pub fn batch_generate_aws(catalog_path: &str, output_dir: &str) {
                 aws_read_id_param: entry.aws_read_id_param.clone(),
                 aws_delete_id_param: entry.aws_delete_id_param.clone(),
                 aws_response_id_non_optional: entry.aws_response_id_non_optional.unwrap_or(false),
+                aws_create_no_container: entry.aws_create_no_container.unwrap_or(false),
+                aws_create_list_accessor: entry.aws_create_list_accessor.clone(),
+                aws_delete_extra_setters: entry.aws_delete_extra_setters.clone(),
+                aws_update_extra_setters: entry.aws_update_extra_setters.clone(),
+                aws_composite_id: parse_composite_id(&entry.aws_composite_id),
+                aws_builder_groups: parse_builder_groups(&entry.aws_builder_groups),
             },
             crud: CrudMethods {
                 create: entry.crud_create.clone().unwrap_or_else(|| "create".into()),
@@ -789,6 +879,33 @@ fn strip_header(code: &str) -> String {
     }
 
     result
+}
+
+/// Parse composite ID entries like ["cluster_name", "name:nodegroup_name"] into parts.
+fn parse_composite_id(entries: &[String]) -> Vec<CompositeIdPart> {
+    entries.iter().map(|entry| {
+        if let Some((field, setter)) = entry.split_once(':') {
+            CompositeIdPart {
+                field_name: field.to_string(),
+                setter: setter.to_string(),
+            }
+        } else {
+            CompositeIdPart {
+                field_name: entry.to_string(),
+                setter: entry.to_string(),
+            }
+        }
+    }).collect()
+}
+
+/// Convert catalog builder groups to manifest builder groups.
+fn parse_builder_groups(entries: &[AwsBuilderGroupCatalog]) -> Vec<AwsBuilderGroup> {
+    entries.iter().map(|e| AwsBuilderGroup {
+        group: e.group.clone(),
+        setter: e.setter.clone(),
+        type_name: e.type_name.clone(),
+        read_accessor: e.read_accessor.clone(),
+    }).collect()
 }
 
 /// Split code into methods (schema/create/read/update/delete) and standalone functions (forces_replacement).
