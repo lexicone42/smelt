@@ -264,79 +264,12 @@ description = "Visibility timeout in seconds (0–43200)"
 aws_attr_key = "VisibilityTimeout"
 
 # ─── KMS: Key ────────────────────────────────────────────────────────────────
-# Pattern: key_id as provider_id, describe_key, schedule_key_deletion.
-# Post-create alias created from identity.name via create_alias (baked into create fn).
-# Tags use typed KMS Tag builder (tag_key / tag_value).
-
-[[resource]]
-struct_name = "KmsKey"
-sdk_crate = "aws-sdk-kms"
-sdk_client = "kms"
-type_path = "kms.Key"
-
-crud_create = "create_key"
-crud_read = "describe_key"
-crud_update = "update_key_description"
-crud_delete = "schedule_key_deletion"
-aws_updatable = true
-
-aws_client_field = "kms_client"
-aws_read_style = "get_single"
-aws_response_accessor = "key_metadata"
-aws_id_param = "key_id"
-aws_id_source = "response_field"
-aws_response_id_field = "key_id"
-aws_tag_style = "typed_tags"
-
-[[resource.aws_outputs]]
-name = "key_id"
-expression = "resource.key_id()"
-
-[[resource.aws_outputs]]
-name = "key_arn"
-expression = "resource.arn().unwrap_or(\"\")"
-
-[[resource.fields]]
-name = "name"
-section = "identity"
-type = "String"
-required = true
-description = "Key alias (becomes alias/name if prefix absent)"
-
-[[resource.fields]]
-name = "description"
-section = "identity"
-type = "String"
-description = "Key description"
-
-[[resource.fields]]
-name = "key_usage"
-section = "security"
-type = "Enum"
-default = "ENCRYPT_DECRYPT"
-description = "Key usage type"
-aws_enum = true
-
-[[resource.fields]]
-name = "key_spec"
-section = "security"
-type = "Enum"
-default = "SYMMETRIC_DEFAULT"
-description = "Key material spec"
-aws_enum = true
-
-[[resource.fields]]
-name = "key_policy"
-section = "security"
-type = "String"
-description = "Key policy JSON document"
-
-[[resource.fields]]
-name = "enabled"
-section = "security"
-type = "Bool"
-default = true
-description = "Key enabled state"
+# HAND-WRITTEN — cannot generate:
+#   - create_key has no .name() setter; name is set via post-create create_alias
+#   - Enum fields (key_usage, key_spec) need AWS SDK type paths (KeyUsageType, KeySpec)
+#   - Tags use tag_key/tag_value instead of key/value
+#   - Update is split: update_key_description + enable_key/disable_key (2 APIs)
+#   - Delete uses schedule_key_deletion with pending_window_in_days
 
 # ─── SSM: Parameter ──────────────────────────────────────────────────────────
 # Pattern: name as provider_id (config_name), put_parameter for both create and update.
@@ -473,103 +406,23 @@ type = "String"
 description = "KMS key ID for encryption at rest"
 
 # ─── IAM: Role ──────────────────────────────────────────────────────────────
-# Pattern: get_single, typed_tags, name as provider_id
-
-[[resource]]
-struct_name = "Role"
-sdk_crate = "aws-sdk-iam"
-sdk_client = "iam"
-type_path = "iam.Role"
-
-crud_create = "create_role"
-crud_read = "get_role"
-crud_delete = "delete_role"
-
-aws_client_field = "iam_client"
-aws_read_style = "get_single"
-aws_response_accessor = "role"
-aws_id_param = "role_name"
-aws_id_source = "config_name"
-aws_tag_style = "typed_tags"
-
-[[resource.aws_outputs]]
-name = "role_arn"
-expression = "resource.arn()"
-
-[[resource.aws_outputs]]
-name = "role_name"
-expression = "resource.role_name()"
-
-[[resource.fields]]
-name = "name"
-section = "identity"
-type = "String"
-required = true
-description = "Role name"
-sdk_param = "role_name"
-
-[[resource.fields]]
-name = "description"
-section = "identity"
-type = "String"
-description = "Role description"
-
-[[resource.fields]]
-name = "path"
-section = "identity"
-type = "String"
-default = "/"
-description = "IAM path"
-
-[[resource.fields]]
-name = "assume_role_policy"
-section = "security"
-type = "String"
-required = true
-description = "Trust policy document (JSON)"
-sdk_param = "assume_role_policy_document"
+# HAND-WRITTEN — cannot generate:
+#   - Post-create: attach_role_policy loop for managed_policy_arns
+#   - Update: split across update_assume_role_policy + update_role (2 APIs)
+#   - Delete: list_attached_role_policies + detach each, list_role_policies + delete each
+#   - path() returns &str (non-optional) — codegen emits unwrap_or("") which won't compile
 
 # ─── IAM: InstanceProfile ──────────────────────────────────────────────────
-# Pattern: get_single, no tags, name as provider_id
+# HAND-WRITTEN — cannot generate:
+#   - Post-create: add_role_to_instance_profile
+#   - Delete: get + remove_role_from_instance_profile for each role
+#   - path() returns &str (non-optional) — codegen emits unwrap_or("") which won't compile
 
-[[resource]]
-struct_name = "InstanceProfile"
-sdk_crate = "aws-sdk-iam"
-sdk_client = "iam"
-type_path = "iam.InstanceProfile"
-
-crud_create = "create_instance_profile"
-crud_read = "get_instance_profile"
-crud_delete = "delete_instance_profile"
-
-aws_client_field = "iam_client"
-aws_read_style = "get_single"
-aws_response_accessor = "instance_profile"
-aws_id_param = "instance_profile_name"
-aws_id_source = "config_name"
-aws_tag_style = "none"
-
-[[resource.aws_outputs]]
-name = "instance_profile_arn"
-expression = "resource.arn()"
-
-[[resource.aws_outputs]]
-name = "instance_profile_name"
-expression = "resource.instance_profile_name()"
-
-[[resource.fields]]
-name = "name"
-section = "identity"
-type = "String"
-required = true
-description = "Instance profile name"
-sdk_param = "instance_profile_name"
-
-[[resource.fields]]
-name = "path"
-section = "identity"
-type = "String"
-description = "IAM path"
+# ─── IAM: Policy ──────────────────────────────────────────────────────────
+# HAND-WRITTEN — cannot generate:
+#   - policy_document can be string OR JSON (needs serialization)
+#   - Update uses create_policy_version (not a standard update API)
+#   - Delete: list non-default policy versions + delete each before deleting policy
 
 # ─── ECR: Repository ───────────────────────────────────────────────────────
 # Pattern: describe_list, typed_tags, name as provider_id
@@ -667,386 +520,48 @@ description = "Cluster name"
 sdk_param = "cluster_name"
 
 # ─── EC2: Vpc ──────────────────────────────────────────────────────────────
-# Pattern: describe_list, tag_specification, response_field (vpc_id)
-
-[[resource]]
-struct_name = "Vpc"
-sdk_crate = "aws-sdk-ec2"
-sdk_client = "ec2"
-type_path = "ec2.Vpc"
-
-crud_create = "create_vpc"
-crud_read = "describe_vpcs"
-crud_delete = "delete_vpc"
-
-aws_client_field = "ec2_client"
-aws_read_style = "describe_list"
-aws_list_accessor = "vpcs"
-aws_id_param = "vpc_id"
-aws_id_source = "response_field"
-aws_response_id_field = "vpc_id"
-aws_tag_style = "tag_specification"
-aws_tag_resource_type = "Vpc"
-aws_read_id_param = "vpc_ids"
-
-[[resource.aws_outputs]]
-name = "vpc_id"
-expression = "provider_id"
-
-[[resource.fields]]
-name = "name"
-section = "identity"
-type = "String"
-required = true
-description = "VPC name (set as Name tag)"
-
-[[resource.fields]]
-name = "cidr_block"
-section = "network"
-type = "String"
-required = true
-description = "IPv4 CIDR block"
-
-[[resource.fields]]
-name = "dns_hostnames"
-section = "network"
-type = "Bool"
-default = false
-description = "Enable DNS hostnames"
-
-[[resource.fields]]
-name = "dns_support"
-section = "network"
-type = "Bool"
-default = true
-description = "Enable DNS resolution"
+# HAND-WRITTEN — cannot generate:
+#   - Name set via TagSpecification (no .name() on create)
+#   - dns_hostnames/dns_support set via post-create modify_vpc_attribute (separate API)
+#   - Read: dns attributes require describe_vpc_attribute (separate API calls)
+#   - build_tags helper needed for TagSpecification pattern
 
 # ─── EC2: Subnet ───────────────────────────────────────────────────────────
-# Pattern: describe_list, tag_specification, response_field (subnet_id)
-
-[[resource]]
-struct_name = "Subnet"
-sdk_crate = "aws-sdk-ec2"
-sdk_client = "ec2"
-type_path = "ec2.Subnet"
-
-crud_create = "create_subnet"
-crud_read = "describe_subnets"
-crud_delete = "delete_subnet"
-
-aws_client_field = "ec2_client"
-aws_read_style = "describe_list"
-aws_list_accessor = "subnets"
-aws_id_param = "subnet_id"
-aws_id_source = "response_field"
-aws_response_id_field = "subnet_id"
-aws_tag_style = "tag_specification"
-aws_tag_resource_type = "Subnet"
-aws_read_id_param = "subnet_ids"
-
-[[resource.aws_outputs]]
-name = "subnet_id"
-expression = "provider_id"
-
-[[resource.fields]]
-name = "name"
-section = "identity"
-type = "String"
-required = true
-description = "Subnet name (set as Name tag)"
-
-[[resource.fields]]
-name = "cidr_block"
-section = "network"
-type = "String"
-required = true
-description = "IPv4 CIDR block"
-
-[[resource.fields]]
-name = "availability_zone"
-section = "network"
-type = "String"
-required = true
-description = "Availability zone"
-
-[[resource.fields]]
-name = "vpc_id"
-section = "network"
-type = "String"
-required = true
-description = "VPC ID"
-
-[[resource.fields]]
-name = "public_ip_on_launch"
-section = "network"
-type = "Bool"
-default = false
-description = "Auto-assign public IP"
-sdk_param = "map_public_ip_on_launch"
+# HAND-WRITTEN — cannot generate:
+#   - Name set via TagSpecification (no .name() setter)
+#   - build_tags helper needed; codegen references Self::build_tags() but doesn't emit it
 
 # ─── EC2: SecurityGroup ────────────────────────────────────────────────────
-# Pattern: describe_list, tag_specification, response_field (group_id)
-
-[[resource]]
-struct_name = "SecurityGroup"
-sdk_crate = "aws-sdk-ec2"
-sdk_client = "ec2"
-type_path = "ec2.SecurityGroup"
-
-crud_create = "create_security_group"
-crud_read = "describe_security_groups"
-crud_delete = "delete_security_group"
-
-aws_client_field = "ec2_client"
-aws_read_style = "describe_list"
-aws_list_accessor = "security_groups"
-aws_id_param = "group_id"
-aws_id_source = "response_field"
-aws_response_id_field = "group_id"
-aws_tag_style = "tag_specification"
-aws_tag_resource_type = "SecurityGroup"
-aws_read_id_param = "group_ids"
-
-[[resource.aws_outputs]]
-name = "group_id"
-expression = "provider_id"
-
-[[resource.fields]]
-name = "name"
-section = "identity"
-type = "String"
-required = true
-description = "Security group name"
-sdk_param = "group_name"
-
-[[resource.fields]]
-name = "description"
-section = "identity"
-type = "String"
-default = "Managed by smelt"
-description = "Group description"
-
-[[resource.fields]]
-name = "vpc_id"
-section = "security"
-type = "String"
-required = true
-description = "VPC ID"
+# HAND-WRITTEN — cannot generate:
+#   - Post-create: authorize_security_group_ingress/egress for rules
+#   - Update: revoke + re-authorize for rule changes
+#   - Read: ip_permissions require IpPermission struct traversal
 
 # ─── EC2: InternetGateway ──────────────────────────────────────────────────
-# Pattern: describe_list, tag_specification, response_field (igw_id)
-
-[[resource]]
-struct_name = "InternetGateway"
-sdk_crate = "aws-sdk-ec2"
-sdk_client = "ec2"
-type_path = "ec2.InternetGateway"
-
-crud_create = "create_internet_gateway"
-crud_read = "describe_internet_gateways"
-crud_delete = "delete_internet_gateway"
-
-aws_client_field = "ec2_client"
-aws_read_style = "describe_list"
-aws_list_accessor = "internet_gateways"
-aws_id_param = "internet_gateway_id"
-aws_id_source = "response_field"
-aws_response_id_field = "internet_gateway_id"
-aws_tag_style = "tag_specification"
-aws_tag_resource_type = "InternetGateway"
-aws_read_id_param = "internet_gateway_ids"
-
-[[resource.aws_outputs]]
-name = "internet_gateway_id"
-expression = "provider_id"
-
-[[resource.fields]]
-name = "name"
-section = "identity"
-type = "String"
-required = true
-description = "Internet gateway name (set as Name tag)"
+# HAND-WRITTEN — cannot generate:
+#   - Post-create: attach_internet_gateway to VPC
+#   - Pre-delete: detach_internet_gateway from VPC
 
 # ─── EC2: RouteTable ───────────────────────────────────────────────────────
-# Pattern: describe_list, tag_specification, response_field (route_table_id)
-
-[[resource]]
-struct_name = "RouteTable"
-sdk_crate = "aws-sdk-ec2"
-sdk_client = "ec2"
-type_path = "ec2.RouteTable"
-
-crud_create = "create_route_table"
-crud_read = "describe_route_tables"
-crud_delete = "delete_route_table"
-
-aws_client_field = "ec2_client"
-aws_read_style = "describe_list"
-aws_list_accessor = "route_tables"
-aws_id_param = "route_table_id"
-aws_id_source = "response_field"
-aws_response_id_field = "route_table_id"
-aws_tag_style = "tag_specification"
-aws_tag_resource_type = "RouteTable"
-aws_read_id_param = "route_table_ids"
-
-[[resource.aws_outputs]]
-name = "route_table_id"
-expression = "provider_id"
-
-[[resource.fields]]
-name = "name"
-section = "identity"
-type = "String"
-required = true
-description = "Route table name (set as Name tag)"
-
-[[resource.fields]]
-name = "vpc_id"
-section = "network"
-type = "String"
-required = true
-description = "VPC ID"
+# HAND-WRITTEN — cannot generate:
+#   - Post-create: associate_route_table to subnet + create_route for routes
+#   - Pre-delete: disassociate + delete routes
 
 # ─── EC2: NatGateway ───────────────────────────────────────────────────────
-# Pattern: describe_list, tag_specification, response_field (nat_gateway_id)
-
-[[resource]]
-struct_name = "NatGateway"
-sdk_crate = "aws-sdk-ec2"
-sdk_client = "ec2"
-type_path = "ec2.NatGateway"
-
-crud_create = "create_nat_gateway"
-crud_read = "describe_nat_gateways"
-crud_delete = "delete_nat_gateway"
-
-aws_client_field = "ec2_client"
-aws_read_style = "describe_list"
-aws_list_accessor = "nat_gateways"
-aws_id_param = "nat_gateway_id"
-aws_id_source = "response_field"
-aws_response_id_field = "nat_gateway_id"
-aws_tag_style = "tag_specification"
-aws_tag_resource_type = "NatGateway"
-aws_read_id_param = "nat_gateway_ids"
-
-[[resource.aws_outputs]]
-name = "nat_gateway_id"
-expression = "provider_id"
-
-[[resource.fields]]
-name = "name"
-section = "identity"
-type = "String"
-required = true
-description = "NAT gateway name (set as Name tag)"
-
-[[resource.fields]]
-name = "subnet_id"
-section = "network"
-type = "String"
-required = true
-description = "Subnet ID"
-
-[[resource.fields]]
-name = "allocation_id"
-section = "network"
-type = "String"
-required = true
-description = "Elastic IP allocation ID"
+# HAND-WRITTEN — cannot generate:
+#   - Requires allocation_id (EIP reference)
+#   - connectivity_type on create
+#   - Read: public_ip from nat_gateway_addresses
 
 # ─── EC2: ElasticIp ────────────────────────────────────────────────────────
-# Pattern: tag_specification, response_field (allocation_id)
-
-[[resource]]
-struct_name = "ElasticIp"
-sdk_crate = "aws-sdk-ec2"
-sdk_client = "ec2"
-type_path = "ec2.ElasticIp"
-
-crud_create = "allocate_address"
-crud_read = "describe_addresses"
-crud_delete = "release_address"
-
-aws_client_field = "ec2_client"
-aws_read_style = "describe_list"
-aws_list_accessor = "addresses"
-aws_id_param = "allocation_id"
-aws_id_source = "response_field"
-aws_response_id_field = "allocation_id"
-aws_tag_style = "tag_specification"
-aws_tag_resource_type = "ElasticIp"
-aws_read_id_param = "allocation_ids"
-
-[[resource.aws_outputs]]
-name = "allocation_id"
-expression = "provider_id"
-
-[[resource.aws_outputs]]
-name = "public_ip"
-expression = "resource.public_ip().unwrap_or(\"\")"
-
-[[resource.fields]]
-name = "name"
-section = "identity"
-type = "String"
-required = true
-description = "Elastic IP name (set as Name tag)"
-
-[[resource.fields]]
-name = "domain"
-section = "network"
-type = "String"
-default = "vpc"
-description = "Address domain (vpc)"
+# HAND-WRITTEN — cannot generate:
+#   - Uses allocate_address/release_address (non-standard CRUD names)
+#   - domain("vpc") on create
 
 # ─── EC2: KeyPair ──────────────────────────────────────────────────────────
-# Pattern: tag_specification, response_field (key_pair_id)
-
-[[resource]]
-struct_name = "KeyPair"
-sdk_crate = "aws-sdk-ec2"
-sdk_client = "ec2"
-type_path = "ec2.KeyPair"
-
-crud_create = "create_key_pair"
-crud_read = "describe_key_pairs"
-crud_delete = "delete_key_pair"
-
-aws_client_field = "ec2_client"
-aws_read_style = "describe_list"
-aws_list_accessor = "key_pairs"
-aws_id_param = "key_pair_id"
-aws_id_source = "response_field"
-aws_response_id_field = "key_pair_id"
-aws_tag_style = "tag_specification"
-aws_tag_resource_type = "KeyPair"
-aws_read_id_param = "key_pair_ids"
-
-[[resource.aws_outputs]]
-name = "key_pair_id"
-expression = "provider_id"
-
-[[resource.aws_outputs]]
-name = "key_name"
-expression = "resource.key_name().unwrap_or(\"\")"
-
-[[resource.fields]]
-name = "name"
-section = "identity"
-type = "String"
-required = true
-description = "Key pair name"
-sdk_param = "key_name"
-
-[[resource.fields]]
-name = "key_type"
-section = "security"
-type = "String"
-default = "rsa"
-description = "Key type (rsa or ed25519)"
-aws_enum = true
+# HAND-WRITTEN — cannot generate:
+#   - Read: key_name() returns non-optional &str
+#   - key_type uses KeyType enum (aws_enum support incomplete for EC2)
 
 # ─── RDS: DBInstance ───────────────────────────────────────────────────────
 # Pattern: describe_list, typed_tags, name as provider_id
@@ -2045,106 +1560,27 @@ description = "Protocol type (HTTP or WEBSOCKET)"
 aws_enum = true
 
 # ─── DynamoDB: Table ─────────────────────────────────────────────────────
-# Pattern: get_single (describe_table), typed_tags, response_field (table_name)
-
-[[resource]]
-struct_name = "Table"
-sdk_crate = "aws-sdk-dynamodb"
-sdk_client = "dynamodb"
-type_path = "dynamodb.Table"
-
-crud_create = "create_table"
-crud_read = "describe_table"
-crud_update = "update_table"
-crud_delete = "delete_table"
-aws_updatable = true
-
-aws_client_field = "dynamodb_client"
-aws_read_style = "get_single"
-aws_response_accessor = "table"
-aws_id_param = "table_name"
-aws_id_source = "config_name"
-aws_tag_style = "typed_tags"
-
-[[resource.aws_outputs]]
-name = "table_arn"
-expression = "resource.table_arn().unwrap_or(\"\")"
-
-[[resource.aws_outputs]]
-name = "table_name"
-expression = "resource.table_name().unwrap_or(\"\")"
-
-[[resource.fields]]
-name = "name"
-section = "identity"
-type = "String"
-required = true
-description = "Table name"
-sdk_param = "table_name"
-
-[[resource.fields]]
-name = "partition_key"
-section = "sizing"
-type = "String"
-required = true
-description = "Partition key attribute name"
-
-[[resource.fields]]
-name = "partition_key_type"
-section = "sizing"
-type = "String"
-default = "S"
-description = "Partition key type (S, N, B)"
-
-[[resource.fields]]
-name = "sort_key"
-section = "sizing"
-type = "String"
-description = "Sort key attribute name"
-
-[[resource.fields]]
-name = "billing_mode"
-section = "sizing"
-type = "String"
-default = "PAY_PER_REQUEST"
-description = "Billing mode"
-aws_enum = true
+# HAND-WRITTEN — cannot generate:
+#   - Key schema requires programmatic KeySchemaElement + AttributeDefinition builders
+#   - Conditional ProvisionedThroughput (only when billing_mode = PROVISIONED)
+#   - Read: billing_mode_summary().billing_mode() (nested accessor)
+#   - partition_key/sort_key have no SDK setters (they're builder patterns)
 
 # ─── Route53: HostedZone ────────────────────────────────────────────────
-# Pattern: get_single (get_hosted_zone), no tags, response_field (zone_id)
+# HAND-WRITTEN — cannot generate:
+#   - create_hosted_zone requires caller_reference (auto-generated, not from config)
+#   - Description uses HostedZoneConfig builder wrapper
+#   - Private zones need VPC builder attachment
+#   - ID returned with /hostedzone/ prefix that must be stripped
+#   - name_servers output comes from delegation_set (separate response field)
 
-[[resource]]
-struct_name = "HostedZone"
-sdk_crate = "aws-sdk-route53"
-sdk_client = "route53"
-type_path = "route53.HostedZone"
-
-crud_create = "create_hosted_zone"
-crud_read = "get_hosted_zone"
-crud_delete = "delete_hosted_zone"
-
-aws_client_field = "route53_client"
-aws_read_style = "get_single"
-aws_response_accessor = "hosted_zone"
-aws_id_param = "id"
-aws_id_source = "response_field"
-aws_response_id_field = "id"
-aws_tag_style = "none"
-
-[[resource.aws_outputs]]
-name = "hosted_zone_id"
-expression = "provider_id"
-
-[[resource.aws_outputs]]
-name = "name"
-expression = "resource.name().unwrap_or(\"\")"
-
-[[resource.fields]]
-name = "name"
-section = "identity"
-type = "String"
-required = true
-description = "Domain name"
+# ─── Route53: RecordSet ─────────────────────────────────────────────────
+# HAND-WRITTEN — cannot generate:
+#   - Uses ChangeResourceRecordSets with UPSERT/DELETE actions (not standard CRUD)
+#   - Deeply nested: ChangeBatch → Change → ResourceRecordSet → ResourceRecord
+#   - Conditional alias vs values logic
+#   - Composite provider_id: zone_id:name:type
+#   - Delete requires read-back of current state to build matching record set
 
 # ─── EKS: Cluster ───────────────────────────────────────────────────────────
 # Pattern: get_single (describe_cluster), set_tags, config_name
@@ -2366,9 +1802,29 @@ description = "Maximum number of nodes"
 aws_builder_group = "scaling_config"
 
 # ─── AutoScaling: Group ──────────────────────────────────────────────────────
-# Pattern: describe_list, config_name
-# BLOCKED: needs join_csv for subnet_ids, custom tag builder (resource_id, propagate_at_launch)
+# HAND-WRITTEN — cannot generate:
+#   - subnet_ids joined with comma for vpc_zone_identifier setter (not array)
+#   - LaunchTemplateSpecification builder group
+#   - Custom tag builder (requires resource_id, resource_type, propagate_at_launch)
+#   - force_delete(true) on delete
 
-# ─── KMS: Key ────────────────────────────────────────────────────────────────
-# Pattern: get_single (describe_key), config_name → response_field hybrid
-# BLOCKED: needs post-create alias, custom tag fields (tag_key/tag_value), multi-step update
+# ─── S3: Bucket ──────────────────────────────────────────────────────────────
+# HAND-WRITTEN — cannot generate:
+#   - Multi-step post-create: put_bucket_versioning, put_bucket_encryption, put_bucket_tagging
+#   - Read: head_bucket + get_bucket_versioning (2 API calls)
+#   - Update: put_bucket_versioning (separate API, not standard update)
+#   - Tags: put_bucket_tagging with Tagging wrapper (separate API)
+
+# ─── CloudFront: Distribution ────────────────────────────────────────────────
+# HAND-WRITTEN — cannot generate:
+#   - Entire create wraps in DistributionConfig builder (deeply nested)
+#   - caller_reference auto-generation
+#   - Delete requires ETag from get + if_match
+#   - Update requires full DistributionConfig + ETag
+
+# ─── WAFv2: WebACL ──────────────────────────────────────────────────────────
+# HAND-WRITTEN — cannot generate:
+#   - DefaultAction conditional builder (allow vs block)
+#   - VisibilityConfig mandatory nested builder
+#   - lock_token required for update and delete (get first, then use)
+#   - 3-part composite ID: id:name:scope
