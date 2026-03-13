@@ -2269,3 +2269,240 @@ aws_builder_group = "scaling_config"
 #   - VisibilityConfig mandatory nested builder
 #   - lock_token required for update and delete (get first, then use)
 #   - 3-part composite ID: id:name:scope
+
+# ═══════════════════════════════════════════════════════════════════════════
+# NEW RESOURCES — not yet covered by any hand-written file
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ─── ElastiCache: CacheSubnetGroup ────────────────────────────────────────
+# Pattern: describe_list, name as provider_id
+
+[[resource]]
+struct_name = "CacheSubnetGroup"
+sdk_crate = "aws-sdk-elasticache"
+sdk_client = "elasticache"
+type_path = "elasticache.CacheSubnetGroup"
+
+crud_create = "create_cache_subnet_group"
+crud_read = "describe_cache_subnet_groups"
+crud_update = "modify_cache_subnet_group"
+crud_delete = "delete_cache_subnet_group"
+aws_updatable = true
+
+aws_client_field = "elasticache_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "cache_subnet_groups"
+aws_id_param = "cache_subnet_group_name"
+aws_id_source = "config_name"
+
+[[resource.aws_outputs]]
+name = "cache_subnet_group_name"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "arn"
+expression = "resource.arn().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Cache subnet group name"
+sdk_param = "cache_subnet_group_name"
+
+[[resource.fields]]
+name = "description"
+section = "identity"
+type = "String"
+default = "smelt managed"
+description = "Cache subnet group description"
+sdk_param = "cache_subnet_group_description"
+sdk_read_field = "cache_subnet_group_description"
+updatable = true
+
+[[resource.fields]]
+name = "subnet_ids"
+section = "network"
+type = "StringArray"
+required = true
+description = "VPC subnet IDs"
+updatable = true
+
+# ─── EventBridge: EventBus ─────────────────────────────────────────────────
+# Pattern: get_single (describe_event_bus), typed_tags, name as provider_id
+
+[[resource]]
+struct_name = "EventBus"
+sdk_crate = "aws-sdk-eventbridge"
+sdk_client = "eventbridge"
+type_path = "eventbridge.EventBus"
+
+crud_create = "create_event_bus"
+crud_read = "describe_event_bus"
+crud_delete = "delete_event_bus"
+
+aws_client_field = "eventbridge_client"
+aws_read_style = "get_single"
+aws_id_param = "name"
+aws_id_source = "config_name"
+aws_tag_style = "typed_tags"
+
+[[resource.aws_outputs]]
+name = "event_bus_arn"
+expression = "resource.arn().unwrap_or(\"\")"
+
+[[resource.aws_outputs]]
+name = "event_bus_name"
+expression = "resource.name().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Event bus name"
+
+[[resource.fields]]
+name = "description"
+section = "identity"
+type = "String"
+description = "Event bus description"
+skip_read = true
+
+# ─── EC2: VpcEndpoint ─────────────────────────────────────────────────────
+# Pattern: describe_list, tag_specification, response_field (vpc_endpoint_id)
+
+[[resource]]
+struct_name = "VpcEndpoint"
+sdk_crate = "aws-sdk-ec2"
+sdk_client = "ec2"
+type_path = "ec2.VpcEndpoint"
+
+crud_create = "create_vpc_endpoint"
+crud_read = "describe_vpc_endpoints"
+crud_delete = "delete_vpc_endpoints"
+
+aws_client_field = "ec2_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "vpc_endpoints"
+aws_id_param = "vpc_endpoint_ids"
+aws_id_source = "response_field"
+aws_response_id_field = "vpc_endpoint_id"
+aws_response_accessor = "vpc_endpoint"
+aws_tag_style = "tag_specification"
+aws_tag_resource_type = "VpcEndpoint"
+
+[[resource.aws_outputs]]
+name = "vpc_endpoint_id"
+expression = "provider_id"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Name tag for the VPC endpoint"
+skip_create = true
+read_expression = "super::extract_name_tag(resource.tags())"
+
+[[resource.fields]]
+name = "service_name"
+section = "network"
+type = "String"
+required = true
+description = "AWS service name (e.g., com.amazonaws.us-east-1.s3)"
+skip_update = true
+
+[[resource.fields]]
+name = "vpc_id"
+section = "network"
+type = "String"
+required = true
+description = "VPC ID for the endpoint"
+skip_update = true
+
+[[resource.fields]]
+name = "vpc_endpoint_type"
+section = "network"
+type = "String"
+default = "Gateway"
+description = "Endpoint type (Gateway or Interface)"
+aws_enum = true
+skip_update = true
+skip_read = true
+
+# ─── Lambda: EventSourceMapping ───────────────────────────────────────────
+# Pattern: get_single, UUID-based ID from create response
+
+[[resource]]
+struct_name = "EventSourceMapping"
+sdk_crate = "aws-sdk-lambda"
+sdk_client = "lambda"
+type_path = "lambda.EventSourceMapping"
+
+crud_create = "create_event_source_mapping"
+crud_read = "get_event_source_mapping"
+crud_update = "update_event_source_mapping"
+crud_delete = "delete_event_source_mapping"
+aws_updatable = true
+
+aws_client_field = "lambda_client"
+aws_read_style = "get_single"
+aws_id_param = "uuid"
+aws_id_source = "response_field"
+aws_response_id_field = "uuid"
+
+[[resource.aws_outputs]]
+name = "uuid"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "function_arn"
+expression = "resource.function_arn().unwrap_or(\"\")"
+
+[[resource.aws_outputs]]
+name = "state"
+expression = "resource.state().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Mapping identifier (used for smelt naming only)"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "event_source_arn"
+section = "runtime"
+type = "String"
+required = true
+description = "ARN of event source (SQS, Kinesis, DynamoDB stream, etc.)"
+skip_update = true
+
+[[resource.fields]]
+name = "function_name"
+section = "runtime"
+type = "String"
+required = true
+description = "Lambda function name or ARN"
+updatable = true
+
+[[resource.fields]]
+name = "enabled"
+section = "runtime"
+type = "Bool"
+default = true
+description = "Whether the mapping is enabled"
+updatable = true
+sdk_non_optional = true
+
+[[resource.fields]]
+name = "batch_size"
+section = "sizing"
+type = "Integer"
+default = 10
+description = "Maximum records per batch"
+updatable = true

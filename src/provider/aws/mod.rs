@@ -222,6 +222,7 @@ impl Provider for AwsProvider {
             Self::ec2_elastic_ip_schema(),
             Self::ec2_key_pair_schema(),
             Self::ec2_instance_schema(),
+            Self::ec2_vpc_endpoint_schema(),
             // IAM
             Self::iam_role_schema(),
             Self::iam_policy_schema(),
@@ -243,6 +244,7 @@ impl Provider for AwsProvider {
             Self::rds_db_subnet_group_schema(),
             // Lambda
             Self::lambda_function_schema(),
+            Self::lambda_event_source_mapping_schema(),
             // Route53
             Self::route53_hosted_zone_schema(),
             Self::route53_record_set_schema(),
@@ -266,6 +268,7 @@ impl Provider for AwsProvider {
             Self::ssm_parameter_schema(),
             // ElastiCache
             Self::elasticache_replication_group_schema(),
+            Self::elasticache_cache_subnet_group_schema(),
             // EFS
             Self::efs_file_system_schema(),
             Self::efs_mount_target_schema(),
@@ -276,6 +279,7 @@ impl Provider for AwsProvider {
             Self::sfn_state_machine_schema(),
             // EventBridge
             Self::eventbridge_rule_schema(),
+            Self::eventbridge_event_bus_schema(),
             // CloudWatch
             Self::cloudwatch_alarm_schema(),
             // Auto Scaling
@@ -311,6 +315,7 @@ impl Provider for AwsProvider {
                 "ec2.ElasticIp" => read_ec2_elastic_ip,
                 "ec2.KeyPair" => read_ec2_key_pair,
                 "ec2.Instance" => read_instance,
+                "ec2.VpcEndpoint" => read_ec2_vpc_endpoint,
                 "iam.Role" => read_role,
                 "iam.Policy" => read_policy,
                 "iam.InstanceProfile" => read_instance_profile,
@@ -332,9 +337,11 @@ impl Provider for AwsProvider {
                 "sqs.Queue" => read_sqs_queue,
                 "ssm.Parameter" => read_ssm_parameter,
                 "lambda.Function" => read_lambda_function,
+                "lambda.EventSourceMapping" => read_lambda_event_source_mapping,
                 "logs.LogGroup" => read_logs_log_group,
                 "sns.Topic" => read_sns_topic,
                 "eventbridge.Rule" => read_eventbridge_rule,
+                "eventbridge.EventBus" => read_eventbridge_event_bus,
                 "cognito.UserPool" => read_cognito_user_pool,
                 "ses.EmailIdentity" => read_ses_email_identity,
                 "elbv2.LoadBalancer" => read_elbv2_load_balancer,
@@ -344,6 +351,7 @@ impl Provider for AwsProvider {
                 "rds.DBInstance" => read_rds_db_instance,
                 "rds.DBSubnetGroup" => read_rds_db_subnet_group,
                 "elasticache.ReplicationGroup" => read_elasticache_replication_group,
+                "elasticache.CacheSubnetGroup" => read_elasticache_cache_subnet_group,
                 "secretsmanager.Secret" => read_secretsmanager_secret,
                 "ecr.Repository" => read_ecr_repository,
                 "acm.Certificate" => read_acm_certificate,
@@ -376,6 +384,7 @@ impl Provider for AwsProvider {
                 "ec2.ElasticIp" => create_ec2_elastic_ip,
                 "ec2.KeyPair" => create_ec2_key_pair,
                 "ec2.Instance" => create_instance,
+                "ec2.VpcEndpoint" => create_ec2_vpc_endpoint,
                 "iam.Role" => create_role,
                 "iam.Policy" => create_policy,
                 "iam.InstanceProfile" => create_instance_profile,
@@ -397,15 +406,18 @@ impl Provider for AwsProvider {
                 "sqs.Queue" => create_sqs_queue,
                 "ssm.Parameter" => create_ssm_parameter,
                 "lambda.Function" => create_lambda_function,
+                "lambda.EventSourceMapping" => create_lambda_event_source_mapping,
                 "logs.LogGroup" => create_logs_log_group,
                 "sns.Topic" => create_sns_topic,
                 "eventbridge.Rule" => create_eventbridge_rule,
+                "eventbridge.EventBus" => create_eventbridge_event_bus,
                 "cognito.UserPool" => create_cognito_user_pool,
                 "ses.EmailIdentity" => create_ses_email_identity,
                 "elbv2.LoadBalancer" => create_elbv2_load_balancer,
                 "elbv2.TargetGroup" => create_elbv2_target_group,
                 "elbv2.Listener" => create_elbv2_listener,
                 "elasticache.ReplicationGroup" => create_elasticache_replication_group,
+                "elasticache.CacheSubnetGroup" => create_elasticache_cache_subnet_group,
                 // Generated (new resources)
                 "rds.DBInstance" => create_rds_db_instance,
                 "rds.DBSubnetGroup" => create_rds_db_subnet_group,
@@ -457,6 +469,7 @@ impl Provider for AwsProvider {
                     "sqs.Queue" => update_sqs_queue,
                     "ssm.Parameter" => update_ssm_parameter,
                     "lambda.Function" => update_lambda_function,
+                    "lambda.EventSourceMapping" => update_lambda_event_source_mapping,
                     "logs.LogGroup" => update_logs_log_group,
                     "sns.Topic" => update_sns_topic,
                     "eventbridge.Rule" => update_eventbridge_rule,
@@ -465,6 +478,7 @@ impl Provider for AwsProvider {
                     "elbv2.TargetGroup" => update_elbv2_target_group,
                     "elbv2.Listener" => update_elbv2_listener,
                     "elasticache.ReplicationGroup" => update_elasticache_replication_group,
+                    "elasticache.CacheSubnetGroup" => update_elasticache_cache_subnet_group,
                     // Generated (new resources)
                     "secretsmanager.Secret" => update_secretsmanager_secret,
                     "cloudwatch.Alarm" => update_cloudwatch_alarm,
@@ -489,6 +503,8 @@ impl Provider for AwsProvider {
                     "efs.FileSystem",
                     "efs.MountTarget",
                     "ses.EmailIdentity",
+                    "ec2.VpcEndpoint",
+                    "eventbridge.EventBus",
                 ]
             )
         })
@@ -513,6 +529,7 @@ impl Provider for AwsProvider {
                 "ec2.ElasticIp" => delete_ec2_elastic_ip,
                 "ec2.KeyPair" => delete_ec2_key_pair,
                 "ec2.Instance" => delete_instance,
+                "ec2.VpcEndpoint" => delete_ec2_vpc_endpoint,
                 "iam.Role" => delete_role,
                 "iam.Policy" => delete_policy,
                 "iam.InstanceProfile" => delete_instance_profile,
@@ -534,15 +551,18 @@ impl Provider for AwsProvider {
                 "sqs.Queue" => delete_sqs_queue,
                 "ssm.Parameter" => delete_ssm_parameter,
                 "lambda.Function" => delete_lambda_function,
+                "lambda.EventSourceMapping" => delete_lambda_event_source_mapping,
                 "logs.LogGroup" => delete_logs_log_group,
                 "sns.Topic" => delete_sns_topic,
                 "eventbridge.Rule" => delete_eventbridge_rule,
+                "eventbridge.EventBus" => delete_eventbridge_event_bus,
                 "cognito.UserPool" => delete_cognito_user_pool,
                 "ses.EmailIdentity" => delete_ses_email_identity,
                 "elbv2.LoadBalancer" => delete_elbv2_load_balancer,
                 "elbv2.TargetGroup" => delete_elbv2_target_group,
                 "elbv2.Listener" => delete_elbv2_listener,
                 "elasticache.ReplicationGroup" => delete_elasticache_replication_group,
+                "elasticache.CacheSubnetGroup" => delete_elasticache_cache_subnet_group,
                 // Generated (new resources)
                 "rds.DBInstance" => delete_rds_db_instance,
                 "rds.DBSubnetGroup" => delete_rds_db_subnet_group,
@@ -634,6 +654,10 @@ impl Provider for AwsProvider {
                 "wafv2.WebACL" => change.path == "identity.name",
                 "cognito.UserPool" => change.path == "identity.name",
                 "ses.EmailIdentity" => true, // identity changes = replacement
+                "ec2.VpcEndpoint" => true,   // VPC endpoints are immutable
+                "eventbridge.EventBus" => change.path == "identity.name",
+                "elasticache.CacheSubnetGroup" => change.path == "identity.name",
+                "lambda.EventSourceMapping" => change.path == "runtime.event_source_arn",
                 _ => false,
             };
         }
@@ -696,7 +720,7 @@ mod tests {
     fn aws_provider_has_all_resource_types() {
         let provider = AwsProvider::for_testing();
         let types = provider.resource_types();
-        assert_eq!(types.len(), 48);
+        assert_eq!(types.len(), 52);
 
         let paths: Vec<_> = types.iter().map(|t| t.type_path.as_str()).collect();
         assert!(paths.contains(&"ec2.Vpc"));

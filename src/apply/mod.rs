@@ -776,6 +776,7 @@ fn build_dependency_map(
 /// For each dependency binding:
 /// - `needs vpc.main -> vpc_id` → injects provider_id as `vpc_id`
 /// - `needs vpc.main.arn -> vpc_arn` → injects the "arn" output as `vpc_arn`
+///
 /// Errors from resolving dependency bindings.
 #[derive(Debug)]
 struct BindingError {
@@ -1374,7 +1375,7 @@ mod tests {
         )
         .unwrap();
 
-        let config_map = build_config_map(&[file.clone()], &[]);
+        let config_map = build_config_map(std::slice::from_ref(&file), &[]);
         let dep_map = build_dependency_map(&[file], &[]);
 
         let mut provider_ids: ProviderIdMap = HashMap::new();
@@ -1425,7 +1426,7 @@ mod tests {
         )
         .unwrap();
 
-        let config_map = build_config_map(&[file.clone()], &[]);
+        let config_map = build_config_map(std::slice::from_ref(&file), &[]);
         let dep_map = build_dependency_map(&[file], &[]);
 
         // No provider_ids populated — vpc.main hasn't been created
@@ -1466,7 +1467,7 @@ mod tests {
         )
         .unwrap();
 
-        let config_map = build_config_map(&[file.clone()], &[]);
+        let config_map = build_config_map(std::slice::from_ref(&file), &[]);
         let dep_map = build_dependency_map(&[file], &[]);
 
         let mut provider_ids: ProviderIdMap = HashMap::new();
@@ -1606,7 +1607,7 @@ mod tests {
         )
         .unwrap();
 
-        let config_map = build_config_map(&[file.clone()], &[]);
+        let config_map = build_config_map(std::slice::from_ref(&file), &[]);
         let dep_map = build_dependency_map(&[file], &[]);
 
         let mut provider_ids: ProviderIdMap = HashMap::new();

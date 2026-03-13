@@ -575,7 +575,7 @@ mod tests {
         )
         .unwrap();
 
-        let graph = DependencyGraph::build(&[file.clone()]).unwrap();
+        let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
         let current_state = BTreeMap::new(); // empty — nothing exists yet
 
         let plan = build_plan("production", &[file], &current_state, &graph);
@@ -602,7 +602,7 @@ mod tests {
         )
         .unwrap();
 
-        let graph = DependencyGraph::build(&[file.clone()]).unwrap();
+        let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
 
         let mut current_state = BTreeMap::new();
         current_state.insert(
@@ -636,7 +636,7 @@ mod tests {
         )
         .unwrap();
 
-        let graph = DependencyGraph::build(&[file.clone()]).unwrap();
+        let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
 
         let mut current_state = BTreeMap::new();
         current_state.insert(
@@ -666,7 +666,7 @@ mod tests {
         )
         .unwrap();
 
-        let graph = DependencyGraph::build(&[file.clone()]).unwrap();
+        let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
         let plan = build_plan("production", &[file], &BTreeMap::new(), &graph);
 
         let output = format_plan(&plan);
@@ -702,7 +702,7 @@ mod tests {
         )
         .unwrap();
 
-        let graph = DependencyGraph::build(&[file.clone()]).unwrap();
+        let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
 
         let mut current_state = BTreeMap::new();
         current_state.insert(
@@ -744,7 +744,7 @@ mod tests {
         )
         .unwrap();
 
-        let graph = DependencyGraph::build(&[file.clone()]).unwrap();
+        let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
 
         let mut current_state = BTreeMap::new();
         current_state.insert(
@@ -784,7 +784,7 @@ mod tests {
         )
         .unwrap();
 
-        let graph = DependencyGraph::build(&[file.clone()]).unwrap();
+        let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
 
         let mut current_state = BTreeMap::new();
         current_state.insert(
@@ -825,7 +825,7 @@ mod tests {
         )
         .unwrap();
 
-        let graph = DependencyGraph::build(&[file.clone()]).unwrap();
+        let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
         let current_state = BTreeMap::new();
 
         // No layers — should use base config as-is

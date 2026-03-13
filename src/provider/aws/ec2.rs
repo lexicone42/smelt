@@ -1412,6 +1412,161 @@ impl AwsProvider {
         Ok(())
     }
 
+    // ─── VpcEndpoint (generated) ────────────────────────────────────
+
+    pub(super) fn ec2_vpc_endpoint_schema() -> crate::provider::ResourceTypeInfo {
+        crate::provider::ResourceTypeInfo {
+            type_path: "ec2.VpcEndpoint".into(),
+            description: "VpcEndpoint resource".into(),
+            schema: crate::provider::ResourceSchema {
+                sections: vec![
+                    crate::provider::SectionSchema {
+                        name: "identity".into(),
+                        description: "Identity configuration".into(),
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "name".into(),
+                            description: "Name tag for the VPC endpoint".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
+                    },
+                    crate::provider::SectionSchema {
+                        name: "network".into(),
+                        description: "Network configuration".into(),
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "service_name".into(),
+                                description: "AWS service name (e.g., com.amazonaws.us-east-1.s3)"
+                                    .into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                            crate::provider::FieldSchema {
+                                name: "vpc_endpoint_type".into(),
+                                description: "Endpoint type (Gateway or Interface)".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: false,
+                                default: Some(serde_json::json!("Gateway")),
+                                sensitive: false,
+                            },
+                            crate::provider::FieldSchema {
+                                name: "vpc_id".into(),
+                                description: "VPC ID for the endpoint".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
+                    },
+                ],
+            },
+        }
+    }
+
+    pub(super) async fn create_ec2_vpc_endpoint(
+        &self,
+        config: &serde_json::Value,
+    ) -> Result<ResourceOutput, ProviderError> {
+        let service_name = config.require_str("/network/service_name")?.to_string();
+        let vpc_endpoint_type = config
+            .str_or("/network/vpc_endpoint_type", "Gateway")
+            .to_string();
+        let vpc_id = config.require_str("/network/vpc_id")?.to_string();
+
+        let tag_spec = Self::build_tags(config, aws_sdk_ec2::types::ResourceType::VpcEndpoint);
+
+        let mut req = self
+            .ec2_client
+            .create_vpc_endpoint()
+            .service_name(&service_name)
+            .vpc_id(&vpc_id);
+
+        req = req.vpc_endpoint_type(aws_sdk_ec2::types::VpcEndpointType::from(
+            vpc_endpoint_type.as_str(),
+        ));
+        req = req.tag_specifications(tag_spec);
+
+        let result = req
+            .send()
+            .await
+            .map_err(|e| ProviderError::ApiError(format!("create_vpc_endpoint: {e}")))?;
+
+        let container = result.vpc_endpoint().ok_or_else(|| {
+            ProviderError::ApiError("create_vpc_endpoint returned no vpc_endpoint".into())
+        })?;
+        let provider_id = container.vpc_endpoint_id().ok_or_else(|| {
+            ProviderError::ApiError("create_vpc_endpoint returned no vpc_endpoint_id".into())
+        })?;
+
+        self.read_ec2_vpc_endpoint(provider_id).await
+    }
+
+    pub(super) async fn read_ec2_vpc_endpoint(
+        &self,
+        provider_id: &str,
+    ) -> Result<ResourceOutput, ProviderError> {
+        let result = self
+            .ec2_client
+            .describe_vpc_endpoints()
+            .vpc_endpoint_ids(provider_id)
+            .send()
+            .await
+            .map_err(|e| ProviderError::ApiError(format!("describe_vpc_endpoints: {e}")))?;
+
+        let resource = result
+            .vpc_endpoints()
+            .first()
+            .ok_or_else(|| ProviderError::NotFound(format!("VpcEndpoint {provider_id}")))?;
+
+        let state = serde_json::json!({
+            "identity": {
+                "name": super::extract_name_tag(resource.tags()),
+            },
+            "network": {
+                "service_name": resource.service_name().unwrap_or(""),
+                "vpc_id": resource.vpc_id().unwrap_or(""),
+            },
+        });
+
+        let mut outputs = HashMap::new();
+        outputs.insert("vpc_endpoint_id".into(), serde_json::json!(provider_id));
+
+        Ok(ResourceOutput {
+            provider_id: provider_id.to_string(),
+            state,
+            outputs,
+        })
+    }
+
+    #[allow(dead_code)]
+    pub(super) async fn update_ec2_vpc_endpoint(
+        &self,
+        _provider_id: &str,
+        _config: &serde_json::Value,
+    ) -> Result<ResourceOutput, ProviderError> {
+        Err(ProviderError::RequiresReplacement(
+            "resource does not support in-place update".into(),
+        ))
+    }
+
+    pub(super) async fn delete_ec2_vpc_endpoint(
+        &self,
+        provider_id: &str,
+    ) -> Result<(), ProviderError> {
+        self.ec2_client
+            .delete_vpc_endpoints()
+            .vpc_endpoint_ids(provider_id)
+            .send()
+            .await
+            .map_err(|e| ProviderError::ApiError(format!("delete_vpc_endpoints: {e}")))?;
+        Ok(())
+    }
+
     // ─── Hand-written schema definitions ────────────────────────────
 
     pub(super) fn ec2_security_group_schema() -> ResourceTypeInfo {

@@ -319,7 +319,7 @@ mod tests {
         )
         .unwrap();
 
-        let graph = DependencyGraph::build(&[file.clone()]).unwrap();
+        let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
         let vpc_id = ResourceId::new("vpc", "main");
 
         let exp = explain(&vpc_id, &[file], &graph).unwrap();
@@ -355,7 +355,7 @@ mod tests {
         )
         .unwrap();
 
-        let graph = DependencyGraph::build(&[file.clone()]).unwrap();
+        let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
         let vpc_id = ResourceId::new("vpc", "main");
 
         let exp = explain(&vpc_id, &[file], &graph).unwrap();

@@ -99,9 +99,8 @@ impl GcpProvider {
         // Build SDK model
         let mut model = google_cloud_tasks_v2::model::Queue::default();
         let full_name = format!(
-            "{}/queues/{}",
-            format!("projects/{}/locations/{}", self.project_id, self.region),
-            name
+            "projects/{}/locations/{}/queues/{}",
+            self.project_id, self.region, name
         );
         if let Some(v) = app_engine_routing_override {
             model = model.set_app_engine_routing_override(v);

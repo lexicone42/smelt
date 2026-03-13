@@ -124,6 +124,7 @@ pub struct GcpProvider {
         tokio::sync::OnceCell<google_cloud_compute_v1::client::Reservations>,
     pub(crate) interconnect_attachments_client:
         tokio::sync::OnceCell<google_cloud_compute_v1::client::InterconnectAttachments>,
+    #[allow(dead_code)]
     pub(crate) firewall_policies_client:
         tokio::sync::OnceCell<google_cloud_compute_v1::client::FirewallPolicies>,
     pub(crate) resource_policies_client:
@@ -537,6 +538,7 @@ impl GcpProvider {
             "init InterconnectAttachments"
         )
     }
+    #[allow(dead_code)]
     pub(crate) async fn firewall_policies(
         &self,
     ) -> Result<&google_cloud_compute_v1::client::FirewallPolicies, ProviderError> {

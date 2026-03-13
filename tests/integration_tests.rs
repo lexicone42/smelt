@@ -62,9 +62,9 @@ fn create_single_resource() {
     )
     .unwrap();
 
-    let graph = DependencyGraph::build(&[file.clone()]).unwrap();
+    let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
     let current_state = BTreeMap::new();
-    let plan = plan::build_plan("test", &[file.clone()], &current_state, &graph);
+    let plan = plan::build_plan("test", std::slice::from_ref(&file), &current_state, &graph);
 
     assert_eq!(plan.summary.create, 1);
 
@@ -109,8 +109,13 @@ fn output_passing_between_resources() {
     )
     .unwrap();
 
-    let graph = DependencyGraph::build(&[file.clone()]).unwrap();
-    let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
+    let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
+    let plan = plan::build_plan(
+        "test",
+        std::slice::from_ref(&file),
+        &BTreeMap::new(),
+        &graph,
+    );
 
     assert_eq!(plan.summary.create, 2);
 
@@ -178,8 +183,13 @@ fn named_output_passing() {
     )
     .unwrap();
 
-    let graph = DependencyGraph::build(&[file.clone()]).unwrap();
-    let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
+    let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
+    let plan = plan::build_plan(
+        "test",
+        std::slice::from_ref(&file),
+        &BTreeMap::new(),
+        &graph,
+    );
 
     let summary =
         apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file], None);
@@ -231,8 +241,13 @@ fn parallel_tier_execution() {
     )
     .unwrap();
 
-    let graph = DependencyGraph::build(&[file.clone()]).unwrap();
-    let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
+    let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
+    let plan = plan::build_plan(
+        "test",
+        std::slice::from_ref(&file),
+        &BTreeMap::new(),
+        &graph,
+    );
 
     let start = std::time::Instant::now();
     let summary =
@@ -274,8 +289,13 @@ fn partial_failure_preserves_successful_resources() {
     )
     .unwrap();
 
-    let graph = DependencyGraph::build(&[file.clone()]).unwrap();
-    let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
+    let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
+    let plan = plan::build_plan(
+        "test",
+        std::slice::from_ref(&file),
+        &BTreeMap::new(),
+        &graph,
+    );
 
     let summary =
         apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file], None);
@@ -332,8 +352,13 @@ fn cascading_failure_blocks_dependents() {
     )
     .unwrap();
 
-    let graph = DependencyGraph::build(&[file.clone()]).unwrap();
-    let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
+    let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
+    let plan = plan::build_plan(
+        "test",
+        std::slice::from_ref(&file),
+        &BTreeMap::new(),
+        &graph,
+    );
 
     let summary =
         apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file], None);
@@ -383,8 +408,13 @@ fn update_existing_resource() {
     .unwrap();
 
     // First apply — create the VPC
-    let graph = DependencyGraph::build(&[file_v1.clone()]).unwrap();
-    let plan = plan::build_plan("test", &[file_v1.clone()], &BTreeMap::new(), &graph);
+    let graph = DependencyGraph::build(std::slice::from_ref(&file_v1)).unwrap();
+    let plan = plan::build_plan(
+        "test",
+        std::slice::from_ref(&file_v1),
+        &BTreeMap::new(),
+        &graph,
+    );
     let summary =
         apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file_v1], None);
     assert_eq!(summary.created, 1);
@@ -401,8 +431,13 @@ fn update_existing_resource() {
 
     let current_state = load_state(&store, "test");
 
-    let graph = DependencyGraph::build(&[file_v2.clone()]).unwrap();
-    let plan = plan::build_plan("test", &[file_v2.clone()], &current_state, &graph);
+    let graph = DependencyGraph::build(std::slice::from_ref(&file_v2)).unwrap();
+    let plan = plan::build_plan(
+        "test",
+        std::slice::from_ref(&file_v2),
+        &current_state,
+        &graph,
+    );
 
     assert_eq!(plan.summary.update, 1);
 
@@ -430,8 +465,13 @@ fn delete_resource() {
     )
     .unwrap();
 
-    let graph = DependencyGraph::build(&[file_v1.clone()]).unwrap();
-    let plan = plan::build_plan("test", &[file_v1.clone()], &BTreeMap::new(), &graph);
+    let graph = DependencyGraph::build(std::slice::from_ref(&file_v1)).unwrap();
+    let plan = plan::build_plan(
+        "test",
+        std::slice::from_ref(&file_v1),
+        &BTreeMap::new(),
+        &graph,
+    );
     apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file_v1], None);
 
     // Now remove the subnet from the config
@@ -449,8 +489,13 @@ fn delete_resource() {
     assert_eq!(current_state.len(), 2);
 
     // Build plan from v2 (only VPC) — should detect subnet.a needs deletion
-    let graph_v2 = DependencyGraph::build(&[file_v2.clone()]).unwrap();
-    let plan = plan::build_plan("test", &[file_v2.clone()], &current_state, &graph_v2);
+    let graph_v2 = DependencyGraph::build(std::slice::from_ref(&file_v2)).unwrap();
+    let plan = plan::build_plan(
+        "test",
+        std::slice::from_ref(&file_v2),
+        &current_state,
+        &graph_v2,
+    );
 
     assert_eq!(plan.summary.unchanged, 1); // VPC unchanged
     assert_eq!(plan.summary.delete, 1); // subnet.a deleted
@@ -482,14 +527,26 @@ fn idempotent_apply() {
     .unwrap();
 
     // First apply
-    let graph = DependencyGraph::build(&[file.clone()]).unwrap();
-    let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
-    apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file.clone()], None);
+    let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
+    let plan = plan::build_plan(
+        "test",
+        std::slice::from_ref(&file),
+        &BTreeMap::new(),
+        &graph,
+    );
+    apply::execute_plan_with_config(
+        &plan,
+        &registry,
+        &store,
+        &project,
+        std::slice::from_ref(&file),
+        None,
+    );
 
     // Second apply with same config — should detect no changes
     let current_state = load_state(&store, "test");
 
-    let plan = plan::build_plan("test", &[file.clone()], &current_state, &graph);
+    let plan = plan::build_plan("test", std::slice::from_ref(&file), &current_state, &graph);
     assert_eq!(plan.summary.unchanged, 1);
     assert_eq!(plan.summary.create, 0);
     assert_eq!(plan.summary.update, 0);
@@ -508,8 +565,13 @@ fn outputs_stored_in_state() {
     )
     .unwrap();
 
-    let graph = DependencyGraph::build(&[file.clone()]).unwrap();
-    let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
+    let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
+    let plan = plan::build_plan(
+        "test",
+        std::slice::from_ref(&file),
+        &BTreeMap::new(),
+        &graph,
+    );
     apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file], None);
 
     // Verify outputs are persisted in the state store
@@ -552,8 +614,13 @@ fn three_tier_dependency_chain() {
     )
     .unwrap();
 
-    let graph = DependencyGraph::build(&[file.clone()]).unwrap();
-    let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
+    let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
+    let plan = plan::build_plan(
+        "test",
+        std::slice::from_ref(&file),
+        &BTreeMap::new(),
+        &graph,
+    );
 
     assert_eq!(plan.summary.create, 3);
 
@@ -643,8 +710,13 @@ fn apply_result_json_serialization() {
     )
     .unwrap();
 
-    let graph = DependencyGraph::build(&[file.clone()]).unwrap();
-    let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
+    let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
+    let plan = plan::build_plan(
+        "test",
+        std::slice::from_ref(&file),
+        &BTreeMap::new(),
+        &graph,
+    );
     let summary =
         apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file], None);
 
@@ -686,8 +758,13 @@ fn component_expansion_creates_scoped_resources() {
     )
     .unwrap();
 
-    let graph = DependencyGraph::build(&[file.clone()]).unwrap();
-    let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
+    let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
+    let plan = plan::build_plan(
+        "test",
+        std::slice::from_ref(&file),
+        &BTreeMap::new(),
+        &graph,
+    );
 
     // Component expands to 2 resources with scoped names: api__vpc.net and api__subnet.web
     assert_eq!(plan.summary.create, 2);
@@ -736,13 +813,30 @@ fn layer_override_applied_in_plan() {
     .unwrap();
 
     // Apply in "default" environment (no layer) to create base state
-    let graph = DependencyGraph::build(&[file.clone()]).unwrap();
-    let plan = plan::build_plan("default", &[file.clone()], &BTreeMap::new(), &graph);
-    apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file.clone()], None);
+    let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
+    let plan = plan::build_plan(
+        "default",
+        std::slice::from_ref(&file),
+        &BTreeMap::new(),
+        &graph,
+    );
+    apply::execute_plan_with_config(
+        &plan,
+        &registry,
+        &store,
+        &project,
+        std::slice::from_ref(&file),
+        None,
+    );
 
     // Now plan for "staging" with the layer override — should detect the change
     let current_state = load_state(&store, "default");
-    let plan = plan::build_plan("staging", &[file.clone()], &current_state, &graph);
+    let plan = plan::build_plan(
+        "staging",
+        std::slice::from_ref(&file),
+        &current_state,
+        &graph,
+    );
 
     assert_eq!(plan.summary.update, 1);
 
@@ -765,8 +859,13 @@ fn delete_all_resources() {
     )
     .unwrap();
 
-    let graph = DependencyGraph::build(&[file.clone()]).unwrap();
-    let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
+    let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
+    let plan = plan::build_plan(
+        "test",
+        std::slice::from_ref(&file),
+        &BTreeMap::new(),
+        &graph,
+    );
     apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file], None);
 
     // Now desired config is empty — all resources should be deleted
@@ -774,8 +873,13 @@ fn delete_all_resources() {
     let current_state = load_state(&store, "test");
     assert_eq!(current_state.len(), 1);
 
-    let graph_empty = DependencyGraph::build(&[empty_file.clone()]).unwrap();
-    let plan = plan::build_plan("test", &[empty_file.clone()], &current_state, &graph_empty);
+    let graph_empty = DependencyGraph::build(std::slice::from_ref(&empty_file)).unwrap();
+    let plan = plan::build_plan(
+        "test",
+        std::slice::from_ref(&empty_file),
+        &current_state,
+        &graph_empty,
+    );
 
     assert_eq!(plan.summary.delete, 1);
     assert_eq!(plan.summary.create, 0);
@@ -812,8 +916,13 @@ fn delete_preserves_dependency_order() {
     )
     .unwrap();
 
-    let graph = DependencyGraph::build(&[file.clone()]).unwrap();
-    let plan = plan::build_plan("test", &[file.clone()], &BTreeMap::new(), &graph);
+    let graph = DependencyGraph::build(std::slice::from_ref(&file)).unwrap();
+    let plan = plan::build_plan(
+        "test",
+        std::slice::from_ref(&file),
+        &BTreeMap::new(),
+        &graph,
+    );
     apply::execute_plan_with_config(&plan, &registry, &store, &project, &[file], None);
 
     // Remove subnet and instance, keep VPC
@@ -829,8 +938,13 @@ fn delete_preserves_dependency_order() {
     let current_state = load_state(&store, "test");
     assert_eq!(current_state.len(), 3);
 
-    let graph_v2 = DependencyGraph::build(&[file_v2.clone()]).unwrap();
-    let plan = plan::build_plan("test", &[file_v2.clone()], &current_state, &graph_v2);
+    let graph_v2 = DependencyGraph::build(std::slice::from_ref(&file_v2)).unwrap();
+    let plan = plan::build_plan(
+        "test",
+        std::slice::from_ref(&file_v2),
+        &current_state,
+        &graph_v2,
+    );
 
     assert_eq!(plan.summary.unchanged, 1); // VPC
     assert_eq!(plan.summary.delete, 2); // subnet + instance

@@ -686,6 +686,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn parse_number_field() {
         let result = field().parse("ratio = 3.14");
         assert!(result.is_ok());

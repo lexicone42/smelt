@@ -1,20 +1,34 @@
 #:schema: https://www.schemastore.org/prek.json
 
+# Hooks are ordered fast → slow. Builtins (trailing-whitespace, end-of-file-fixer)
+# auto-fix files — prek will fail the commit so you can re-stage and retry.
+# All cargo hooks are check-only (no file modifications).
+
 [[repos]]
 repo = "builtin"
 hooks = [
     { id = "trailing-whitespace" },
     { id = "end-of-file-fixer" },
     { id = "check-added-large-files", args = ["--maxkb=500"] },
+    { id = "check-merge-conflict" },
+    { id = "check-toml" },
 ]
 
 [[repos]]
 repo = "local"
 hooks = [
     {
-        id = "preflight",
-        name = "preflight (fmt + clippy)",
-        entry = "bash -c 'PATH=\"$HOME/.claude/bin:$PATH\" preflight'",
+        id = "cargo-fmt",
+        name = "cargo fmt --check",
+        entry = "cargo fmt --check",
+        language = "system",
+        pass_filenames = false,
+        always_run = true,
+    },
+    {
+        id = "cargo-clippy",
+        name = "cargo clippy",
+        entry = "cargo clippy --all-targets -- -D warnings",
         language = "system",
         pass_filenames = false,
         always_run = true,

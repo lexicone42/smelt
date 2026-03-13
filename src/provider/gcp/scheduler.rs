@@ -108,9 +108,8 @@ impl GcpProvider {
         // Build SDK model
         let mut model = google_cloud_scheduler_v1::model::Job::default();
         let full_name = format!(
-            "{}/jobs/{}",
-            format!("projects/{}/locations/{}", self.project_id, self.region),
-            name
+            "projects/{}/locations/{}/jobs/{}",
+            self.project_id, self.region, name
         );
         if let Some(v) = attempt_deadline {
             model = model.set_attempt_deadline(v);
