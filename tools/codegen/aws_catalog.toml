@@ -579,10 +579,257 @@ type = "String"
 description = "KMS key ID for encryption at rest"
 
 # ─── IAM: Role ──────────────────────────────────────────────────────────────
-# HAND-WRITTEN — cannot generate:
-#   - Post-create: attach_role_policy loop for managed_policy_arns
+# Uses escape hatches for all 4 CRUD operations:
+#   - Create: attach_role_policy loop for managed_policy_arns
+#   - Read: get_role, assume_role_policy_document accessor
 #   - Update: split across update_assume_role_policy + update_role (2 APIs)
 #   - Delete: list_attached_role_policies + detach each, list_role_policies + delete each
+
+[[resource]]
+struct_name = "Role"
+sdk_crate = "aws-sdk-iam"
+sdk_client = "iam"
+type_path = "iam.Role"
+
+crud_create = "create_role"
+crud_read = "get_role"
+crud_update = "update_role"
+crud_delete = "delete_role"
+
+aws_client_field = "iam_client"
+aws_id_param = "role_name"
+aws_id_source = "config_name"
+aws_tag_style = "none"
+
+aws_create_code = """
+let name = config.require_str("/identity/name")?.to_string();
+
+let assume_role_policy = config
+    .pointer("/security/assume_role_policy")
+    .ok_or_else(|| ProviderError::InvalidConfig("security.assume_role_policy is required".into()))?;
+
+let policy_doc = if assume_role_policy.is_string() {
+    assume_role_policy.as_str()
+        .ok_or_else(|| ProviderError::InvalidConfig("assume_role_policy is not a valid string".into()))?
+        .to_string()
+} else {
+    serde_json::to_string(assume_role_policy)
+        .map_err(|e| ProviderError::InvalidConfig(format!("invalid policy JSON: {e}")))?
+};
+
+let description = config.optional_str("/identity/description").unwrap_or("");
+
+let mut req = self.iam_client
+    .create_role()
+    .role_name(&name)
+    .assume_role_policy_document(&policy_doc);
+
+if !description.is_empty() {
+    req = req.description(description);
+}
+
+if let Some(path) = config.optional_str("/identity/path") {
+    req = req.path(path);
+}
+
+let tags = super::extract_tags(config);
+for (k, v) in &tags {
+    req = req.tags(
+        aws_sdk_iam::types::Tag::builder()
+            .key(k)
+            .value(v)
+            .build()
+            .map_err(|e| ProviderError::InvalidConfig(format!("failed to build IAM Tag: {e}")))?,
+    );
+}
+
+req.send().await
+    .map_err(|e| ProviderError::ApiError(format!("CreateRole: {e}")))?;
+
+// Attach managed policies if specified
+if let Some(policies) = config
+    .pointer("/security/managed_policy_arns")
+    .and_then(|v| v.as_array())
+{
+    for arn in policies {
+        if let Some(arn_str) = arn.as_str() {
+            self.iam_client
+                .attach_role_policy()
+                .role_name(&name)
+                .policy_arn(arn_str)
+                .send()
+                .await
+                .map_err(|e| ProviderError::ApiError(format!("AttachRolePolicy: {e}")))?;
+        }
+    }
+}
+
+let provider_id = &name;
+"""
+
+aws_read_code = """
+let result = self.iam_client
+    .get_role()
+    .role_name(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("GetRole: {e}")))?;
+
+let role = result
+    .role()
+    .ok_or_else(|| ProviderError::NotFound(format!("Role {provider_id}")))?;
+
+let state = serde_json::json!({
+    "identity": {
+        "name": role.role_name(),
+        "description": role.description().unwrap_or(""),
+        "path": role.path(),
+    },
+    "security": {
+        "assume_role_policy": role.assume_role_policy_document().unwrap_or(""),
+    }
+});
+
+let mut outputs = HashMap::new();
+outputs.insert("role_arn".into(), serde_json::json!(role.arn()));
+outputs.insert("role_name".into(), serde_json::json!(role.role_name()));
+outputs.insert("role_id".into(), serde_json::json!(role.role_id()));
+
+Ok(ResourceOutput {
+    provider_id: provider_id.to_string(),
+    state,
+    outputs,
+})
+"""
+
+aws_update_code = """
+if let Some(policy) = config.pointer("/security/assume_role_policy") {
+    let doc = if policy.is_string() {
+        policy.as_str()
+            .ok_or_else(|| ProviderError::InvalidConfig("assume_role_policy is not a valid string".into()))?
+            .to_string()
+    } else {
+        serde_json::to_string(policy).unwrap_or_default()
+    };
+    self.iam_client
+        .update_assume_role_policy()
+        .role_name(provider_id)
+        .policy_document(&doc)
+        .send()
+        .await
+        .map_err(|e| ProviderError::ApiError(format!("UpdateAssumeRolePolicy: {e}")))?;
+}
+if let Some(desc) = config.optional_str("/identity/description") {
+    self.iam_client
+        .update_role()
+        .role_name(provider_id)
+        .description(desc)
+        .send()
+        .await
+        .map_err(|e| ProviderError::ApiError(format!("UpdateRole: {e}")))?;
+}
+"""
+
+aws_delete_code = """
+// Detach all managed policies first
+let policies = self.iam_client
+    .list_attached_role_policies()
+    .role_name(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("ListAttachedRolePolicies: {e}")))?;
+
+for p in policies.attached_policies() {
+    if let Some(arn) = p.policy_arn() {
+        self.iam_client
+            .detach_role_policy()
+            .role_name(provider_id)
+            .policy_arn(arn)
+            .send()
+            .await
+            .map_err(|e| ProviderError::ApiError(format!("DetachRolePolicy: {e}")))?;
+    }
+}
+
+// Delete inline policies
+let inline = self.iam_client
+    .list_role_policies()
+    .role_name(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("ListRolePolicies: {e}")))?;
+
+for name in inline.policy_names() {
+    self.iam_client
+        .delete_role_policy()
+        .role_name(provider_id)
+        .policy_name(name)
+        .send()
+        .await
+        .map_err(|e| ProviderError::ApiError(format!("DeleteRolePolicy: {e}")))?;
+}
+
+self.iam_client
+    .delete_role()
+    .role_name(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("DeleteRole: {e}")))?;
+"""
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Role name"
+
+[[resource.fields]]
+name = "description"
+section = "identity"
+type = "String"
+description = "Role description"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "path"
+section = "identity"
+type = "String"
+description = "IAM path"
+default = "/"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "assume_role_policy"
+section = "security"
+type = "String"
+required = true
+description = "Trust policy document (JSON)"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "managed_policy_arns"
+section = "security"
+type = "StringArray"
+description = "Managed policy ARNs to attach"
+default = []
+skip_create = true
+skip_read = true
+
+[[resource.aws_outputs]]
+name = "role_arn"
+expression = "role.arn()"
+
+[[resource.aws_outputs]]
+name = "role_name"
+expression = "role.role_name()"
+
+[[resource.aws_outputs]]
+name = "role_id"
+expression = "role.role_id()"
 #   - path() returns &str (non-optional) — codegen emits unwrap_or("") which won't compile
 
 # ─── IAM: InstanceProfile ──────────────────────────────────────────────────
@@ -700,10 +947,180 @@ expression = "resource.instance_profile_name()"
 non_optional = true
 
 # ─── IAM: Policy ──────────────────────────────────────────────────────────
-# HAND-WRITTEN — cannot generate:
+# Uses escape hatches for all 4 CRUD operations:
 #   - policy_document can be string OR JSON (needs serialization)
+#   - provider_id is the policy ARN (returned from create response)
 #   - Update uses create_policy_version (not a standard update API)
 #   - Delete: list non-default policy versions + delete each before deleting policy
+
+[[resource]]
+struct_name = "Policy"
+sdk_crate = "aws-sdk-iam"
+sdk_client = "iam"
+type_path = "iam.Policy"
+
+crud_create = "create_policy"
+crud_read = "get_policy"
+crud_update = "create_policy_version"
+crud_delete = "delete_policy"
+
+aws_client_field = "iam_client"
+aws_id_param = "policy_arn"
+aws_id_source = "response_field"
+aws_response_id_field = "arn"
+aws_tag_style = "none"
+aws_updatable = true
+
+aws_create_code = """
+let name = config.require_str("/identity/name")?.to_string();
+
+let policy_doc = config.pointer("/security/policy_document")
+    .ok_or_else(|| ProviderError::InvalidConfig("security.policy_document is required".into()))?;
+
+let doc = if policy_doc.is_string() {
+    policy_doc.as_str()
+        .ok_or_else(|| ProviderError::InvalidConfig("policy_document is not a valid string".into()))?
+        .to_string()
+} else {
+    serde_json::to_string(policy_doc)
+        .map_err(|e| ProviderError::InvalidConfig(format!("invalid policy JSON: {e}")))?
+};
+
+let mut req = self.iam_client
+    .create_policy()
+    .policy_name(&name)
+    .policy_document(&doc);
+
+if let Some(desc) = config.optional_str("/identity/description") {
+    req = req.description(desc);
+}
+if let Some(path) = config.optional_str("/identity/path") {
+    req = req.path(path);
+}
+
+let result = req.send().await
+    .map_err(|e| ProviderError::ApiError(format!("CreatePolicy: {e}")))?;
+
+let policy = result.policy()
+    .ok_or_else(|| ProviderError::ApiError("CreatePolicy returned no policy".into()))?;
+let provider_id = policy.arn()
+    .ok_or_else(|| ProviderError::ApiError("Policy has no ARN".into()))?;
+"""
+
+aws_read_code = """
+let result = self.iam_client
+    .get_policy()
+    .policy_arn(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("GetPolicy: {e}")))?;
+
+let policy = result.policy()
+    .ok_or_else(|| ProviderError::NotFound(format!("Policy {provider_id}")))?;
+
+let state = serde_json::json!({
+    "identity": {
+        "name": policy.policy_name().unwrap_or(""),
+        "description": policy.description().unwrap_or(""),
+        "path": policy.path().unwrap_or("/"),
+    }
+});
+
+let mut outputs = HashMap::new();
+outputs.insert("policy_arn".into(), serde_json::json!(provider_id));
+outputs.insert("policy_id".into(), serde_json::json!(policy.policy_id().unwrap_or("")));
+
+Ok(ResourceOutput {
+    provider_id: provider_id.to_string(),
+    state,
+    outputs,
+})
+"""
+
+aws_update_code = """
+if let Some(doc) = config.pointer("/security/policy_document") {
+    let doc_str = if doc.is_string() {
+        doc.as_str()
+            .ok_or_else(|| ProviderError::InvalidConfig("policy_document is not a valid string".into()))?
+            .to_string()
+    } else {
+        serde_json::to_string(doc).unwrap_or_default()
+    };
+    self.iam_client
+        .create_policy_version()
+        .policy_arn(provider_id)
+        .policy_document(&doc_str)
+        .set_as_default(true)
+        .send()
+        .await
+        .map_err(|e| ProviderError::ApiError(format!("CreatePolicyVersion: {e}")))?;
+}
+"""
+
+aws_delete_code = """
+// Delete non-default policy versions first
+let versions = self.iam_client
+    .list_policy_versions()
+    .policy_arn(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("ListPolicyVersions: {e}")))?;
+
+for v in versions.versions() {
+    if !v.is_default_version()
+        && let Some(vid) = v.version_id()
+    {
+        self.iam_client
+            .delete_policy_version()
+            .policy_arn(provider_id)
+            .version_id(vid)
+            .send()
+            .await
+            .map_err(|e| ProviderError::ApiError(format!("DeletePolicyVersion: {e}")))?;
+    }
+}
+
+self.iam_client
+    .delete_policy()
+    .policy_arn(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("DeletePolicy: {e}")))?;
+"""
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Policy name"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "description"
+section = "identity"
+type = "String"
+description = "Policy description"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "policy_document"
+section = "security"
+type = "String"
+required = true
+description = "IAM policy document (JSON)"
+skip_create = true
+skip_read = true
+
+[[resource.aws_outputs]]
+name = "policy_arn"
+expression = "policy.arn().unwrap_or(\"\")"
+
+[[resource.aws_outputs]]
+name = "policy_id"
+expression = "policy.policy_id().unwrap_or(\"\")"
 
 # ─── ECR: Repository ───────────────────────────────────────────────────────
 # Pattern: describe_list, typed_tags, name as provider_id
@@ -2247,11 +2664,243 @@ description = "Protocol type (HTTP or WEBSOCKET)"
 aws_enum = true
 
 # ─── DynamoDB: Table ─────────────────────────────────────────────────────
-# HAND-WRITTEN — cannot generate:
+# Uses escape hatches for create/read/update (key schema builders, billing_mode_summary):
 #   - Key schema requires programmatic KeySchemaElement + AttributeDefinition builders
 #   - Conditional ProvisionedThroughput (only when billing_mode = PROVISIONED)
 #   - Read: billing_mode_summary().billing_mode() (nested accessor)
-#   - partition_key/sort_key have no SDK setters (they're builder patterns)
+
+[[resource]]
+struct_name = "Table"
+sdk_crate = "aws-sdk-dynamodb"
+sdk_client = "dynamodb"
+type_path = "dynamodb.Table"
+
+crud_create = "create_table"
+crud_read = "describe_table"
+crud_update = "update_table"
+crud_delete = "delete_table"
+
+aws_client_field = "dynamodb_client"
+aws_id_param = "table_name"
+aws_id_source = "config_name"
+aws_tag_style = "none"
+aws_updatable = true
+
+aws_create_code = """
+let name = config.require_str("/identity/name")?.to_string();
+
+let partition_key = config.require_str("/sizing/partition_key")?.to_string();
+let partition_key_type = config.str_or("/sizing/partition_key_type", "S");
+
+let mut key_schema = vec![
+    aws_sdk_dynamodb::types::KeySchemaElement::builder()
+        .attribute_name(&partition_key)
+        .key_type(aws_sdk_dynamodb::types::KeyType::Hash)
+        .build()
+        .map_err(|e| ProviderError::InvalidConfig(format!("failed to build KeySchemaElement: {e}")))?,
+];
+
+let mut attr_defs = vec![
+    aws_sdk_dynamodb::types::AttributeDefinition::builder()
+        .attribute_name(&partition_key)
+        .attribute_type(aws_sdk_dynamodb::types::ScalarAttributeType::from(partition_key_type))
+        .build()
+        .map_err(|e| ProviderError::InvalidConfig(format!("failed to build AttributeDefinition: {e}")))?,
+];
+
+if let Some(sort_key) = config.optional_str("/sizing/sort_key") {
+    let sort_key_type = config.str_or("/sizing/sort_key_type", "S");
+
+    key_schema.push(
+        aws_sdk_dynamodb::types::KeySchemaElement::builder()
+            .attribute_name(sort_key)
+            .key_type(aws_sdk_dynamodb::types::KeyType::Range)
+            .build()
+            .map_err(|e| ProviderError::InvalidConfig(format!("failed to build KeySchemaElement: {e}")))?,
+    );
+    attr_defs.push(
+        aws_sdk_dynamodb::types::AttributeDefinition::builder()
+            .attribute_name(sort_key)
+            .attribute_type(aws_sdk_dynamodb::types::ScalarAttributeType::from(sort_key_type))
+            .build()
+            .map_err(|e| ProviderError::InvalidConfig(format!("failed to build AttributeDefinition: {e}")))?,
+    );
+}
+
+let billing_mode = config.str_or("/sizing/billing_mode", "PAY_PER_REQUEST");
+
+let mut req = self.dynamodb_client
+    .create_table()
+    .table_name(&name)
+    .set_key_schema(Some(key_schema))
+    .set_attribute_definitions(Some(attr_defs))
+    .billing_mode(aws_sdk_dynamodb::types::BillingMode::from(billing_mode));
+
+if billing_mode == "PROVISIONED" {
+    let rcu = config.pointer("/sizing/read_capacity").and_then(|v| v.as_i64()).unwrap_or(5);
+    let wcu = config.pointer("/sizing/write_capacity").and_then(|v| v.as_i64()).unwrap_or(5);
+    req = req.provisioned_throughput(
+        aws_sdk_dynamodb::types::ProvisionedThroughput::builder()
+            .read_capacity_units(rcu)
+            .write_capacity_units(wcu)
+            .build()
+            .map_err(|e| ProviderError::InvalidConfig(format!("failed to build ProvisionedThroughput: {e}")))?,
+    );
+}
+
+let tags = super::extract_tags(config);
+for (k, v) in &tags {
+    req = req.tags(
+        aws_sdk_dynamodb::types::Tag::builder()
+            .key(k)
+            .value(v)
+            .build()
+            .map_err(|e| ProviderError::InvalidConfig(format!("failed to build DynamoDB Tag: {e}")))?,
+    );
+}
+
+let result = req.send().await
+    .map_err(|e| ProviderError::ApiError(format!("CreateTable: {e}")))?;
+
+let table_name = result.table_description()
+    .and_then(|t| t.table_name())
+    .unwrap_or(&name);
+
+let provider_id = table_name;
+"""
+
+aws_read_code = """
+let result = self.dynamodb_client
+    .describe_table()
+    .table_name(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("DescribeTable: {e}")))?;
+
+let table = result.table()
+    .ok_or_else(|| ProviderError::NotFound(format!("Table {provider_id}")))?;
+
+let billing = table.billing_mode_summary()
+    .map(|b| b.billing_mode().map(|m| m.as_str()).unwrap_or("PAY_PER_REQUEST"))
+    .unwrap_or("PAY_PER_REQUEST");
+
+let state = serde_json::json!({
+    "identity": {
+        "name": table.table_name().unwrap_or(""),
+    },
+    "sizing": {
+        "billing_mode": billing,
+        "item_count": table.item_count().unwrap_or(0),
+        "table_size_bytes": table.table_size_bytes().unwrap_or(0),
+    }
+});
+
+let mut outputs = HashMap::new();
+outputs.insert("table_arn".into(), serde_json::json!(table.table_arn().unwrap_or("")));
+outputs.insert("table_name".into(), serde_json::json!(table.table_name().unwrap_or("")));
+
+Ok(ResourceOutput {
+    provider_id: table.table_name().unwrap_or("").to_string(),
+    state,
+    outputs,
+})
+"""
+
+aws_update_code = """
+let billing_mode = config.str_or("/sizing/billing_mode", "PAY_PER_REQUEST");
+
+let mut req = self.dynamodb_client
+    .update_table()
+    .table_name(provider_id)
+    .billing_mode(aws_sdk_dynamodb::types::BillingMode::from(billing_mode));
+
+if billing_mode == "PROVISIONED" {
+    let rcu = config.pointer("/sizing/read_capacity").and_then(|v| v.as_i64()).unwrap_or(5);
+    let wcu = config.pointer("/sizing/write_capacity").and_then(|v| v.as_i64()).unwrap_or(5);
+    req = req.provisioned_throughput(
+        aws_sdk_dynamodb::types::ProvisionedThroughput::builder()
+            .read_capacity_units(rcu)
+            .write_capacity_units(wcu)
+            .build()
+            .map_err(|e| ProviderError::InvalidConfig(format!("failed to build ProvisionedThroughput: {e}")))?,
+    );
+}
+
+req.send().await
+    .map_err(|e| ProviderError::ApiError(format!("UpdateTable: {e}")))?;
+"""
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Table name"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "partition_key"
+section = "sizing"
+type = "String"
+required = true
+description = "Partition key attribute name"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "partition_key_type"
+section = "sizing"
+type = "Enum"
+variants = ["S", "N", "B"]
+description = "Partition key type (S, N, B)"
+default = "S"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "sort_key"
+section = "sizing"
+type = "String"
+description = "Sort key attribute name"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "billing_mode"
+section = "sizing"
+type = "Enum"
+variants = ["PAY_PER_REQUEST", "PROVISIONED"]
+description = "Billing mode"
+default = "PAY_PER_REQUEST"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "read_capacity"
+section = "sizing"
+type = "Integer"
+description = "Provisioned read capacity units"
+default = 5
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "write_capacity"
+section = "sizing"
+type = "Integer"
+description = "Provisioned write capacity units"
+default = 5
+skip_create = true
+skip_read = true
+
+[[resource.aws_outputs]]
+name = "table_arn"
+expression = "table.table_arn().unwrap_or(\"\")"
+
+[[resource.aws_outputs]]
+name = "table_name"
+expression = "table.table_name().unwrap_or(\"\")"
 
 # ─── Route53: HostedZone ────────────────────────────────────────────────
 # Pattern: get_single (get_hosted_zone), no tags, response_field (zone_id)
@@ -2524,31 +3173,946 @@ description = "Maximum number of nodes"
 aws_builder_group = "scaling_config"
 
 # ─── AutoScaling: Group ──────────────────────────────────────────────────────
-# HAND-WRITTEN — cannot generate:
-#   - subnet_ids joined with comma for vpc_zone_identifier setter (not array)
+# Uses escape hatches for all 4 CRUD operations:
+#   - subnet_ids joined with comma for vpc_zone_identifier
 #   - LaunchTemplateSpecification builder group
-#   - Custom tag builder (requires resource_id, resource_type, propagate_at_launch)
+#   - Custom tag builder (resource_id, resource_type, propagate_at_launch)
 #   - force_delete(true) on delete
 
+[[resource]]
+struct_name = "AutoScalingGroup"
+sdk_crate = "aws-sdk-autoscaling"
+sdk_client = "autoscaling"
+type_path = "autoscaling.Group"
+
+crud_create = "create_auto_scaling_group"
+crud_read = "describe_auto_scaling_groups"
+crud_update = "update_auto_scaling_group"
+crud_delete = "delete_auto_scaling_group"
+
+aws_client_field = "autoscaling_client"
+aws_id_param = "auto_scaling_group_name"
+aws_id_source = "config_name"
+aws_tag_style = "none"
+aws_updatable = true
+
+aws_create_code = """
+let name = config.require_str("/identity/name")?.to_string();
+
+let min_size = config
+    .pointer("/sizing/min_size")
+    .and_then(|v| v.as_i64())
+    .unwrap_or(1) as i32;
+
+let max_size = config
+    .pointer("/sizing/max_size")
+    .and_then(|v| v.as_i64())
+    .unwrap_or(1) as i32;
+
+let desired_capacity = config
+    .pointer("/sizing/desired_capacity")
+    .and_then(|v| v.as_i64())
+    .unwrap_or(1) as i32;
+
+let health_check_type = config.str_or("/reliability/health_check_type", "EC2");
+
+let health_check_grace_period = config
+    .pointer("/reliability/health_check_grace_period")
+    .and_then(|v| v.as_i64())
+    .unwrap_or(300) as i32;
+
+// Subnet IDs — join with comma for vpc_zone_identifier
+let subnet_ids_joined = config
+    .pointer("/network/subnet_ids")
+    .and_then(|v| v.as_array())
+    .map(|arr| arr.iter().filter_map(|s| s.as_str()).collect::<Vec<_>>().join(","))
+    .unwrap_or_default();
+
+let mut req = self.autoscaling_client
+    .create_auto_scaling_group()
+    .auto_scaling_group_name(&name)
+    .min_size(min_size)
+    .max_size(max_size)
+    .desired_capacity(desired_capacity)
+    .vpc_zone_identifier(&subnet_ids_joined)
+    .health_check_type(health_check_type)
+    .health_check_grace_period(health_check_grace_period);
+
+// Launch template
+if let Some(lt_id) = config.optional_str("/sizing/launch_template_id") {
+    let lt_version = config.str_or("/sizing/launch_template_version", "$Default");
+    req = req.launch_template(
+        aws_sdk_autoscaling::types::LaunchTemplateSpecification::builder()
+            .launch_template_id(lt_id)
+            .version(lt_version)
+            .build(),
+    );
+}
+
+// Tags
+let tags = super::extract_tags(config);
+for (k, v) in &tags {
+    req = req.tags(
+        aws_sdk_autoscaling::types::Tag::builder()
+            .key(k)
+            .value(v)
+            .resource_id(&name)
+            .resource_type("auto-scaling-group")
+            .propagate_at_launch(true)
+            .build(),
+    );
+}
+
+req.send().await
+    .map_err(|e| ProviderError::ApiError(format!("CreateAutoScalingGroup: {e}")))?;
+
+let provider_id = &name;
+"""
+
+aws_read_code = """
+let result = self.autoscaling_client
+    .describe_auto_scaling_groups()
+    .auto_scaling_group_names(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("DescribeAutoScalingGroups: {e}")))?;
+
+let asg = result.auto_scaling_groups()
+    .first()
+    .ok_or_else(|| ProviderError::NotFound(format!("AutoScalingGroup {provider_id}")))?;
+
+let availability_zones: Vec<&str> = asg.availability_zones()
+    .iter()
+    .map(|s| s.as_str())
+    .collect();
+
+let state = serde_json::json!({
+    "identity": {
+        "name": asg.auto_scaling_group_name(),
+    },
+    "sizing": {
+        "min_size": asg.min_size(),
+        "max_size": asg.max_size(),
+        "desired_capacity": asg.desired_capacity(),
+    },
+    "network": {
+        "vpc_zone_identifier": asg.vpc_zone_identifier().unwrap_or(""),
+        "availability_zones": availability_zones,
+    },
+    "reliability": {
+        "health_check_type": asg.health_check_type().unwrap_or(""),
+        "health_check_grace_period": asg.health_check_grace_period(),
+    }
+});
+
+let mut outputs = HashMap::new();
+outputs.insert("asg_arn".into(), serde_json::json!(asg.auto_scaling_group_arn().unwrap_or("")));
+outputs.insert("asg_name".into(), serde_json::json!(asg.auto_scaling_group_name()));
+
+Ok(ResourceOutput {
+    provider_id: provider_id.to_string(),
+    state,
+    outputs,
+})
+"""
+
+aws_update_code = """
+let min_size = config
+    .pointer("/sizing/min_size")
+    .and_then(|v| v.as_i64())
+    .unwrap_or(1) as i32;
+
+let max_size = config
+    .pointer("/sizing/max_size")
+    .and_then(|v| v.as_i64())
+    .unwrap_or(1) as i32;
+
+let desired_capacity = config
+    .pointer("/sizing/desired_capacity")
+    .and_then(|v| v.as_i64())
+    .unwrap_or(1) as i32;
+
+let health_check_type = config.optional_str("/reliability/health_check_type")
+    .map(|s| s.to_string());
+
+let health_check_grace_period = config
+    .pointer("/reliability/health_check_grace_period")
+    .and_then(|v| v.as_i64())
+    .map(|v| v as i32);
+
+self.autoscaling_client
+    .update_auto_scaling_group()
+    .auto_scaling_group_name(provider_id)
+    .min_size(min_size)
+    .max_size(max_size)
+    .desired_capacity(desired_capacity)
+    .set_health_check_type(health_check_type)
+    .set_health_check_grace_period(health_check_grace_period)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("UpdateAutoScalingGroup: {e}")))?;
+"""
+
+aws_delete_code = """
+self.autoscaling_client
+    .delete_auto_scaling_group()
+    .auto_scaling_group_name(provider_id)
+    .force_delete(true)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("DeleteAutoScalingGroup: {e}")))?;
+"""
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Auto Scaling group name"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "min_size"
+section = "sizing"
+type = "Integer"
+description = "Minimum number of instances"
+default = 1
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "max_size"
+section = "sizing"
+type = "Integer"
+description = "Maximum number of instances"
+default = 1
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "desired_capacity"
+section = "sizing"
+type = "Integer"
+description = "Desired number of instances"
+default = 1
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "launch_template_id"
+section = "sizing"
+type = "String"
+description = "Launch template ID"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "subnet_ids"
+section = "network"
+type = "StringArray"
+required = true
+description = "Subnet IDs for the Auto Scaling group"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "health_check_type"
+section = "reliability"
+type = "Enum"
+variants = ["EC2", "ELB"]
+description = "Health check type"
+default = "EC2"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "health_check_grace_period"
+section = "reliability"
+type = "Integer"
+description = "Health check grace period in seconds"
+default = 300
+skip_create = true
+skip_read = true
+
+[[resource.aws_outputs]]
+name = "asg_arn"
+expression = "asg.auto_scaling_group_arn().unwrap_or(\"\")"
+
+[[resource.aws_outputs]]
+name = "asg_name"
+expression = "asg.auto_scaling_group_name()"
+non_optional = true
+
 # ─── S3: Bucket ──────────────────────────────────────────────────────────────
-# HAND-WRITTEN — cannot generate:
+# Uses escape hatches for all 4 CRUD operations:
 #   - Multi-step post-create: put_bucket_versioning, put_bucket_encryption, put_bucket_tagging
 #   - Read: head_bucket + get_bucket_versioning (2 API calls)
 #   - Update: put_bucket_versioning (separate API, not standard update)
-#   - Tags: put_bucket_tagging with Tagging wrapper (separate API)
+
+[[resource]]
+struct_name = "Bucket"
+sdk_crate = "aws-sdk-s3"
+sdk_client = "s3"
+type_path = "s3.Bucket"
+
+crud_create = "create_bucket"
+crud_read = "head_bucket"
+crud_update = "put_bucket_versioning"
+crud_delete = "delete_bucket"
+
+aws_client_field = "s3_client"
+aws_id_param = "bucket"
+aws_id_source = "config_name"
+aws_tag_style = "none"
+aws_updatable = true
+
+aws_create_code = """
+let name = config.require_str("/identity/name")?.to_string();
+
+self.s3_client
+    .create_bucket()
+    .bucket(&name)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("CreateBucket: {e}")))?;
+
+// Enable versioning if requested
+if config
+    .pointer("/reliability/versioning")
+    .and_then(|v| v.as_bool())
+    .unwrap_or(false)
+{
+    self.s3_client
+        .put_bucket_versioning()
+        .bucket(&name)
+        .versioning_configuration(
+            aws_sdk_s3::types::VersioningConfiguration::builder()
+                .status(aws_sdk_s3::types::BucketVersioningStatus::Enabled)
+                .build(),
+        )
+        .send()
+        .await
+        .map_err(|e| ProviderError::ApiError(format!("PutBucketVersioning: {e}")))?;
+}
+
+// Set encryption
+if let Some(algo) = config.optional_str("/security/encryption") {
+    let sse = match algo {
+        "AES256" => aws_sdk_s3::types::ServerSideEncryption::Aes256,
+        _ => aws_sdk_s3::types::ServerSideEncryption::AwsKms,
+    };
+    self.s3_client
+        .put_bucket_encryption()
+        .bucket(&name)
+        .server_side_encryption_configuration(
+            aws_sdk_s3::types::ServerSideEncryptionConfiguration::builder()
+                .rules(
+                    aws_sdk_s3::types::ServerSideEncryptionRule::builder()
+                        .apply_server_side_encryption_by_default(
+                            aws_sdk_s3::types::ServerSideEncryptionByDefault::builder()
+                                .sse_algorithm(sse)
+                                .build()
+                                .map_err(|e| ProviderError::InvalidConfig(format!("failed to build ServerSideEncryptionByDefault: {e}")))?,
+                        )
+                        .build(),
+                )
+                .build()
+                .map_err(|e| ProviderError::InvalidConfig(format!("failed to build ServerSideEncryptionConfiguration: {e}")))?,
+        )
+        .send()
+        .await
+        .map_err(|e| ProviderError::ApiError(format!("PutBucketEncryption: {e}")))?;
+}
+
+// Tags
+let tags = super::extract_tags(config);
+if !tags.is_empty() {
+    let tag_set: Vec<aws_sdk_s3::types::Tag> = tags
+        .iter()
+        .map(|(k, v)| {
+            aws_sdk_s3::types::Tag::builder()
+                .key(k)
+                .value(v)
+                .build()
+                .map_err(|e| ProviderError::InvalidConfig(format!("failed to build S3 Tag: {e}")))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    self.s3_client
+        .put_bucket_tagging()
+        .bucket(&name)
+        .tagging(
+            aws_sdk_s3::types::Tagging::builder()
+                .set_tag_set(Some(tag_set))
+                .build()
+                .map_err(|e| ProviderError::InvalidConfig(format!("failed to build Tagging: {e}")))?,
+        )
+        .send()
+        .await
+        .map_err(|e| ProviderError::ApiError(format!("PutBucketTagging: {e}")))?;
+}
+
+let provider_id = &name;
+"""
+
+aws_read_code = """
+// Verify bucket exists
+self.s3_client
+    .head_bucket()
+    .bucket(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("HeadBucket: {e}")))?;
+
+let mut versioning = false;
+if let Ok(v) = self.s3_client
+    .get_bucket_versioning()
+    .bucket(provider_id)
+    .send()
+    .await
+{
+    versioning = v.status() == Some(&aws_sdk_s3::types::BucketVersioningStatus::Enabled);
+}
+
+let state = serde_json::json!({
+    "identity": { "name": provider_id },
+    "reliability": { "versioning": versioning },
+});
+
+let mut outputs = HashMap::new();
+outputs.insert("bucket_name".into(), serde_json::json!(provider_id));
+outputs.insert("bucket_arn".into(), serde_json::json!(format!("arn:aws:s3:::{provider_id}")));
+
+Ok(ResourceOutput {
+    provider_id: provider_id.to_string(),
+    state,
+    outputs,
+})
+"""
+
+aws_update_code = """
+if let Some(v) = config
+    .pointer("/reliability/versioning")
+    .and_then(|v| v.as_bool())
+{
+    let status = if v {
+        aws_sdk_s3::types::BucketVersioningStatus::Enabled
+    } else {
+        aws_sdk_s3::types::BucketVersioningStatus::Suspended
+    };
+    self.s3_client
+        .put_bucket_versioning()
+        .bucket(provider_id)
+        .versioning_configuration(
+            aws_sdk_s3::types::VersioningConfiguration::builder()
+                .status(status)
+                .build(),
+        )
+        .send()
+        .await
+        .map_err(|e| ProviderError::ApiError(format!("PutBucketVersioning: {e}")))?;
+}
+"""
+
+aws_delete_code = """
+self.s3_client
+    .delete_bucket()
+    .bucket(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("DeleteBucket: {e}")))?;
+"""
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Globally unique bucket name"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "tags"
+section = "identity"
+type = "Record"
+description = "Key-value tags"
+default = {}
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "versioning"
+section = "reliability"
+type = "Bool"
+description = "Enable object versioning"
+default = false
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "encryption"
+section = "security"
+type = "Enum"
+variants = ["AES256", "aws:kms"]
+description = "Server-side encryption (AES256 or aws:kms)"
+default = "AES256"
+skip_create = true
+skip_read = true
+
+[[resource.aws_outputs]]
+name = "bucket_name"
+expression = "provider_id"
+non_optional = true
+
+[[resource.aws_outputs]]
+name = "bucket_arn"
+expression = "format!(\"arn:aws:s3:::{provider_id}\")"
 
 # ─── CloudFront: Distribution ────────────────────────────────────────────────
-# HAND-WRITTEN — cannot generate:
+# Uses escape hatches for all 4 CRUD operations:
 #   - Entire create wraps in DistributionConfig builder (deeply nested)
 #   - caller_reference auto-generation
 #   - Delete requires ETag from get + if_match
-#   - Update requires full DistributionConfig + ETag
+
+[[resource]]
+struct_name = "Distribution"
+sdk_crate = "aws-sdk-cloudfront"
+sdk_client = "cloudfront"
+type_path = "cloudfront.Distribution"
+
+crud_create = "create_distribution"
+crud_read = "get_distribution"
+crud_update = "update_distribution"
+crud_delete = "delete_distribution"
+
+aws_client_field = "cloudfront_client"
+aws_id_param = "id"
+aws_id_source = "response_field"
+aws_response_id_field = "id"
+aws_tag_style = "none"
+aws_updatable = true
+
+aws_create_code = """
+let origin_domain = config.require_str("/network/origin_domain")?.to_string();
+let origin_id = config.str_or("/network/origin_id", "default-origin");
+let comment = config.optional_str("/identity/description").unwrap_or("");
+let enabled = config
+    .pointer("/network/enabled")
+    .and_then(|v| v.as_bool())
+    .unwrap_or(true);
+
+let origin = aws_sdk_cloudfront::types::Origin::builder()
+    .domain_name(&origin_domain)
+    .id(origin_id)
+    .s3_origin_config(
+        aws_sdk_cloudfront::types::S3OriginConfig::builder()
+            .origin_access_identity("")
+            .build(),
+    )
+    .build()
+    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build Origin: {e}")))?;
+
+let default_cache = aws_sdk_cloudfront::types::DefaultCacheBehavior::builder()
+    .target_origin_id(origin_id)
+    .viewer_protocol_policy(
+        aws_sdk_cloudfront::types::ViewerProtocolPolicy::RedirectToHttps,
+    )
+    .build()
+    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build DefaultCacheBehavior: {e}")))?;
+
+let caller_ref = format!("smelt-{}", chrono::Utc::now().timestamp());
+
+let dist_config = aws_sdk_cloudfront::types::DistributionConfig::builder()
+    .origins(
+        aws_sdk_cloudfront::types::Origins::builder()
+            .quantity(1)
+            .items(origin)
+            .build()
+            .map_err(|e| ProviderError::InvalidConfig(format!("failed to build Origins: {e}")))?,
+    )
+    .default_cache_behavior(default_cache)
+    .comment(comment)
+    .enabled(enabled)
+    .caller_reference(&caller_ref)
+    .build()
+    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build DistributionConfig: {e}")))?;
+
+let result = self.cloudfront_client
+    .create_distribution()
+    .distribution_config(dist_config)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("CreateDistribution: {e}")))?;
+
+let dist = result.distribution()
+    .ok_or_else(|| ProviderError::ApiError("CreateDistribution returned no distribution".into()))?;
+
+let provider_id = dist.id();
+"""
+
+aws_read_code = """
+let result = self.cloudfront_client
+    .get_distribution()
+    .id(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("GetDistribution: {e}")))?;
+
+let dist = result.distribution()
+    .ok_or_else(|| ProviderError::NotFound(format!("Distribution {provider_id}")))?;
+
+let dc = dist.distribution_config();
+
+let state = serde_json::json!({
+    "identity": {
+        "description": dc.map(|c| c.comment().to_string()).unwrap_or_default(),
+    },
+    "network": {
+        "enabled": dc.map(|c| c.enabled()).unwrap_or_default(),
+        "domain_name": dist.domain_name(),
+        "status": dist.status(),
+    }
+});
+
+let mut outputs = HashMap::new();
+outputs.insert("distribution_id".into(), serde_json::json!(dist.id()));
+outputs.insert("domain_name".into(), serde_json::json!(dist.domain_name()));
+
+Ok(ResourceOutput {
+    provider_id: provider_id.to_string(),
+    state,
+    outputs,
+})
+"""
+
+aws_update_code = """
+// CloudFront distributions require the full config + ETag for updates.
+// For now, read-back only.
+"""
+
+aws_delete_code = """
+// Must get ETag first
+let get = self.cloudfront_client
+    .get_distribution()
+    .id(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("GetDistribution: {e}")))?;
+
+let etag = get.e_tag().unwrap_or("").to_string();
+
+self.cloudfront_client
+    .delete_distribution()
+    .id(provider_id)
+    .if_match(&etag)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("DeleteDistribution: {e}")))?;
+"""
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Distribution name (for smelt tracking)"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "description"
+section = "identity"
+type = "String"
+description = "Distribution comment"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "origin_domain"
+section = "network"
+type = "String"
+required = true
+description = "Origin domain name"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "origin_id"
+section = "network"
+type = "String"
+description = "Origin identifier"
+default = "default-origin"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "enabled"
+section = "network"
+type = "Bool"
+description = "Whether distribution is enabled"
+default = true
+skip_create = true
+skip_read = true
+
+[[resource.aws_outputs]]
+name = "distribution_id"
+expression = "dist.id()"
+
+[[resource.aws_outputs]]
+name = "domain_name"
+expression = "dist.domain_name()"
 
 # ─── WAFv2: WebACL ──────────────────────────────────────────────────────────
-# HAND-WRITTEN — cannot generate:
+# Uses escape hatches for all 4 CRUD operations:
+#   - Composite provider_id: {acl_id}:{name}:{scope}
 #   - DefaultAction conditional builder (allow vs block)
 #   - VisibilityConfig mandatory nested builder
-#   - lock_token required for update and delete (get first, then use)
+#   - lock_token required for update and delete
+
+[[resource]]
+struct_name = "WebACL"
+sdk_crate = "aws-sdk-wafv2"
+sdk_client = "wafv2"
+type_path = "wafv2.WebACL"
+
+crud_create = "create_web_acl"
+crud_read = "get_web_acl"
+crud_update = "update_web_acl"
+crud_delete = "delete_web_acl"
+
+aws_client_field = "wafv2_client"
+aws_id_param = "id"
+aws_id_source = "response_field"
+aws_tag_style = "none"
+aws_updatable = true
+
+aws_create_code = """
+let name = config.require_str("/identity/name")?.to_string();
+let description = config.optional_str("/identity/description").unwrap_or("");
+let scope = config.str_or("/network/scope", "REGIONAL");
+
+let default_action_allow = config.str_or("/security/default_action", "allow") == "allow";
+
+let default_action = if default_action_allow {
+    aws_sdk_wafv2::types::DefaultAction::builder()
+        .allow(aws_sdk_wafv2::types::AllowAction::builder().build())
+        .build()
+} else {
+    aws_sdk_wafv2::types::DefaultAction::builder()
+        .block(aws_sdk_wafv2::types::BlockAction::builder().build())
+        .build()
+};
+
+let visibility_config = aws_sdk_wafv2::types::VisibilityConfig::builder()
+    .sampled_requests_enabled(true)
+    .cloud_watch_metrics_enabled(true)
+    .metric_name(&name)
+    .build()
+    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build VisibilityConfig: {e}")))?;
+
+let result = self.wafv2_client
+    .create_web_acl()
+    .name(&name)
+    .description(description)
+    .scope(aws_sdk_wafv2::types::Scope::from(scope))
+    .default_action(default_action)
+    .visibility_config(visibility_config)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("CreateWebACL: {e}")))?;
+
+let summary = result.summary()
+    .ok_or_else(|| ProviderError::ApiError("CreateWebACL returned no summary".into()))?;
+
+let acl_id = summary.id().unwrap_or("");
+let provider_id = &format!("{acl_id}:{name}:{scope}");
+"""
+
+aws_read_code = """
+let parts: Vec<&str> = provider_id.splitn(3, ':').collect();
+if parts.len() != 3 {
+    return Err(ProviderError::InvalidConfig(
+        "WebACL provider_id must be id:name:scope".into(),
+    ));
+}
+let (acl_id, name, scope) = (parts[0], parts[1], parts[2]);
+
+let result = self.wafv2_client
+    .get_web_acl()
+    .id(acl_id)
+    .name(name)
+    .scope(aws_sdk_wafv2::types::Scope::from(scope))
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("GetWebACL: {e}")))?;
+
+let acl = result.web_acl()
+    .ok_or_else(|| ProviderError::NotFound(format!("WebACL {provider_id}")))?;
+
+let state = serde_json::json!({
+    "identity": {
+        "name": acl.name(),
+        "description": acl.description().unwrap_or(""),
+    },
+    "network": {
+        "scope": scope,
+    },
+    "security": {
+        "capacity": acl.capacity(),
+        "rule_count": acl.rules().len(),
+    }
+});
+
+let mut outputs = HashMap::new();
+outputs.insert("web_acl_id".into(), serde_json::json!(acl.id()));
+outputs.insert("web_acl_arn".into(), serde_json::json!(acl.arn()));
+
+Ok(ResourceOutput {
+    provider_id: provider_id.to_string(),
+    state,
+    outputs,
+})
+"""
+
+aws_update_code = """
+let parts: Vec<&str> = provider_id.splitn(3, ':').collect();
+if parts.len() != 3 {
+    return Err(ProviderError::InvalidConfig(
+        "WebACL provider_id must be id:name:scope".into(),
+    ));
+}
+let (acl_id, name, scope) = (parts[0], parts[1], parts[2]);
+
+// Need lock_token for updates
+let get = self.wafv2_client
+    .get_web_acl()
+    .id(acl_id)
+    .name(name)
+    .scope(aws_sdk_wafv2::types::Scope::from(scope))
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("GetWebACL: {e}")))?;
+
+let lock_token = get.lock_token()
+    .ok_or_else(|| ProviderError::ApiError("GetWebACL returned no lock_token".into()))?
+    .to_string();
+let acl = get.web_acl()
+    .ok_or_else(|| ProviderError::NotFound(format!("WebACL {provider_id}")))?;
+
+let description = config.optional_str("/identity/description")
+    .unwrap_or(acl.description().unwrap_or(""));
+
+let default_action_allow = config.str_or("/security/default_action", "allow") == "allow";
+
+let default_action = if default_action_allow {
+    aws_sdk_wafv2::types::DefaultAction::builder()
+        .allow(aws_sdk_wafv2::types::AllowAction::builder().build())
+        .build()
+} else {
+    aws_sdk_wafv2::types::DefaultAction::builder()
+        .block(aws_sdk_wafv2::types::BlockAction::builder().build())
+        .build()
+};
+
+let visibility_config = aws_sdk_wafv2::types::VisibilityConfig::builder()
+    .sampled_requests_enabled(true)
+    .cloud_watch_metrics_enabled(true)
+    .metric_name(name)
+    .build()
+    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build VisibilityConfig: {e}")))?;
+
+self.wafv2_client
+    .update_web_acl()
+    .id(acl_id)
+    .name(name)
+    .scope(aws_sdk_wafv2::types::Scope::from(scope))
+    .lock_token(&lock_token)
+    .description(description)
+    .default_action(default_action)
+    .visibility_config(visibility_config)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("UpdateWebACL: {e}")))?;
+"""
+
+aws_delete_code = """
+let parts: Vec<&str> = provider_id.splitn(3, ':').collect();
+if parts.len() != 3 {
+    return Err(ProviderError::InvalidConfig(
+        "WebACL provider_id must be id:name:scope".into(),
+    ));
+}
+let (acl_id, name, scope) = (parts[0], parts[1], parts[2]);
+
+let get = self.wafv2_client
+    .get_web_acl()
+    .id(acl_id)
+    .name(name)
+    .scope(aws_sdk_wafv2::types::Scope::from(scope))
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("GetWebACL: {e}")))?;
+
+let lock_token = get.lock_token()
+    .ok_or_else(|| ProviderError::ApiError("GetWebACL returned no lock_token".into()))?
+    .to_string();
+
+self.wafv2_client
+    .delete_web_acl()
+    .id(acl_id)
+    .name(name)
+    .scope(aws_sdk_wafv2::types::Scope::from(scope))
+    .lock_token(&lock_token)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("DeleteWebACL: {e}")))?;
+"""
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Web ACL name"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "description"
+section = "identity"
+type = "String"
+description = "Web ACL description"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "scope"
+section = "network"
+type = "Enum"
+variants = ["REGIONAL", "CLOUDFRONT"]
+description = "ACL scope"
+default = "REGIONAL"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "default_action"
+section = "security"
+type = "Enum"
+variants = ["allow", "block"]
+description = "Default action for requests"
+default = "allow"
+skip_create = true
+skip_read = true
+
+[[resource.aws_outputs]]
+name = "web_acl_id"
+expression = "acl.id()"
+
+[[resource.aws_outputs]]
+name = "web_acl_arn"
+expression = "acl.arn()"
 #   - 3-part composite ID: id:name:scope
 
 # ═══════════════════════════════════════════════════════════════════════════

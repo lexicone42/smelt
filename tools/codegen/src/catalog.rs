@@ -199,6 +199,11 @@ pub struct CatalogEntry {
     /// Must end with Ok(()) or return an error.
     #[serde(default)]
     pub aws_delete_code: Option<String>,
+    /// AWS: raw Rust code to replace the standard read body.
+    /// Variables in scope: `self`, `provider_id`.
+    /// Must include the full body including Ok(ResourceOutput { ... }) return.
+    #[serde(default)]
+    pub aws_read_code: Option<String>,
     /// AWS: explicit field definitions (skips SDK introspection)
     #[serde(default)]
     pub fields: Vec<AwsCatalogField>,
@@ -831,6 +836,7 @@ pub fn batch_generate_aws(catalog_path: &str, output_dir: &str) {
                 aws_update_code: entry.aws_update_code.clone(),
                 aws_create_code: entry.aws_create_code.clone(),
                 aws_delete_code: entry.aws_delete_code.clone(),
+                aws_read_code: entry.aws_read_code.clone(),
             },
             crud: CrudMethods {
                 create: entry.crud_create.clone().unwrap_or_else(|| "create".into()),

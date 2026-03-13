@@ -1250,6 +1250,14 @@ fn write_gcp_read_body(out: &mut String, m: &ResourceManifest) {
 }
 
 fn write_aws_read_body(out: &mut String, m: &ResourceManifest) {
+    // Raw read code override — replaces all standard read logic
+    if let Some(ref code) = m.resource.aws_read_code {
+        for line in code.lines() {
+            let _ = writeln!(out, "    {line}");
+        }
+        return;
+    }
+
     let client_field = m.resource.aws_client_field.as_deref().unwrap_or("client");
     let read_method = snake_case(&m.crud.read);
     let read_style = m.resource.aws_read_style.clone().unwrap_or(AwsReadStyle::GetSingle);

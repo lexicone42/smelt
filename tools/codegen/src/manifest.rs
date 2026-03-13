@@ -236,6 +236,10 @@ pub struct ResourceMeta {
     /// AWS: raw Rust code to replace the standard delete body.
     #[serde(default)]
     pub aws_delete_code: Option<String>,
+    /// AWS: raw Rust code to replace the standard read body.
+    /// Must include the full function body including Ok(ResourceOutput { ... }) return.
+    #[serde(default)]
+    pub aws_read_code: Option<String>,
 }
 
 /// One part of a composite provider_id.
@@ -712,6 +716,7 @@ impl ResourceManifest {
                 aws_update_code: None,
                 aws_create_code: None,
                 aws_delete_code: None,
+                aws_read_code: None,
             },
             crud,
             fields: field_defs,
