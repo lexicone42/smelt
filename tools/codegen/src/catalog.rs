@@ -176,6 +176,19 @@ pub struct CatalogEntry {
     /// AWS: builder groups — collections of fields packed into nested builder types.
     #[serde(default)]
     pub aws_builder_groups: Vec<AwsBuilderGroupCatalog>,
+    /// AWS: raw Rust code emitted after create (between provider_id extraction and read-back).
+    /// Variables in scope: `self`, `config`, `provider_id`.
+    #[serde(default)]
+    pub aws_post_create_code: Option<String>,
+    /// AWS: raw Rust code emitted before the delete API call.
+    /// Variables in scope: `self`, `provider_id`.
+    #[serde(default)]
+    pub aws_pre_delete_code: Option<String>,
+    /// AWS: raw Rust code to replace the standard update body.
+    /// Variables in scope: `self`, `provider_id`, `config`.
+    /// When set, overrides all standard update logic (field extraction, builder, send).
+    #[serde(default)]
+    pub aws_update_code: Option<String>,
     /// AWS: explicit field definitions (skips SDK introspection)
     #[serde(default)]
     pub fields: Vec<AwsCatalogField>,
@@ -803,6 +816,9 @@ pub fn batch_generate_aws(catalog_path: &str, output_dir: &str) {
                 aws_id_trim_prefix: entry.aws_id_trim_prefix.clone(),
                 aws_composite_id: parse_composite_id(&entry.aws_composite_id),
                 aws_builder_groups: parse_builder_groups(&entry.aws_builder_groups),
+                aws_post_create_code: entry.aws_post_create_code.clone(),
+                aws_pre_delete_code: entry.aws_pre_delete_code.clone(),
+                aws_update_code: entry.aws_update_code.clone(),
             },
             crud: CrudMethods {
                 create: entry.crud_create.clone().unwrap_or_else(|| "create".into()),

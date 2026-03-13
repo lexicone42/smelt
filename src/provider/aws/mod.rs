@@ -301,11 +301,11 @@ impl Provider for AwsProvider {
         let provider_id = provider_id.to_string();
         Box::pin(async move {
             aws_dispatch_read!(self, resource_type.as_str(), provider_id, {
-                // Hand-written (complex resources)
-                "ec2.Vpc" => read_vpc,
-                "ec2.Subnet" => read_subnet,
+                // EC2 (hybrid: generated + hand-written)
+                "ec2.Vpc" => read_ec2_vpc,
+                "ec2.Subnet" => read_ec2_subnet,
                 "ec2.SecurityGroup" => read_security_group,
-                "ec2.InternetGateway" => read_internet_gateway,
+                "ec2.InternetGateway" => read_ec2_internet_gateway,
                 "ec2.RouteTable" => read_route_table,
                 "ec2.NatGateway" => read_ec2_nat_gateway,
                 "ec2.ElasticIp" => read_ec2_elastic_ip,
@@ -366,11 +366,11 @@ impl Provider for AwsProvider {
         let config = config.clone();
         Box::pin(async move {
             aws_dispatch_create!(self, resource_type.as_str(), config, {
-                // Hand-written
-                "ec2.Vpc" => create_vpc,
-                "ec2.Subnet" => create_subnet,
+                // EC2 (hybrid: generated + hand-written)
+                "ec2.Vpc" => create_ec2_vpc,
+                "ec2.Subnet" => create_ec2_subnet,
                 "ec2.SecurityGroup" => create_security_group,
-                "ec2.InternetGateway" => create_internet_gateway,
+                "ec2.InternetGateway" => create_ec2_internet_gateway,
                 "ec2.RouteTable" => create_route_table,
                 "ec2.NatGateway" => create_ec2_nat_gateway,
                 "ec2.ElasticIp" => create_ec2_elastic_ip,
@@ -435,8 +435,8 @@ impl Provider for AwsProvider {
         Box::pin(async move {
             aws_dispatch_update!(self, resource_type.as_str(), provider_id, new_config,
                 updatable: {
-                    // Hand-written
-                    "ec2.Vpc" => update_vpc,
+                    // EC2 (hybrid: generated + hand-written)
+                    "ec2.Vpc" => update_ec2_vpc,
                     "ec2.Instance" => update_instance,
                     "ec2.RouteTable" => update_route_table,
                     "iam.Role" => update_role,
@@ -503,11 +503,11 @@ impl Provider for AwsProvider {
         let provider_id = provider_id.to_string();
         Box::pin(async move {
             aws_dispatch_delete!(self, resource_type.as_str(), provider_id, {
-                // Hand-written
-                "ec2.Vpc" => delete_vpc,
-                "ec2.Subnet" => delete_subnet,
+                // EC2 (hybrid: generated + hand-written)
+                "ec2.Vpc" => delete_ec2_vpc,
+                "ec2.Subnet" => delete_ec2_subnet,
                 "ec2.SecurityGroup" => delete_security_group,
-                "ec2.InternetGateway" => delete_internet_gateway,
+                "ec2.InternetGateway" => delete_ec2_internet_gateway,
                 "ec2.RouteTable" => delete_route_table,
                 "ec2.NatGateway" => delete_ec2_nat_gateway,
                 "ec2.ElasticIp" => delete_ec2_elastic_ip,

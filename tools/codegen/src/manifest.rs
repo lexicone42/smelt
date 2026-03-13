@@ -221,6 +221,15 @@ pub struct ResourceMeta {
     /// E.g., VpcConfigRequest groups subnet_ids + security_group_ids + endpoint_public/private_access.
     #[serde(default)]
     pub aws_builder_groups: Vec<AwsBuilderGroup>,
+    /// AWS: raw Rust code emitted after create (between provider_id extraction and read-back).
+    #[serde(default)]
+    pub aws_post_create_code: Option<String>,
+    /// AWS: raw Rust code emitted before the delete API call.
+    #[serde(default)]
+    pub aws_pre_delete_code: Option<String>,
+    /// AWS: raw Rust code to replace the standard update body.
+    #[serde(default)]
+    pub aws_update_code: Option<String>,
 }
 
 /// One part of a composite provider_id.
@@ -690,6 +699,9 @@ impl ResourceManifest {
                 aws_id_trim_prefix: None,
                 aws_composite_id: vec![],
                 aws_builder_groups: vec![],
+                aws_post_create_code: None,
+                aws_pre_delete_code: None,
+                aws_update_code: None,
             },
             crud,
             fields: field_defs,

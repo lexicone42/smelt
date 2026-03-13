@@ -806,6 +806,15 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
             // Post-create actions (fields that need separate API calls)
             write_aws_post_create_actions(out, m, "provider_id");
 
+            // Raw post-create code block (escape hatch for complex patterns)
+            if let Some(ref code) = m.resource.aws_post_create_code {
+                let _ = writeln!(out);
+                for line in code.lines() {
+                    let _ = writeln!(out, "    {line}");
+                }
+                let _ = writeln!(out);
+            }
+
             let _ = writeln!(out, "    self.{read_fn}(provider_id).await");
         }
     }
@@ -1440,7 +1449,8 @@ fn write_update_fn(out: &mut String, m: &ResourceManifest) {
     let has_any_update_fields = m.fields.iter().any(|(_, f)| {
         !f.output_only && !f.skip && (!f.required || f.updatable)
     });
-    let cfg_prefix = if has_update && (m.resource.provider == "gcp" || has_any_update_fields) { "" } else { "_" };
+    let has_update_code = m.resource.aws_update_code.is_some();
+    let cfg_prefix = if has_update && (m.resource.provider == "gcp" || has_any_update_fields || has_update_code) { "" } else { "_" };
     let _ = writeln!(out, "pub(super) async fn {fn_name}(");
     let _ = writeln!(out, "    &self,");
     let _ = writeln!(out, "    {pid_prefix}provider_id: &str,");
@@ -1577,6 +1587,17 @@ fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
 }
 
 fn write_aws_update_body(out: &mut String, m: &ResourceManifest) {
+    // Raw update code override — replaces all standard update logic
+    if let Some(ref code) = m.resource.aws_update_code {
+        for line in code.lines() {
+            let _ = writeln!(out, "    {line}");
+        }
+        let read_fn = crud_fn_name("read", &m.resource.type_path);
+        let _ = writeln!(out);
+        let _ = writeln!(out, "    self.{read_fn}(provider_id).await");
+        return;
+    }
+
     let client_field = m.resource.aws_client_field.as_deref().unwrap_or("client");
     let update_method = snake_case(m.crud.update.as_deref().unwrap_or("update"));
     let id_param = m.resource.aws_id_param.as_deref().unwrap_or("name");
@@ -1817,6 +1838,14 @@ fn write_delete_fn(out: &mut String, m: &ResourceManifest) {
         // For composite IDs, parse provider_id into parts
         if has_composite {
             write_composite_id_parsing(out, &m.resource.aws_composite_id);
+        }
+
+        // Raw pre-delete code block (escape hatch for complex cleanup patterns)
+        if let Some(ref code) = m.resource.aws_pre_delete_code {
+            for line in code.lines() {
+                let _ = writeln!(out, "    {line}");
+            }
+            let _ = writeln!(out);
         }
 
         let _ = writeln!(out, "    self.{client_field}");

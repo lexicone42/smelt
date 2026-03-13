@@ -1,3 +1,6 @@
+// Hybrid file: generated resources (VPC, Subnet, InternetGateway, NatGateway, ElasticIp, KeyPair)
+// + hand-written resources (SecurityGroup, RouteTable, Instance)
+
 use std::collections::HashMap;
 
 use aws_sdk_ec2::types::{
@@ -18,35 +21,88 @@ impl AwsProvider {
         spec.build()
     }
 
-    // ─── VPC ───────────────────────────────────────────────────────────
+    pub(super) fn ec2_vpc_schema() -> crate::provider::ResourceTypeInfo {
+        crate::provider::ResourceTypeInfo {
+            type_path: "ec2.Vpc".into(),
+            description: "Vpc resource".into(),
+            schema: crate::provider::ResourceSchema {
+                sections: vec![
+                    crate::provider::SectionSchema {
+                        name: "identity".into(),
+                        description: "Identity configuration".into(),
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "name".into(),
+                            description: "Name tag for the VPC".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
+                    },
+                    crate::provider::SectionSchema {
+                        name: "network".into(),
+                        description: "Network configuration".into(),
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "cidr_block".into(),
+                                description: "CIDR block for the VPC".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                            crate::provider::FieldSchema {
+                                name: "dns_hostnames".into(),
+                                description: "Enable DNS hostnames in the VPC".into(),
+                                field_type: crate::provider::FieldType::Bool,
+                                required: false,
+                                default: Some(serde_json::json!(false)),
+                                sensitive: false,
+                            },
+                            crate::provider::FieldSchema {
+                                name: "dns_support".into(),
+                                description: "Enable DNS support in the VPC".into(),
+                                field_type: crate::provider::FieldType::Bool,
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
+                    },
+                ],
+            },
+        }
+    }
 
-    pub(super) async fn create_vpc(
+    pub(super) async fn create_ec2_vpc(
         &self,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let cidr = config.require_str("/network/cidr_block")?;
-        let tag_spec = Self::build_tags(config, AwsResourceType::Vpc);
+        // Extract fields from config
+        let cidr_block = config.require_str("/network/cidr_block")?.to_string();
 
-        let result = self
-            .ec2_client
-            .create_vpc()
-            .cidr_block(cidr)
-            .tag_specifications(tag_spec)
+        let tag_spec = Self::build_tags(config, aws_sdk_ec2::types::ResourceType::Vpc);
+
+        let mut req = self.ec2_client.create_vpc().cidr_block(&cidr_block);
+
+        req = req.tag_specifications(tag_spec);
+
+        let result = req
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("CreateVpc: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("create_vpc: {e}")))?;
 
-        let vpc = result
+        let container = result
             .vpc()
-            .ok_or_else(|| ProviderError::ApiError("CreateVpc returned no VPC".into()))?;
-        let vpc_id = vpc
+            .ok_or_else(|| ProviderError::ApiError("create_vpc returned no vpc".into()))?;
+        let provider_id = container
             .vpc_id()
-            .ok_or_else(|| ProviderError::ApiError("VPC has no ID".into()))?;
+            .ok_or_else(|| ProviderError::ApiError("create_vpc returned no vpc_id".into()))?;
 
         if config.bool_or("/network/dns_hostnames", false) {
             self.ec2_client
                 .modify_vpc_attribute()
-                .vpc_id(vpc_id)
+                .vpc_id(provider_id)
                 .enable_dns_hostnames(
                     aws_sdk_ec2::types::AttributeBooleanValue::builder()
                         .value(true)
@@ -58,11 +114,10 @@ impl AwsProvider {
                     ProviderError::ApiError(format!("ModifyVpcAttribute (DNS hostnames): {e}"))
                 })?;
         }
-
         if let Some(dns_support) = config.optional_bool("/network/dns_support") {
             self.ec2_client
                 .modify_vpc_attribute()
-                .vpc_id(vpc_id)
+                .vpc_id(provider_id)
                 .enable_dns_support(
                     aws_sdk_ec2::types::AttributeBooleanValue::builder()
                         .value(dns_support)
@@ -75,65 +130,58 @@ impl AwsProvider {
                 })?;
         }
 
-        self.read_vpc(vpc_id).await
+        self.read_ec2_vpc(provider_id).await
     }
 
-    pub(super) async fn read_vpc(&self, vpc_id: &str) -> Result<ResourceOutput, ProviderError> {
+    pub(super) async fn read_ec2_vpc(
+        &self,
+        provider_id: &str,
+    ) -> Result<ResourceOutput, ProviderError> {
         let result = self
             .ec2_client
             .describe_vpcs()
-            .vpc_ids(vpc_id)
+            .vpc_ids(provider_id)
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("DescribeVpcs: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("describe_vpcs: {e}")))?;
 
-        let vpc = result
+        let resource = result
             .vpcs()
             .first()
-            .ok_or_else(|| ProviderError::NotFound(format!("VPC {vpc_id}")))?;
+            .ok_or_else(|| ProviderError::NotFound(format!("Vpc {provider_id}")))?;
 
-        let mut state = serde_json::json!({
-            "identity": { "name": extract_name_tag(vpc.tags()) },
-            "network": { "cidr_block": vpc.cidr_block().unwrap_or("") }
+        let state = serde_json::json!({
+            "identity": {
+                "name": super::extract_name_tag(resource.tags()),
+            },
+            "network": {
+                "cidr_block": resource.cidr_block().unwrap_or(""),
+            },
         });
 
-        let tags: HashMap<String, String> = vpc
-            .tags()
-            .iter()
-            .filter(|t| !matches!(t.key().unwrap_or(""), "Name" | "managed_by"))
-            .map(|t| {
-                (
-                    t.key().unwrap_or("").to_string(),
-                    t.value().unwrap_or("").to_string(),
-                )
-            })
-            .collect();
-        if !tags.is_empty() {
-            state["identity"]["tags"] = serde_json::to_value(&tags).unwrap_or_default();
-        }
-
         let mut outputs = HashMap::new();
-        outputs.insert("vpc_id".into(), serde_json::json!(vpc_id));
-        if let Some(s) = vpc.state() {
-            outputs.insert("state".into(), serde_json::json!(s.as_str()));
-        }
+        outputs.insert("vpc_id".into(), serde_json::json!(provider_id));
+        outputs.insert(
+            "state".into(),
+            serde_json::json!(resource.state().map(|s| s.as_str()).unwrap_or("")),
+        );
 
         Ok(ResourceOutput {
-            provider_id: vpc_id.to_string(),
+            provider_id: provider_id.to_string(),
             state,
             outputs,
         })
     }
 
-    pub(super) async fn update_vpc(
+    pub(super) async fn update_ec2_vpc(
         &self,
-        vpc_id: &str,
+        provider_id: &str,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         if let Some(dns) = config.optional_bool("/network/dns_hostnames") {
             self.ec2_client
                 .modify_vpc_attribute()
-                .vpc_id(vpc_id)
+                .vpc_id(provider_id)
                 .enable_dns_hostnames(
                     aws_sdk_ec2::types::AttributeBooleanValue::builder()
                         .value(dns)
@@ -143,53 +191,119 @@ impl AwsProvider {
                 .await
                 .map_err(|e| ProviderError::ApiError(format!("ModifyVpcAttribute: {e}")))?;
         }
-        self.read_vpc(vpc_id).await
+
+        self.read_ec2_vpc(provider_id).await
     }
 
-    pub(super) async fn delete_vpc(&self, vpc_id: &str) -> Result<(), ProviderError> {
+    pub(super) async fn delete_ec2_vpc(&self, provider_id: &str) -> Result<(), ProviderError> {
         self.ec2_client
             .delete_vpc()
-            .vpc_id(vpc_id)
+            .vpc_id(provider_id)
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("DeleteVpc: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("delete_vpc: {e}")))?;
         Ok(())
     }
 
-    // ─── Subnet ────────────────────────────────────────────────────────
+    pub(super) fn ec2_subnet_schema() -> crate::provider::ResourceTypeInfo {
+        crate::provider::ResourceTypeInfo {
+            type_path: "ec2.Subnet".into(),
+            description: "Subnet resource".into(),
+            schema: crate::provider::ResourceSchema {
+                sections: vec![
+                    crate::provider::SectionSchema {
+                        name: "identity".into(),
+                        description: "Identity configuration".into(),
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "name".into(),
+                            description: "Name tag for the subnet".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
+                    },
+                    crate::provider::SectionSchema {
+                        name: "network".into(),
+                        description: "Network configuration".into(),
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "availability_zone".into(),
+                                description: "Availability zone for the subnet".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                            crate::provider::FieldSchema {
+                                name: "cidr_block".into(),
+                                description: "CIDR block for the subnet".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                            crate::provider::FieldSchema {
+                                name: "public_ip_on_launch".into(),
+                                description: "Auto-assign public IP on launch".into(),
+                                field_type: crate::provider::FieldType::Bool,
+                                required: false,
+                                default: Some(serde_json::json!(false)),
+                                sensitive: false,
+                            },
+                            crate::provider::FieldSchema {
+                                name: "vpc_id".into(),
+                                description: "VPC ID containing the subnet".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
+                    },
+                ],
+            },
+        }
+    }
 
-    pub(super) async fn create_subnet(
+    pub(super) async fn create_ec2_subnet(
         &self,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let cidr = config.require_str("/network/cidr_block")?;
-        let az = config.require_str("/network/availability_zone")?;
-        let vpc_id = config.require_str("/network/vpc_id")?;
+        // Extract fields from config
+        let availability_zone = config
+            .require_str("/network/availability_zone")?
+            .to_string();
+        let cidr_block = config.require_str("/network/cidr_block")?.to_string();
+        let vpc_id = config.require_str("/network/vpc_id")?.to_string();
 
-        let tag_spec = Self::build_tags(config, AwsResourceType::Subnet);
+        let tag_spec = Self::build_tags(config, aws_sdk_ec2::types::ResourceType::Subnet);
 
-        let result = self
+        let mut req = self
             .ec2_client
             .create_subnet()
-            .vpc_id(vpc_id)
-            .cidr_block(cidr)
-            .availability_zone(az)
-            .tag_specifications(tag_spec)
+            .availability_zone(&availability_zone)
+            .cidr_block(&cidr_block)
+            .vpc_id(&vpc_id);
+
+        req = req.tag_specifications(tag_spec);
+
+        let result = req
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("CreateSubnet: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("create_subnet: {e}")))?;
 
-        let subnet = result
+        let container = result
             .subnet()
-            .ok_or_else(|| ProviderError::ApiError("CreateSubnet returned no subnet".into()))?;
-        let subnet_id = subnet
+            .ok_or_else(|| ProviderError::ApiError("create_subnet returned no subnet".into()))?;
+        let provider_id = container
             .subnet_id()
-            .ok_or_else(|| ProviderError::ApiError("Subnet has no ID".into()))?;
+            .ok_or_else(|| ProviderError::ApiError("create_subnet returned no subnet_id".into()))?;
 
         if config.bool_or("/network/public_ip_on_launch", false) {
             self.ec2_client
                 .modify_subnet_attribute()
-                .subnet_id(subnet_id)
+                .subnet_id(provider_id)
                 .map_public_ip_on_launch(
                     aws_sdk_ec2::types::AttributeBooleanValue::builder()
                         .value(true)
@@ -200,61 +314,74 @@ impl AwsProvider {
                 .map_err(|e| ProviderError::ApiError(format!("ModifySubnetAttribute: {e}")))?;
         }
 
-        self.read_subnet(subnet_id).await
+        self.read_ec2_subnet(provider_id).await
     }
 
-    pub(super) async fn read_subnet(
+    pub(super) async fn read_ec2_subnet(
         &self,
-        subnet_id: &str,
+        provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
         let result = self
             .ec2_client
             .describe_subnets()
-            .subnet_ids(subnet_id)
+            .subnet_ids(provider_id)
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("DescribeSubnets: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("describe_subnets: {e}")))?;
 
-        let subnet = result
+        let resource = result
             .subnets()
             .first()
-            .ok_or_else(|| ProviderError::NotFound(format!("Subnet {subnet_id}")))?;
+            .ok_or_else(|| ProviderError::NotFound(format!("Subnet {provider_id}")))?;
 
         let state = serde_json::json!({
-            "identity": { "name": extract_name_tag(subnet.tags()) },
+            "identity": {
+                "name": super::extract_name_tag(resource.tags()),
+            },
             "network": {
-                "cidr_block": subnet.cidr_block().unwrap_or(""),
-                "availability_zone": subnet.availability_zone().unwrap_or(""),
-                "public_ip_on_launch": subnet.map_public_ip_on_launch(),
-                "vpc_id": subnet.vpc_id().unwrap_or(""),
-            }
+                "availability_zone": resource.availability_zone().unwrap_or(""),
+                "cidr_block": resource.cidr_block().unwrap_or(""),
+                "public_ip_on_launch": resource.map_public_ip_on_launch(),
+                "vpc_id": resource.vpc_id().unwrap_or(""),
+            },
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert("subnet_id".into(), serde_json::json!(subnet_id));
+        outputs.insert("subnet_id".into(), serde_json::json!(provider_id));
         outputs.insert(
             "available_ips".into(),
-            serde_json::json!(subnet.available_ip_address_count()),
+            serde_json::json!(resource.available_ip_address_count()),
         );
 
         Ok(ResourceOutput {
-            provider_id: subnet_id.to_string(),
+            provider_id: provider_id.to_string(),
             state,
             outputs,
         })
     }
 
-    pub(super) async fn delete_subnet(&self, subnet_id: &str) -> Result<(), ProviderError> {
+    #[allow(dead_code)]
+    pub(super) async fn update_ec2_subnet(
+        &self,
+        _provider_id: &str,
+        _config: &serde_json::Value,
+    ) -> Result<ResourceOutput, ProviderError> {
+        Err(ProviderError::RequiresReplacement(
+            "resource does not support in-place update".into(),
+        ))
+    }
+
+    pub(super) async fn delete_ec2_subnet(&self, provider_id: &str) -> Result<(), ProviderError> {
         self.ec2_client
             .delete_subnet()
-            .subnet_id(subnet_id)
+            .subnet_id(provider_id)
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("DeleteSubnet: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("delete_subnet: {e}")))?;
         Ok(())
     }
 
-    // ─── SecurityGroup ─────────────────────────────────────────────────
+    // ─── SecurityGroup (hand-written) ───────────────────────────────
 
     pub(super) async fn create_security_group(
         &self,
@@ -393,98 +520,145 @@ impl AwsProvider {
         Ok(())
     }
 
-    // ─── InternetGateway ───────────────────────────────────────────────
+    pub(super) fn ec2_internet_gateway_schema() -> crate::provider::ResourceTypeInfo {
+        crate::provider::ResourceTypeInfo {
+            type_path: "ec2.InternetGateway".into(),
+            description: "InternetGateway resource".into(),
+            schema: crate::provider::ResourceSchema {
+                sections: vec![
+                    crate::provider::SectionSchema {
+                        name: "identity".into(),
+                        description: "Identity configuration".into(),
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "name".into(),
+                            description: "Name tag for the internet gateway".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
+                    },
+                    crate::provider::SectionSchema {
+                        name: "network".into(),
+                        description: "Network configuration".into(),
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "vpc_id".into(),
+                            description: "VPC ID to attach the gateway to".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: false,
+                            default: None,
+                            sensitive: false,
+                        }],
+                    },
+                ],
+            },
+        }
+    }
 
-    pub(super) async fn create_internet_gateway(
+    pub(super) async fn create_ec2_internet_gateway(
         &self,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let tag_spec = Self::build_tags(config, AwsResourceType::InternetGateway);
+        // Extract fields from config
 
-        let result = self
-            .ec2_client
-            .create_internet_gateway()
-            .tag_specifications(tag_spec)
+        let tag_spec = Self::build_tags(config, aws_sdk_ec2::types::ResourceType::InternetGateway);
+
+        let mut req = self.ec2_client.create_internet_gateway();
+
+        req = req.tag_specifications(tag_spec);
+
+        let result = req
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("CreateInternetGateway: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("create_internet_gateway: {e}")))?;
 
-        let igw = result.internet_gateway().ok_or_else(|| {
-            ProviderError::ApiError("CreateInternetGateway returned no gateway".into())
+        let container = result.internet_gateway().ok_or_else(|| {
+            ProviderError::ApiError("create_internet_gateway returned no internet_gateway".into())
         })?;
-        let igw_id = igw
-            .internet_gateway_id()
-            .ok_or_else(|| ProviderError::ApiError("IGW has no ID".into()))?;
+        let provider_id = container.internet_gateway_id().ok_or_else(|| {
+            ProviderError::ApiError(
+                "create_internet_gateway returned no internet_gateway_id".into(),
+            )
+        })?;
 
-        // Attach to VPC if vpc_id is provided
         if let Ok(vpc_id) = config.require_str("/network/vpc_id") {
             self.ec2_client
                 .attach_internet_gateway()
-                .internet_gateway_id(igw_id)
+                .internet_gateway_id(provider_id)
                 .vpc_id(vpc_id)
                 .send()
                 .await
                 .map_err(|e| ProviderError::ApiError(format!("AttachInternetGateway: {e}")))?;
         }
 
-        self.read_internet_gateway(igw_id).await
+        self.read_ec2_internet_gateway(provider_id).await
     }
 
-    pub(super) async fn read_internet_gateway(
+    pub(super) async fn read_ec2_internet_gateway(
         &self,
-        igw_id: &str,
+        provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
         let result = self
             .ec2_client
             .describe_internet_gateways()
-            .internet_gateway_ids(igw_id)
+            .internet_gateway_ids(provider_id)
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("DescribeInternetGateways: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("describe_internet_gateways: {e}")))?;
 
-        let igw = result
+        let resource = result
             .internet_gateways()
             .first()
-            .ok_or_else(|| ProviderError::NotFound(format!("InternetGateway {igw_id}")))?;
-
-        let vpc_id = igw
-            .attachments()
-            .first()
-            .and_then(|a| a.vpc_id())
-            .unwrap_or("");
+            .ok_or_else(|| ProviderError::NotFound(format!("InternetGateway {provider_id}")))?;
 
         let state = serde_json::json!({
-            "identity": { "name": extract_name_tag(igw.tags()) },
-            "network": { "vpc_id": vpc_id }
+            "identity": {
+                "name": super::extract_name_tag(resource.tags()),
+            },
+            "network": {
+                "vpc_id": resource.attachments().first().and_then(|a| a.vpc_id()).unwrap_or(""),
+            },
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert("igw_id".into(), serde_json::json!(igw_id));
-        outputs.insert("gateway_id".into(), serde_json::json!(igw_id));
+        outputs.insert("igw_id".into(), serde_json::json!(provider_id));
+        outputs.insert("gateway_id".into(), serde_json::json!(provider_id));
 
         Ok(ResourceOutput {
-            provider_id: igw_id.to_string(),
+            provider_id: provider_id.to_string(),
             state,
             outputs,
         })
     }
 
-    pub(super) async fn delete_internet_gateway(&self, igw_id: &str) -> Result<(), ProviderError> {
-        // First detach from any VPCs
-        let result = self
+    #[allow(dead_code)]
+    pub(super) async fn update_ec2_internet_gateway(
+        &self,
+        _provider_id: &str,
+        _config: &serde_json::Value,
+    ) -> Result<ResourceOutput, ProviderError> {
+        Err(ProviderError::RequiresReplacement(
+            "resource does not support in-place update".into(),
+        ))
+    }
+
+    pub(super) async fn delete_ec2_internet_gateway(
+        &self,
+        provider_id: &str,
+    ) -> Result<(), ProviderError> {
+        let igw_result = self
             .ec2_client
             .describe_internet_gateways()
-            .internet_gateway_ids(igw_id)
+            .internet_gateway_ids(provider_id)
             .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("DescribeInternetGateways: {e}")))?;
-
-        if let Some(igw) = result.internet_gateways().first() {
+        if let Some(igw) = igw_result.internet_gateways().first() {
             for attachment in igw.attachments() {
                 if let Some(vpc_id) = attachment.vpc_id() {
                     self.ec2_client
                         .detach_internet_gateway()
-                        .internet_gateway_id(igw_id)
+                        .internet_gateway_id(provider_id)
                         .vpc_id(vpc_id)
                         .send()
                         .await
@@ -497,14 +671,14 @@ impl AwsProvider {
 
         self.ec2_client
             .delete_internet_gateway()
-            .internet_gateway_id(igw_id)
+            .internet_gateway_id(provider_id)
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("DeleteInternetGateway: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("delete_internet_gateway: {e}")))?;
         Ok(())
     }
 
-    // ─── RouteTable ────────────────────────────────────────────────────
+    // ─── RouteTable (hand-written) ──────────────────────────────────
 
     pub(super) async fn create_route_table(
         &self,
@@ -690,7 +864,58 @@ impl AwsProvider {
         Ok(())
     }
 
-    // ─── NatGateway (generated) ──────────────────────────────────────
+    pub(super) fn ec2_nat_gateway_schema() -> crate::provider::ResourceTypeInfo {
+        crate::provider::ResourceTypeInfo {
+            type_path: "ec2.NatGateway".into(),
+            description: "NatGateway resource".into(),
+            schema: crate::provider::ResourceSchema {
+                sections: vec![
+                    crate::provider::SectionSchema {
+                        name: "identity".into(),
+                        description: "Identity configuration".into(),
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "name".into(),
+                            description: "Name tag for the NAT gateway".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
+                    },
+                    crate::provider::SectionSchema {
+                        name: "network".into(),
+                        description: "Network configuration".into(),
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "allocation_id".into(),
+                                description: "Elastic IP allocation ID".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                            crate::provider::FieldSchema {
+                                name: "subnet_id".into(),
+                                description: "Subnet to place the NAT gateway in".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                            crate::provider::FieldSchema {
+                                name: "vpc_id".into(),
+                                description: "VPC containing the NAT gateway".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
+                    },
+                ],
+            },
+        }
+    }
 
     pub(super) async fn create_ec2_nat_gateway(
         &self,
@@ -796,7 +1021,26 @@ impl AwsProvider {
         Ok(())
     }
 
-    // ─── ElasticIp (generated) ────────────────────────────────────────
+    pub(super) fn ec2_elastic_ip_schema() -> crate::provider::ResourceTypeInfo {
+        crate::provider::ResourceTypeInfo {
+            type_path: "ec2.ElasticIp".into(),
+            description: "ElasticIp resource".into(),
+            schema: crate::provider::ResourceSchema {
+                sections: vec![crate::provider::SectionSchema {
+                    name: "identity".into(),
+                    description: "Identity configuration".into(),
+                    fields: vec![crate::provider::FieldSchema {
+                        name: "name".into(),
+                        description: "Name tag for the Elastic IP".into(),
+                        field_type: crate::provider::FieldType::String,
+                        required: true,
+                        default: None,
+                        sensitive: false,
+                    }],
+                }],
+            },
+        }
+    }
 
     pub(super) async fn create_ec2_elastic_ip(
         &self,
@@ -884,7 +1128,40 @@ impl AwsProvider {
         Ok(())
     }
 
-    // ─── KeyPair (generated) ──────────────────────────────────────────
+    pub(super) fn ec2_key_pair_schema() -> crate::provider::ResourceTypeInfo {
+        crate::provider::ResourceTypeInfo {
+            type_path: "ec2.KeyPair".into(),
+            description: "KeyPair resource".into(),
+            schema: crate::provider::ResourceSchema {
+                sections: vec![
+                    crate::provider::SectionSchema {
+                        name: "identity".into(),
+                        description: "Identity configuration".into(),
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "name".into(),
+                            description: "Key pair name".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
+                    },
+                    crate::provider::SectionSchema {
+                        name: "security".into(),
+                        description: "Security configuration".into(),
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "fingerprint".into(),
+                            description: "Key fingerprint".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: false,
+                            default: None,
+                            sensitive: false,
+                        }],
+                    },
+                ],
+            },
+        }
+    }
 
     pub(super) async fn create_ec2_key_pair(
         &self,
@@ -933,7 +1210,6 @@ impl AwsProvider {
                 "name": resource.key_name().unwrap_or(""),
             },
             "security": {
-                "fingerprint": resource.key_fingerprint().unwrap_or(""),
             },
         });
 
@@ -972,7 +1248,7 @@ impl AwsProvider {
         Ok(())
     }
 
-    // ─── Instance ──────────────────────────────────────────────────────
+    // ─── Instance (hand-written) ────────────────────────────────────
 
     pub(super) async fn create_instance(
         &self,
@@ -1136,112 +1412,7 @@ impl AwsProvider {
         Ok(())
     }
 
-    // ─── Schema definitions ────────────────────────────────────────────
-
-    pub(super) fn ec2_vpc_schema() -> ResourceTypeInfo {
-        ResourceTypeInfo {
-            type_path: "ec2.Vpc".into(),
-            description: "Amazon VPC (Virtual Private Cloud)".into(),
-            schema: ResourceSchema {
-                sections: vec![
-                    SectionSchema {
-                        name: "identity".into(),
-                        description: "Resource identification and tagging".into(),
-                        fields: vec![
-                            FieldSchema {
-                                name: "name".into(),
-                                description: "Name tag for the VPC".into(),
-                                field_type: FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                            FieldSchema {
-                                name: "tags".into(),
-                                description: "Key-value tags".into(),
-                                field_type: FieldType::Record(vec![]),
-                                required: false,
-                                default: Some(serde_json::json!({})),
-                                sensitive: false,
-                            },
-                        ],
-                    },
-                    SectionSchema {
-                        name: "network".into(),
-                        description: "Network configuration".into(),
-                        fields: vec![
-                            FieldSchema {
-                                name: "cidr_block".into(),
-                                description: "The IPv4 CIDR block".into(),
-                                field_type: FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                            FieldSchema {
-                                name: "dns_hostnames".into(),
-                                description: "Enable DNS hostnames".into(),
-                                field_type: FieldType::Bool,
-                                required: false,
-                                default: Some(serde_json::json!(false)),
-                                sensitive: false,
-                            },
-                            FieldSchema {
-                                name: "dns_support".into(),
-                                description: "Enable DNS support".into(),
-                                field_type: FieldType::Bool,
-                                required: false,
-                                default: Some(serde_json::json!(true)),
-                                sensitive: false,
-                            },
-                        ],
-                    },
-                ],
-            },
-        }
-    }
-
-    pub(super) fn ec2_subnet_schema() -> ResourceTypeInfo {
-        ResourceTypeInfo {
-            type_path: "ec2.Subnet".into(),
-            description: "Amazon VPC Subnet".into(),
-            schema: ResourceSchema {
-                sections: vec![
-                    identity_section(),
-                    SectionSchema {
-                        name: "network".into(),
-                        description: "Network configuration".into(),
-                        fields: vec![
-                            FieldSchema {
-                                name: "cidr_block".into(),
-                                description: "The IPv4 CIDR block".into(),
-                                field_type: FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                            FieldSchema {
-                                name: "availability_zone".into(),
-                                description: "The AZ for the subnet".into(),
-                                field_type: FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                            FieldSchema {
-                                name: "public_ip_on_launch".into(),
-                                description: "Auto-assign public IP on launch".into(),
-                                field_type: FieldType::Bool,
-                                required: false,
-                                default: Some(serde_json::json!(false)),
-                                sensitive: false,
-                            },
-                        ],
-                    },
-                ],
-            },
-        }
-    }
+    // ─── Hand-written schema definitions ────────────────────────────
 
     pub(super) fn ec2_security_group_schema() -> ResourceTypeInfo {
         ResourceTypeInfo {
@@ -1307,16 +1478,6 @@ impl AwsProvider {
         }
     }
 
-    pub(super) fn ec2_internet_gateway_schema() -> ResourceTypeInfo {
-        ResourceTypeInfo {
-            type_path: "ec2.InternetGateway".into(),
-            description: "Internet gateway for VPC internet access".into(),
-            schema: ResourceSchema {
-                sections: vec![identity_section()],
-            },
-        }
-    }
-
     pub(super) fn ec2_route_table_schema() -> ResourceTypeInfo {
         ResourceTypeInfo {
             type_path: "ec2.RouteTable".into(),
@@ -1342,115 +1503,6 @@ impl AwsProvider {
                             ]))),
                             required: false,
                             default: Some(serde_json::json!([])),
-                            sensitive: false,
-                        }],
-                    },
-                ],
-            },
-        }
-    }
-
-    pub(super) fn ec2_nat_gateway_schema() -> crate::provider::ResourceTypeInfo {
-        crate::provider::ResourceTypeInfo {
-            type_path: "ec2.NatGateway".into(),
-            description: "NatGateway resource".into(),
-            schema: crate::provider::ResourceSchema {
-                sections: vec![
-                    crate::provider::SectionSchema {
-                        name: "identity".into(),
-                        description: "Identity configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "name".into(),
-                            description: "Name tag for the NAT gateway".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
-                    },
-                    crate::provider::SectionSchema {
-                        name: "network".into(),
-                        description: "Network configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "allocation_id".into(),
-                                description: "Elastic IP allocation ID".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                            crate::provider::FieldSchema {
-                                name: "subnet_id".into(),
-                                description: "Subnet to place the NAT gateway in".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                            crate::provider::FieldSchema {
-                                name: "vpc_id".into(),
-                                description: "VPC containing the NAT gateway".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: false,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
-                    },
-                ],
-            },
-        }
-    }
-
-    pub(super) fn ec2_elastic_ip_schema() -> crate::provider::ResourceTypeInfo {
-        crate::provider::ResourceTypeInfo {
-            type_path: "ec2.ElasticIp".into(),
-            description: "ElasticIp resource".into(),
-            schema: crate::provider::ResourceSchema {
-                sections: vec![crate::provider::SectionSchema {
-                    name: "identity".into(),
-                    description: "Identity configuration".into(),
-                    fields: vec![crate::provider::FieldSchema {
-                        name: "name".into(),
-                        description: "Name tag for the Elastic IP".into(),
-                        field_type: crate::provider::FieldType::String,
-                        required: true,
-                        default: None,
-                        sensitive: false,
-                    }],
-                }],
-            },
-        }
-    }
-
-    pub(super) fn ec2_key_pair_schema() -> crate::provider::ResourceTypeInfo {
-        crate::provider::ResourceTypeInfo {
-            type_path: "ec2.KeyPair".into(),
-            description: "KeyPair resource".into(),
-            schema: crate::provider::ResourceSchema {
-                sections: vec![
-                    crate::provider::SectionSchema {
-                        name: "identity".into(),
-                        description: "Identity configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "name".into(),
-                            description: "Key pair name".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
-                    },
-                    crate::provider::SectionSchema {
-                        name: "security".into(),
-                        description: "Security configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "fingerprint".into(),
-                            description: "Key fingerprint".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: false,
-                            default: None,
                             sensitive: false,
                         }],
                     },

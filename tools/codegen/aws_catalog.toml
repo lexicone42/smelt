@@ -520,16 +520,208 @@ description = "Cluster name"
 sdk_param = "cluster_name"
 
 # ─── EC2: Vpc ──────────────────────────────────────────────────────────────
-# HAND-WRITTEN — cannot generate:
-#   - Name set via TagSpecification (no .name() on create)
-#   - dns_hostnames/dns_support set via post-create modify_vpc_attribute (separate API)
-#   - Read: dns attributes require describe_vpc_attribute (separate API calls)
-#   - build_tags helper needed for TagSpecification pattern
+# Pattern: describe_list, tag_specification, response_field (vpc_id)
+# Uses aws_post_create_code for modify_vpc_attribute (dns_hostnames/dns_support)
+# Uses aws_update_code for modify_vpc_attribute
+
+[[resource]]
+struct_name = "Vpc"
+sdk_crate = "aws-sdk-ec2"
+sdk_client = "ec2"
+type_path = "ec2.Vpc"
+crud_create = "CreateVpc"
+crud_read = "DescribeVpcs"
+crud_update = "ModifyVpcAttribute"
+crud_delete = "DeleteVpc"
+aws_client_field = "ec2_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "vpcs"
+aws_response_accessor = "vpc"
+aws_id_param = "vpc_id"
+aws_id_source = "response_field"
+aws_response_id_field = "vpc_id"
+aws_read_id_param = "vpc_ids"
+aws_tag_style = "tag_specification"
+aws_tag_resource_type = "Vpc"
+aws_updatable = true
+
+aws_post_create_code = '''
+if config.bool_or("/network/dns_hostnames", false) {
+    self.ec2_client
+        .modify_vpc_attribute()
+        .vpc_id(provider_id)
+        .enable_dns_hostnames(
+            aws_sdk_ec2::types::AttributeBooleanValue::builder()
+                .value(true)
+                .build(),
+        )
+        .send()
+        .await
+        .map_err(|e| ProviderError::ApiError(format!("ModifyVpcAttribute (DNS hostnames): {e}")))?;
+}
+if let Some(dns_support) = config.optional_bool("/network/dns_support") {
+    self.ec2_client
+        .modify_vpc_attribute()
+        .vpc_id(provider_id)
+        .enable_dns_support(
+            aws_sdk_ec2::types::AttributeBooleanValue::builder()
+                .value(dns_support)
+                .build(),
+        )
+        .send()
+        .await
+        .map_err(|e| ProviderError::ApiError(format!("ModifyVpcAttribute (DNS support): {e}")))?;
+}
+'''
+
+aws_update_code = '''
+if let Some(dns) = config.optional_bool("/network/dns_hostnames") {
+    self.ec2_client
+        .modify_vpc_attribute()
+        .vpc_id(provider_id)
+        .enable_dns_hostnames(
+            aws_sdk_ec2::types::AttributeBooleanValue::builder()
+                .value(dns)
+                .build(),
+        )
+        .send()
+        .await
+        .map_err(|e| ProviderError::ApiError(format!("ModifyVpcAttribute: {e}")))?;
+}
+'''
+
+[[resource.aws_outputs]]
+name = "vpc_id"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "state"
+expression = "resource.state().map(|s| s.as_str()).unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Name tag for the VPC"
+skip_create = true
+read_expression = "super::extract_name_tag(resource.tags())"
+
+[[resource.fields]]
+name = "cidr_block"
+section = "network"
+type = "String"
+required = true
+description = "CIDR block for the VPC"
+
+[[resource.fields]]
+name = "dns_hostnames"
+section = "network"
+type = "Bool"
+required = false
+default = false
+description = "Enable DNS hostnames in the VPC"
+skip_create = true
+skip_read = true
+skip_update = true
+
+[[resource.fields]]
+name = "dns_support"
+section = "network"
+type = "Bool"
+required = false
+description = "Enable DNS support in the VPC"
+skip_create = true
+skip_read = true
+skip_update = true
 
 # ─── EC2: Subnet ───────────────────────────────────────────────────────────
-# HAND-WRITTEN — cannot generate:
-#   - Name set via TagSpecification (no .name() setter)
-#   - build_tags helper needed; codegen references Self::build_tags() but doesn't emit it
+# Pattern: describe_list, tag_specification, response_field (subnet_id)
+# Uses aws_post_create_code for modify_subnet_attribute (public_ip_on_launch)
+
+[[resource]]
+struct_name = "Subnet"
+sdk_crate = "aws-sdk-ec2"
+sdk_client = "ec2"
+type_path = "ec2.Subnet"
+crud_create = "CreateSubnet"
+crud_read = "DescribeSubnets"
+crud_delete = "DeleteSubnet"
+aws_client_field = "ec2_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "subnets"
+aws_response_accessor = "subnet"
+aws_id_param = "subnet_id"
+aws_id_source = "response_field"
+aws_response_id_field = "subnet_id"
+aws_read_id_param = "subnet_ids"
+aws_tag_style = "tag_specification"
+aws_tag_resource_type = "Subnet"
+
+aws_post_create_code = '''
+if config.bool_or("/network/public_ip_on_launch", false) {
+    self.ec2_client
+        .modify_subnet_attribute()
+        .subnet_id(provider_id)
+        .map_public_ip_on_launch(
+            aws_sdk_ec2::types::AttributeBooleanValue::builder()
+                .value(true)
+                .build(),
+        )
+        .send()
+        .await
+        .map_err(|e| ProviderError::ApiError(format!("ModifySubnetAttribute: {e}")))?;
+}
+'''
+
+[[resource.aws_outputs]]
+name = "subnet_id"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "available_ips"
+expression = "resource.available_ip_address_count()"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Name tag for the subnet"
+skip_create = true
+read_expression = "super::extract_name_tag(resource.tags())"
+
+[[resource.fields]]
+name = "cidr_block"
+section = "network"
+type = "String"
+required = true
+description = "CIDR block for the subnet"
+
+[[resource.fields]]
+name = "availability_zone"
+section = "network"
+type = "String"
+required = true
+description = "Availability zone for the subnet"
+
+[[resource.fields]]
+name = "vpc_id"
+section = "network"
+type = "String"
+required = true
+description = "VPC ID containing the subnet"
+
+[[resource.fields]]
+name = "public_ip_on_launch"
+section = "network"
+type = "Bool"
+required = false
+default = false
+description = "Auto-assign public IP on launch"
+skip_create = true
+sdk_non_optional = true
+read_expression = "resource.map_public_ip_on_launch()"
 
 # ─── EC2: SecurityGroup ────────────────────────────────────────────────────
 # HAND-WRITTEN — cannot generate:
@@ -538,9 +730,87 @@ sdk_param = "cluster_name"
 #   - Read: ip_permissions require IpPermission struct traversal
 
 # ─── EC2: InternetGateway ──────────────────────────────────────────────────
-# HAND-WRITTEN — cannot generate:
-#   - Post-create: attach_internet_gateway to VPC
-#   - Pre-delete: detach_internet_gateway from VPC
+# Pattern: describe_list, tag_specification, response_field (internet_gateway_id)
+# Uses aws_post_create_code for attach and aws_pre_delete_code for detach
+
+[[resource]]
+struct_name = "InternetGateway"
+sdk_crate = "aws-sdk-ec2"
+sdk_client = "ec2"
+type_path = "ec2.InternetGateway"
+crud_create = "CreateInternetGateway"
+crud_read = "DescribeInternetGateways"
+crud_delete = "DeleteInternetGateway"
+aws_client_field = "ec2_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "internet_gateways"
+aws_response_accessor = "internet_gateway"
+aws_id_param = "internet_gateway_id"
+aws_id_source = "response_field"
+aws_response_id_field = "internet_gateway_id"
+aws_read_id_param = "internet_gateway_ids"
+aws_tag_style = "tag_specification"
+aws_tag_resource_type = "InternetGateway"
+
+aws_post_create_code = '''
+if let Ok(vpc_id) = config.require_str("/network/vpc_id") {
+    self.ec2_client
+        .attach_internet_gateway()
+        .internet_gateway_id(provider_id)
+        .vpc_id(vpc_id)
+        .send()
+        .await
+        .map_err(|e| ProviderError::ApiError(format!("AttachInternetGateway: {e}")))?;
+}
+'''
+
+aws_pre_delete_code = '''
+let igw_result = self.ec2_client
+    .describe_internet_gateways()
+    .internet_gateway_ids(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("DescribeInternetGateways: {e}")))?;
+if let Some(igw) = igw_result.internet_gateways().first() {
+    for attachment in igw.attachments() {
+        if let Some(vpc_id) = attachment.vpc_id() {
+            self.ec2_client
+                .detach_internet_gateway()
+                .internet_gateway_id(provider_id)
+                .vpc_id(vpc_id)
+                .send()
+                .await
+                .map_err(|e| ProviderError::ApiError(format!("DetachInternetGateway: {e}")))?;
+        }
+    }
+}
+'''
+
+[[resource.aws_outputs]]
+name = "igw_id"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "gateway_id"
+expression = "provider_id"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Name tag for the internet gateway"
+skip_create = true
+read_expression = "super::extract_name_tag(resource.tags())"
+
+[[resource.fields]]
+name = "vpc_id"
+section = "network"
+type = "String"
+required = false
+description = "VPC ID to attach the gateway to"
+skip_create = true
+read_expression = "resource.attachments().first().and_then(|a| a.vpc_id()).unwrap_or(\"\")"
 
 # ─── EC2: RouteTable ───────────────────────────────────────────────────────
 # HAND-WRITTEN — cannot generate:
