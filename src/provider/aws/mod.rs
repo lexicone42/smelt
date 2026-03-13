@@ -307,9 +307,9 @@ impl Provider for AwsProvider {
                 "ec2.SecurityGroup" => read_security_group,
                 "ec2.InternetGateway" => read_internet_gateway,
                 "ec2.RouteTable" => read_route_table,
-                "ec2.NatGateway" => read_nat_gateway,
-                "ec2.ElasticIp" => read_elastic_ip,
-                "ec2.KeyPair" => read_key_pair,
+                "ec2.NatGateway" => read_ec2_nat_gateway,
+                "ec2.ElasticIp" => read_ec2_elastic_ip,
+                "ec2.KeyPair" => read_ec2_key_pair,
                 "ec2.Instance" => read_instance,
                 "iam.Role" => read_role,
                 "iam.Policy" => read_policy,
@@ -324,8 +324,8 @@ impl Provider for AwsProvider {
                 "eks.Cluster" => read_eks_cluster,
                 "eks.NodeGroup" => read_eks_node_group,
                 "wafv2.WebACL" => read_web_acl,
-                // Hand-written (restored)
-                "route53.HostedZone" => read_hosted_zone,
+                // Generated (codegen)
+                "route53.HostedZone" => read_route53_hosted_zone,
                 "kms.Key" => read_kms_key,
                 "dynamodb.Table" => read_dynamodb_table,
                 // Generated (codegen)
@@ -372,9 +372,9 @@ impl Provider for AwsProvider {
                 "ec2.SecurityGroup" => create_security_group,
                 "ec2.InternetGateway" => create_internet_gateway,
                 "ec2.RouteTable" => create_route_table,
-                "ec2.NatGateway" => create_nat_gateway,
-                "ec2.ElasticIp" => create_elastic_ip,
-                "ec2.KeyPair" => create_key_pair,
+                "ec2.NatGateway" => create_ec2_nat_gateway,
+                "ec2.ElasticIp" => create_ec2_elastic_ip,
+                "ec2.KeyPair" => create_ec2_key_pair,
                 "ec2.Instance" => create_instance,
                 "iam.Role" => create_role,
                 "iam.Policy" => create_policy,
@@ -389,8 +389,8 @@ impl Provider for AwsProvider {
                 "eks.Cluster" => create_eks_cluster,
                 "eks.NodeGroup" => create_eks_node_group,
                 "wafv2.WebACL" => create_web_acl,
-                // Hand-written (restored)
-                "route53.HostedZone" => create_hosted_zone,
+                // Generated (codegen)
+                "route53.HostedZone" => create_route53_hosted_zone,
                 "kms.Key" => create_kms_key,
                 "dynamodb.Table" => create_dynamodb_table,
                 // Generated (codegen)
@@ -509,9 +509,9 @@ impl Provider for AwsProvider {
                 "ec2.SecurityGroup" => delete_security_group,
                 "ec2.InternetGateway" => delete_internet_gateway,
                 "ec2.RouteTable" => delete_route_table,
-                "ec2.NatGateway" => delete_nat_gateway,
-                "ec2.ElasticIp" => delete_elastic_ip,
-                "ec2.KeyPair" => delete_key_pair,
+                "ec2.NatGateway" => delete_ec2_nat_gateway,
+                "ec2.ElasticIp" => delete_ec2_elastic_ip,
+                "ec2.KeyPair" => delete_ec2_key_pair,
                 "ec2.Instance" => delete_instance,
                 "iam.Role" => delete_role,
                 "iam.Policy" => delete_policy,
@@ -526,8 +526,8 @@ impl Provider for AwsProvider {
                 "eks.Cluster" => delete_eks_cluster,
                 "eks.NodeGroup" => delete_eks_node_group,
                 "wafv2.WebACL" => delete_web_acl,
-                // Hand-written (restored)
-                "route53.HostedZone" => delete_hosted_zone,
+                // Generated (codegen)
+                "route53.HostedZone" => delete_route53_hosted_zone,
                 "kms.Key" => delete_kms_key,
                 "dynamodb.Table" => delete_dynamodb_table,
                 // Generated (codegen)

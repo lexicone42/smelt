@@ -548,20 +548,156 @@ sdk_param = "cluster_name"
 #   - Pre-delete: disassociate + delete routes
 
 # ─── EC2: NatGateway ───────────────────────────────────────────────────────
-# HAND-WRITTEN — cannot generate:
-#   - Requires allocation_id (EIP reference)
-#   - connectivity_type on create
-#   - Read: public_ip from nat_gateway_addresses
+
+[[resource]]
+struct_name = "NatGateway"
+sdk_crate = "aws-sdk-ec2"
+sdk_client = "ec2"
+type_path = "ec2.NatGateway"
+
+crud_create = "create_nat_gateway"
+crud_read = "describe_nat_gateways"
+crud_delete = "delete_nat_gateway"
+
+aws_client_field = "ec2_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "nat_gateways"
+aws_response_accessor = "nat_gateway"
+aws_id_param = "nat_gateway_id"
+aws_id_source = "response_field"
+aws_response_id_field = "nat_gateway_id"
+aws_read_id_param = "nat_gateway_ids"
+aws_delete_id_param = "nat_gateway_id"
+aws_tag_style = "tag_specification"
+aws_tag_resource_type = "Natgateway"
+
+[[resource.aws_outputs]]
+name = "nat_gateway_id"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "public_ip"
+expression = "resource.nat_gateway_addresses().first().and_then(|a| a.public_ip()).unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Name tag for the NAT gateway"
+skip_create = true
+read_expression = "super::extract_name_tag(resource.tags())"
+
+[[resource.fields]]
+name = "subnet_id"
+section = "network"
+type = "String"
+required = true
+description = "Subnet to place the NAT gateway in"
+
+[[resource.fields]]
+name = "allocation_id"
+section = "network"
+type = "String"
+required = true
+description = "Elastic IP allocation ID"
+skip_read = true
+
+[[resource.fields]]
+name = "vpc_id"
+section = "network"
+type = "String"
+description = "VPC containing the NAT gateway"
+skip_create = true
 
 # ─── EC2: ElasticIp ────────────────────────────────────────────────────────
-# HAND-WRITTEN — cannot generate:
-#   - Uses allocate_address/release_address (non-standard CRUD names)
-#   - domain("vpc") on create
+
+[[resource]]
+struct_name = "ElasticIp"
+sdk_crate = "aws-sdk-ec2"
+sdk_client = "ec2"
+type_path = "ec2.ElasticIp"
+
+crud_create = "allocate_address"
+crud_read = "describe_addresses"
+crud_delete = "release_address"
+
+aws_client_field = "ec2_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "addresses"
+aws_id_param = "allocation_id"
+aws_id_source = "response_field"
+aws_response_id_field = "allocation_id"
+aws_create_no_container = true
+aws_read_id_param = "allocation_ids"
+aws_delete_id_param = "allocation_id"
+aws_tag_style = "tag_specification"
+aws_tag_resource_type = "ElasticIp"
+aws_create_extra_setters = ["domain(aws_sdk_ec2::types::DomainType::Vpc)"]
+
+[[resource.aws_outputs]]
+name = "allocation_id"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "public_ip"
+expression = "resource.public_ip().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Name tag for the Elastic IP"
+skip_create = true
+read_expression = "super::extract_name_tag(resource.tags())"
 
 # ─── EC2: KeyPair ──────────────────────────────────────────────────────────
-# HAND-WRITTEN — cannot generate:
-#   - Read: key_name() returns non-optional &str
-#   - key_type uses KeyType enum (aws_enum support incomplete for EC2)
+
+[[resource]]
+struct_name = "KeyPair"
+sdk_crate = "aws-sdk-ec2"
+sdk_client = "ec2"
+type_path = "ec2.KeyPair"
+
+crud_create = "create_key_pair"
+crud_read = "describe_key_pairs"
+crud_delete = "delete_key_pair"
+
+aws_client_field = "ec2_client"
+aws_read_style = "describe_list"
+aws_list_accessor = "key_pairs"
+aws_id_param = "key_pair_id"
+aws_id_source = "response_field"
+aws_response_id_field = "key_pair_id"
+aws_read_id_param = "key_pair_ids"
+aws_delete_id_param = "key_pair_id"
+aws_tag_style = "tag_specification"
+aws_tag_resource_type = "KeyPair"
+
+[[resource.aws_outputs]]
+name = "key_pair_id"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "key_name"
+expression = "resource.key_name().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Key pair name"
+sdk_param = "key_name"
+
+[[resource.fields]]
+name = "fingerprint"
+section = "security"
+type = "String"
+output_only = true
+description = "Key fingerprint"
+sdk_param = "key_fingerprint"
 
 # ─── RDS: DBInstance ───────────────────────────────────────────────────────
 # Pattern: describe_list, typed_tags, name as provider_id
@@ -1567,12 +1703,47 @@ aws_enum = true
 #   - partition_key/sort_key have no SDK setters (they're builder patterns)
 
 # ─── Route53: HostedZone ────────────────────────────────────────────────
-# HAND-WRITTEN — cannot generate:
-#   - create_hosted_zone requires caller_reference (auto-generated, not from config)
-#   - Description uses HostedZoneConfig builder wrapper
-#   - Private zones need VPC builder attachment
-#   - ID returned with /hostedzone/ prefix that must be stripped
-#   - name_servers output comes from delegation_set (separate response field)
+# Pattern: get_single (get_hosted_zone), no tags, response_field (zone_id)
+# Uses aws_caller_reference and aws_id_trim_prefix features.
+# NOTE: description (HostedZoneConfig wrapper) and private zones (VPC)
+# are omitted — use hand-written code if those features are needed.
+
+[[resource]]
+struct_name = "HostedZone"
+sdk_crate = "aws-sdk-route53"
+sdk_client = "route53"
+type_path = "route53.HostedZone"
+
+crud_create = "create_hosted_zone"
+crud_read = "get_hosted_zone"
+crud_delete = "delete_hosted_zone"
+
+aws_client_field = "route53_client"
+aws_read_style = "get_single"
+aws_response_accessor = "hosted_zone"
+aws_id_param = "id"
+aws_id_source = "response_field"
+aws_response_id_field = "id"
+aws_tag_style = "none"
+aws_caller_reference = true
+aws_id_trim_prefix = "/hostedzone/"
+aws_response_id_non_optional = true
+
+[[resource.aws_outputs]]
+name = "hosted_zone_id"
+expression = "provider_id"
+
+[[resource.aws_outputs]]
+name = "name"
+expression = "resource.name()"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Domain name (e.g., example.com)"
+sdk_non_optional = true
 
 # ─── Route53: RecordSet ─────────────────────────────────────────────────
 # HAND-WRITTEN — cannot generate:

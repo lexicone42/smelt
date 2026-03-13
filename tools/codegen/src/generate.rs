@@ -405,7 +405,8 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
         !f.output_only && !f.skip && !f.skip_create && f.field_type == "StringArray" && f.aws_builder_group.is_none()
     });
     let has_create_tags = !matches!(tag_style, AwsTagStyle::PostCreate | AwsTagStyle::None);
-    let needs_mut = has_optional_create_fields || has_create_tags || has_string_array_fields || has_builder_groups;
+    let has_create_extras = !m.resource.aws_create_extra_setters.is_empty();
+    let needs_mut = has_optional_create_fields || has_create_tags || has_string_array_fields || has_builder_groups || m.resource.aws_caller_reference || has_create_extras;
     let let_binding = if needs_mut { "let mut req" } else { "let req" };
 
     // Build request — required fields go inline on the builder chain
@@ -651,6 +652,17 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
         }
     }
 
+    // Extra create setters (e.g., domain(DomainType::Vpc) for EC2 ElasticIp)
+    for extra in &m.resource.aws_create_extra_setters {
+        let _ = writeln!(out, "    req = req.{extra};");
+    }
+
+    // Auto-generate caller_reference if needed
+    if m.resource.aws_caller_reference {
+        let _ = writeln!(out, "    let caller_ref = format!(\"smelt-{{}}\", chrono::Utc::now().timestamp());");
+        let _ = writeln!(out, "    req = req.caller_reference(&caller_ref);");
+    }
+
     // Apply tags
     match &tag_style {
         AwsTagStyle::TagSpecification => {
@@ -761,7 +773,9 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
                 let container = m.resource.aws_response_accessor.as_deref().unwrap();
                 let _ = writeln!(out, "    let container = result");
                 let _ = writeln!(out, "        .{container}()");
-                if non_opt {
+                // Container accessor is almost always Option — only skip ok_or_else
+                // when explicitly marked non-optional via aws_response_accessor_non_optional.
+                if m.resource.aws_response_accessor_non_optional {
                     let _ = writeln!(out, "    ;");
                 } else {
                     let _ = writeln!(out, "        .ok_or_else(|| ProviderError::ApiError(\"{create_method} returned no {container}\".into()))?;");
@@ -783,6 +797,11 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
                 }
             }
             let _ = writeln!(out);
+
+            // Trim prefix from provider_id if needed (e.g., "/hostedzone/")
+            if let Some(ref prefix) = m.resource.aws_id_trim_prefix {
+                let _ = writeln!(out, "    let provider_id = provider_id.trim_start_matches(\"{prefix}\");");
+            }
 
             // Post-create actions (fields that need separate API calls)
             write_aws_post_create_actions(out, m, "provider_id");

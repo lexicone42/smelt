@@ -142,12 +142,18 @@ pub struct CatalogEntry {
     /// AWS: create response ID field returns &str not Option<&str>.
     #[serde(default)]
     pub aws_response_id_non_optional: Option<bool>,
+    /// AWS: create response accessor returns &T not Option<&T>.
+    #[serde(default)]
+    pub aws_response_accessor_non_optional: Option<bool>,
     /// AWS: don't wrap create response in aws_response_accessor container.
     #[serde(default)]
     pub aws_create_no_container: Option<bool>,
     /// AWS: create response wraps result in a list (e.g., "load_balancers"); use .first() to extract.
     #[serde(default)]
     pub aws_create_list_accessor: Option<String>,
+    /// AWS: extra setter chain on the create builder (e.g., ["domain(aws_sdk_ec2::types::DomainType::Vpc)"]).
+    #[serde(default)]
+    pub aws_create_extra_setters: Vec<String>,
     /// AWS: extra setter chain on the delete builder (e.g., ["recovery_window_in_days(30)"]).
     #[serde(default)]
     pub aws_delete_extra_setters: Vec<String>,
@@ -159,6 +165,14 @@ pub struct CatalogEntry {
     /// Parts are joined with ":" to form the provider_id.
     #[serde(default)]
     pub aws_composite_id: Vec<String>,
+    /// AWS: auto-generate a caller_reference on create.
+    /// Emits `let caller_ref = format!("smelt-{}", chrono::Utc::now().timestamp());`
+    /// and `.caller_reference(&caller_ref)`.
+    #[serde(default)]
+    pub aws_caller_reference: bool,
+    /// AWS: prefix to trim from the provider_id after create (e.g., "/hostedzone/").
+    #[serde(default)]
+    pub aws_id_trim_prefix: Option<String>,
     /// AWS: builder groups — collections of fields packed into nested builder types.
     #[serde(default)]
     pub aws_builder_groups: Vec<AwsBuilderGroupCatalog>,
@@ -176,6 +190,8 @@ pub struct AwsCatalogField {
     pub field_type: String,
     #[serde(default)]
     pub required: bool,
+    #[serde(default)]
+    pub output_only: bool,
     #[serde(default)]
     pub default: Option<toml::Value>,
     #[serde(default)]
@@ -671,7 +687,7 @@ pub fn batch_generate_aws(catalog_path: &str, output_dir: &str) {
                     sensitive: f.sensitive,
                     description: f.description.clone(),
                     variants: f.variants.clone(),
-                    output_only: false,
+                    output_only: f.output_only,
                     deprecated: false,
                     skip: false,
                     optional: !f.required,
@@ -777,10 +793,14 @@ pub fn batch_generate_aws(catalog_path: &str, output_dir: &str) {
                 aws_read_id_param: entry.aws_read_id_param.clone(),
                 aws_delete_id_param: entry.aws_delete_id_param.clone(),
                 aws_response_id_non_optional: entry.aws_response_id_non_optional.unwrap_or(false),
+                aws_response_accessor_non_optional: entry.aws_response_accessor_non_optional.unwrap_or(false),
                 aws_create_no_container: entry.aws_create_no_container.unwrap_or(false),
                 aws_create_list_accessor: entry.aws_create_list_accessor.clone(),
+                aws_create_extra_setters: entry.aws_create_extra_setters.clone(),
                 aws_delete_extra_setters: entry.aws_delete_extra_setters.clone(),
                 aws_update_extra_setters: entry.aws_update_extra_setters.clone(),
+                aws_caller_reference: entry.aws_caller_reference,
+                aws_id_trim_prefix: entry.aws_id_trim_prefix.clone(),
                 aws_composite_id: parse_composite_id(&entry.aws_composite_id),
                 aws_builder_groups: parse_builder_groups(&entry.aws_builder_groups),
             },

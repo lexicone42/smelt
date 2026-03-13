@@ -690,230 +690,285 @@ impl AwsProvider {
         Ok(())
     }
 
-    // ─── NatGateway ────────────────────────────────────────────────────
+    // ─── NatGateway (generated) ──────────────────────────────────────
 
-    pub(super) async fn create_nat_gateway(
+    pub(super) async fn create_ec2_nat_gateway(
         &self,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let subnet_id = config.require_str("/network/subnet_id")?;
-        let allocation_id = config.require_str("/network/allocation_id")?;
+        // Extract fields from config
+        let allocation_id = config.require_str("/network/allocation_id")?.to_string();
+        let subnet_id = config.require_str("/network/subnet_id")?.to_string();
 
-        let tag_spec = Self::build_tags(config, AwsResourceType::Natgateway);
+        let tag_spec = Self::build_tags(config, aws_sdk_ec2::types::ResourceType::Natgateway);
 
-        let result = self
+        let mut req = self
             .ec2_client
             .create_nat_gateway()
-            .subnet_id(subnet_id)
-            .allocation_id(allocation_id)
-            .tag_specifications(tag_spec)
+            .allocation_id(&allocation_id)
+            .subnet_id(&subnet_id);
+
+        req = req.tag_specifications(tag_spec);
+
+        let result = req
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("CreateNatGateway: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("create_nat_gateway: {e}")))?;
 
-        let nat = result.nat_gateway().ok_or_else(|| {
-            ProviderError::ApiError("CreateNatGateway returned no gateway".into())
+        let container = result.nat_gateway().ok_or_else(|| {
+            ProviderError::ApiError("create_nat_gateway returned no nat_gateway".into())
         })?;
-        let nat_id = nat
-            .nat_gateway_id()
-            .ok_or_else(|| ProviderError::ApiError("NatGateway has no ID".into()))?;
+        let provider_id = container.nat_gateway_id().ok_or_else(|| {
+            ProviderError::ApiError("create_nat_gateway returned no nat_gateway_id".into())
+        })?;
 
-        self.read_nat_gateway(nat_id).await
+        self.read_ec2_nat_gateway(provider_id).await
     }
 
-    pub(super) async fn read_nat_gateway(
+    pub(super) async fn read_ec2_nat_gateway(
         &self,
-        nat_id: &str,
+        provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
         let result = self
             .ec2_client
             .describe_nat_gateways()
-            .nat_gateway_ids(nat_id)
+            .nat_gateway_ids(provider_id)
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("DescribeNatGateways: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("describe_nat_gateways: {e}")))?;
 
-        let nat = result
+        let resource = result
             .nat_gateways()
             .first()
-            .ok_or_else(|| ProviderError::NotFound(format!("NatGateway {nat_id}")))?;
-
-        let public_ip = nat
-            .nat_gateway_addresses()
-            .first()
-            .and_then(|a| a.public_ip())
-            .unwrap_or("");
+            .ok_or_else(|| ProviderError::NotFound(format!("NatGateway {provider_id}")))?;
 
         let state = serde_json::json!({
-            "identity": { "name": extract_name_tag(nat.tags()) },
+            "identity": {
+                "name": super::extract_name_tag(resource.tags()),
+            },
             "network": {
-                "subnet_id": nat.subnet_id().unwrap_or(""),
-                "vpc_id": nat.vpc_id().unwrap_or(""),
-            }
+                "subnet_id": resource.subnet_id().unwrap_or(""),
+                "vpc_id": resource.vpc_id().unwrap_or(""),
+            },
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert("nat_gateway_id".into(), serde_json::json!(nat_id));
-        outputs.insert("public_ip".into(), serde_json::json!(public_ip));
+        outputs.insert("nat_gateway_id".into(), serde_json::json!(provider_id));
+        outputs.insert(
+            "public_ip".into(),
+            serde_json::json!(
+                resource
+                    .nat_gateway_addresses()
+                    .first()
+                    .and_then(|a| a.public_ip())
+                    .unwrap_or("")
+            ),
+        );
 
         Ok(ResourceOutput {
-            provider_id: nat_id.to_string(),
+            provider_id: provider_id.to_string(),
             state,
             outputs,
         })
     }
 
-    pub(super) async fn delete_nat_gateway(&self, nat_id: &str) -> Result<(), ProviderError> {
+    #[allow(dead_code)]
+    pub(super) async fn update_ec2_nat_gateway(
+        &self,
+        _provider_id: &str,
+        _config: &serde_json::Value,
+    ) -> Result<ResourceOutput, ProviderError> {
+        Err(ProviderError::RequiresReplacement(
+            "resource does not support in-place update".into(),
+        ))
+    }
+
+    pub(super) async fn delete_ec2_nat_gateway(
+        &self,
+        provider_id: &str,
+    ) -> Result<(), ProviderError> {
         self.ec2_client
             .delete_nat_gateway()
-            .nat_gateway_id(nat_id)
+            .nat_gateway_id(provider_id)
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("DeleteNatGateway: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("delete_nat_gateway: {e}")))?;
         Ok(())
     }
 
-    // ─── ElasticIp ─────────────────────────────────────────────────────
+    // ─── ElasticIp (generated) ────────────────────────────────────────
 
-    pub(super) async fn create_elastic_ip(
+    pub(super) async fn create_ec2_elastic_ip(
         &self,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let tag_spec = Self::build_tags(config, AwsResourceType::ElasticIp);
+        // Extract fields from config
 
-        let result = self
-            .ec2_client
-            .allocate_address()
-            .domain(aws_sdk_ec2::types::DomainType::Vpc)
-            .tag_specifications(tag_spec)
+        let tag_spec = Self::build_tags(config, aws_sdk_ec2::types::ResourceType::ElasticIp);
+
+        let mut req = self.ec2_client.allocate_address();
+
+        req = req.domain(aws_sdk_ec2::types::DomainType::Vpc);
+        req = req.tag_specifications(tag_spec);
+
+        let result = req
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("AllocateAddress: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("allocate_address: {e}")))?;
 
-        let alloc_id = result
-            .allocation_id()
-            .ok_or_else(|| ProviderError::ApiError("AllocateAddress returned no ID".into()))?;
+        let provider_id = result.allocation_id().ok_or_else(|| {
+            ProviderError::ApiError("allocate_address returned no allocation_id".into())
+        })?;
 
-        self.read_elastic_ip(alloc_id).await
+        self.read_ec2_elastic_ip(provider_id).await
     }
 
-    pub(super) async fn read_elastic_ip(
+    pub(super) async fn read_ec2_elastic_ip(
         &self,
-        alloc_id: &str,
+        provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
         let result = self
             .ec2_client
             .describe_addresses()
-            .allocation_ids(alloc_id)
+            .allocation_ids(provider_id)
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("DescribeAddresses: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("describe_addresses: {e}")))?;
 
-        let addr = result
+        let resource = result
             .addresses()
             .first()
-            .ok_or_else(|| ProviderError::NotFound(format!("ElasticIp {alloc_id}")))?;
+            .ok_or_else(|| ProviderError::NotFound(format!("ElasticIp {provider_id}")))?;
 
         let state = serde_json::json!({
-            "identity": { "name": extract_name_tag(addr.tags()) },
+            "identity": {
+                "name": super::extract_name_tag(resource.tags()),
+            },
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert("allocation_id".into(), serde_json::json!(alloc_id));
+        outputs.insert("allocation_id".into(), serde_json::json!(provider_id));
         outputs.insert(
             "public_ip".into(),
-            serde_json::json!(addr.public_ip().unwrap_or("")),
+            serde_json::json!(resource.public_ip().unwrap_or("")),
         );
 
         Ok(ResourceOutput {
-            provider_id: alloc_id.to_string(),
+            provider_id: provider_id.to_string(),
             state,
             outputs,
         })
     }
 
-    pub(super) async fn delete_elastic_ip(&self, alloc_id: &str) -> Result<(), ProviderError> {
+    #[allow(dead_code)]
+    pub(super) async fn update_ec2_elastic_ip(
+        &self,
+        _provider_id: &str,
+        _config: &serde_json::Value,
+    ) -> Result<ResourceOutput, ProviderError> {
+        Err(ProviderError::RequiresReplacement(
+            "resource does not support in-place update".into(),
+        ))
+    }
+
+    pub(super) async fn delete_ec2_elastic_ip(
+        &self,
+        provider_id: &str,
+    ) -> Result<(), ProviderError> {
         self.ec2_client
             .release_address()
-            .allocation_id(alloc_id)
+            .allocation_id(provider_id)
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("ReleaseAddress: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("release_address: {e}")))?;
         Ok(())
     }
 
-    // ─── KeyPair ───────────────────────────────────────────────────────
+    // ─── KeyPair (generated) ──────────────────────────────────────────
 
-    pub(super) async fn create_key_pair(
+    pub(super) async fn create_ec2_key_pair(
         &self,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = config.require_str("/identity/name")?;
-        let tag_spec = Self::build_tags(config, AwsResourceType::KeyPair);
+        // Extract fields from config
+        let name = config.require_str("/identity/name")?.to_string();
 
-        let result = self
-            .ec2_client
-            .create_key_pair()
-            .key_name(name)
-            .tag_specifications(tag_spec)
+        let tag_spec = Self::build_tags(config, aws_sdk_ec2::types::ResourceType::KeyPair);
+
+        let mut req = self.ec2_client.create_key_pair().key_name(&name);
+
+        req = req.tag_specifications(tag_spec);
+
+        let result = req
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("CreateKeyPair: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("create_key_pair: {e}")))?;
 
-        let key_id = result
-            .key_pair_id()
-            .ok_or_else(|| ProviderError::ApiError("KeyPair has no ID".into()))?;
+        let provider_id = result.key_pair_id().ok_or_else(|| {
+            ProviderError::ApiError("create_key_pair returned no key_pair_id".into())
+        })?;
 
-        self.read_key_pair(key_id).await
+        self.read_ec2_key_pair(provider_id).await
     }
 
-    pub(super) async fn read_key_pair(
+    pub(super) async fn read_ec2_key_pair(
         &self,
-        key_id: &str,
+        provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
         let result = self
             .ec2_client
             .describe_key_pairs()
-            .key_pair_ids(key_id)
+            .key_pair_ids(provider_id)
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("DescribeKeyPairs: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("describe_key_pairs: {e}")))?;
 
-        let kp = result
+        let resource = result
             .key_pairs()
             .first()
-            .ok_or_else(|| ProviderError::NotFound(format!("KeyPair {key_id}")))?;
+            .ok_or_else(|| ProviderError::NotFound(format!("KeyPair {provider_id}")))?;
 
         let state = serde_json::json!({
             "identity": {
-                "name": kp.key_name().unwrap_or(""),
+                "name": resource.key_name().unwrap_or(""),
             },
             "security": {
-                "fingerprint": kp.key_fingerprint().unwrap_or(""),
-            }
+                "fingerprint": resource.key_fingerprint().unwrap_or(""),
+            },
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert("key_pair_id".into(), serde_json::json!(key_id));
+        outputs.insert("key_pair_id".into(), serde_json::json!(provider_id));
         outputs.insert(
             "key_name".into(),
-            serde_json::json!(kp.key_name().unwrap_or("")),
+            serde_json::json!(resource.key_name().unwrap_or("")),
         );
 
         Ok(ResourceOutput {
-            provider_id: key_id.to_string(),
+            provider_id: provider_id.to_string(),
             state,
             outputs,
         })
     }
 
-    pub(super) async fn delete_key_pair(&self, key_id: &str) -> Result<(), ProviderError> {
+    #[allow(dead_code)]
+    pub(super) async fn update_ec2_key_pair(
+        &self,
+        _provider_id: &str,
+        _config: &serde_json::Value,
+    ) -> Result<ResourceOutput, ProviderError> {
+        Err(ProviderError::RequiresReplacement(
+            "resource does not support in-place update".into(),
+        ))
+    }
+
+    pub(super) async fn delete_ec2_key_pair(&self, provider_id: &str) -> Result<(), ProviderError> {
         self.ec2_client
             .delete_key_pair()
-            .key_pair_id(key_id)
+            .key_pair_id(provider_id)
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("DeleteKeyPair: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("delete_key_pair: {e}")))?;
         Ok(())
     }
 
@@ -1295,40 +1350,105 @@ impl AwsProvider {
         }
     }
 
-    pub(super) fn ec2_nat_gateway_schema() -> ResourceTypeInfo {
-        ResourceTypeInfo {
+    pub(super) fn ec2_nat_gateway_schema() -> crate::provider::ResourceTypeInfo {
+        crate::provider::ResourceTypeInfo {
             type_path: "ec2.NatGateway".into(),
-            description: "NAT gateway for private subnet internet access".into(),
-            schema: ResourceSchema {
-                sections: vec![identity_section()],
-            },
-        }
-    }
-
-    pub(super) fn ec2_elastic_ip_schema() -> ResourceTypeInfo {
-        ResourceTypeInfo {
-            type_path: "ec2.ElasticIp".into(),
-            description: "Elastic IP address (static public IPv4)".into(),
-            schema: ResourceSchema {
-                sections: vec![identity_section()],
-            },
-        }
-    }
-
-    pub(super) fn ec2_key_pair_schema() -> ResourceTypeInfo {
-        ResourceTypeInfo {
-            type_path: "ec2.KeyPair".into(),
-            description: "SSH key pair for EC2 instance access".into(),
-            schema: ResourceSchema {
+            description: "NatGateway resource".into(),
+            schema: crate::provider::ResourceSchema {
                 sections: vec![
-                    identity_section(),
-                    SectionSchema {
+                    crate::provider::SectionSchema {
+                        name: "identity".into(),
+                        description: "Identity configuration".into(),
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "name".into(),
+                            description: "Name tag for the NAT gateway".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
+                    },
+                    crate::provider::SectionSchema {
+                        name: "network".into(),
+                        description: "Network configuration".into(),
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "allocation_id".into(),
+                                description: "Elastic IP allocation ID".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                            crate::provider::FieldSchema {
+                                name: "subnet_id".into(),
+                                description: "Subnet to place the NAT gateway in".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                            crate::provider::FieldSchema {
+                                name: "vpc_id".into(),
+                                description: "VPC containing the NAT gateway".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
+                    },
+                ],
+            },
+        }
+    }
+
+    pub(super) fn ec2_elastic_ip_schema() -> crate::provider::ResourceTypeInfo {
+        crate::provider::ResourceTypeInfo {
+            type_path: "ec2.ElasticIp".into(),
+            description: "ElasticIp resource".into(),
+            schema: crate::provider::ResourceSchema {
+                sections: vec![crate::provider::SectionSchema {
+                    name: "identity".into(),
+                    description: "Identity configuration".into(),
+                    fields: vec![crate::provider::FieldSchema {
+                        name: "name".into(),
+                        description: "Name tag for the Elastic IP".into(),
+                        field_type: crate::provider::FieldType::String,
+                        required: true,
+                        default: None,
+                        sensitive: false,
+                    }],
+                }],
+            },
+        }
+    }
+
+    pub(super) fn ec2_key_pair_schema() -> crate::provider::ResourceTypeInfo {
+        crate::provider::ResourceTypeInfo {
+            type_path: "ec2.KeyPair".into(),
+            description: "KeyPair resource".into(),
+            schema: crate::provider::ResourceSchema {
+                sections: vec![
+                    crate::provider::SectionSchema {
+                        name: "identity".into(),
+                        description: "Identity configuration".into(),
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "name".into(),
+                            description: "Key pair name".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
+                    },
+                    crate::provider::SectionSchema {
                         name: "security".into(),
-                        description: "Key configuration".into(),
-                        fields: vec![FieldSchema {
+                        description: "Security configuration".into(),
+                        fields: vec![crate::provider::FieldSchema {
                             name: "fingerprint".into(),
-                            description: "Key fingerprint (read-only)".into(),
-                            field_type: FieldType::String,
+                            description: "Key fingerprint".into(),
+                            field_type: crate::provider::FieldType::String,
                             required: false,
                             default: None,
                             sensitive: false,

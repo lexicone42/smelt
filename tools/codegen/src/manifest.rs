@@ -179,6 +179,9 @@ pub struct ResourceMeta {
     /// When true, codegen uses `.field()` instead of `.field().ok_or_else(...)`.
     #[serde(default)]
     pub aws_response_id_non_optional: bool,
+    /// AWS: the create response accessor (e.g., `.hosted_zone()`) returns `&T` not `Option<&T>`.
+    #[serde(default)]
+    pub aws_response_accessor_non_optional: bool,
     /// AWS: don't wrap create response in aws_response_accessor container.
     /// When true, the create response extracts the ID field directly from `result`.
     /// The `aws_response_accessor` is used only for the read response.
@@ -189,6 +192,10 @@ pub struct ResourceMeta {
     /// AWS: create response wraps result in a list; use `.{accessor}().first()` to extract.
     #[serde(default)]
     pub aws_create_list_accessor: Option<String>,
+    /// AWS: extra setter chain on the create builder.
+    /// Each entry is "method(value)" — e.g., "domain(aws_sdk_ec2::types::DomainType::Vpc)".
+    #[serde(default)]
+    pub aws_create_extra_setters: Vec<String>,
     /// AWS: extra setter chain on the delete builder.
     /// Each entry is "method(value)" — e.g., "recovery_window_in_days(30)".
     #[serde(default)]
@@ -204,6 +211,12 @@ pub struct ResourceMeta {
     /// On read/update/delete: parsed from provider_id and used as individual setters.
     #[serde(default)]
     pub aws_composite_id: Vec<CompositeIdPart>,
+    /// AWS: auto-generate a caller_reference on create.
+    #[serde(default)]
+    pub aws_caller_reference: bool,
+    /// AWS: prefix to trim from the provider_id after create (e.g., "/hostedzone/").
+    #[serde(default)]
+    pub aws_id_trim_prefix: Option<String>,
     /// AWS: builder groups — collections of fields that are packed into a single nested builder type.
     /// E.g., VpcConfigRequest groups subnet_ids + security_group_ids + endpoint_public/private_access.
     #[serde(default)]
@@ -667,10 +680,14 @@ impl ResourceManifest {
                 aws_read_id_param: None,
                 aws_delete_id_param: None,
                 aws_response_id_non_optional: false,
+                aws_response_accessor_non_optional: false,
                 aws_create_no_container: false,
                 aws_create_list_accessor: None,
+                aws_create_extra_setters: vec![],
                 aws_delete_extra_setters: vec![],
                 aws_update_extra_setters: vec![],
+                aws_caller_reference: false,
+                aws_id_trim_prefix: None,
                 aws_composite_id: vec![],
                 aws_builder_groups: vec![],
             },
