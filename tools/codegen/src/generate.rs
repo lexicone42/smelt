@@ -148,21 +148,23 @@ fn write_create_fn(out: &mut String, m: &ResourceManifest) {
     let _ = writeln!(out, "    config: &serde_json::Value,");
     let _ = writeln!(out, ") -> Result<ResourceOutput, ProviderError> {{");
 
-    // Extract fields from config
-    let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
-    let _ = writeln!(out, "    // Extract fields from config");
-    for (name, field) in &m.fields {
-        if field.output_only || field.skip {
-            continue;
+    // Extract fields from config (skip if aws_create_code replaces the entire body)
+    if m.resource.aws_create_code.is_none() {
+        let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
+        let _ = writeln!(out, "    // Extract fields from config");
+        for (name, field) in &m.fields {
+            if field.output_only || field.skip {
+                continue;
+            }
+            // Skip extraction for skip_create fields unless they have a post-create method
+            // (post-create fields still need their values extracted)
+            if field.skip_create && field.aws_post_create_method.is_none() {
+                continue;
+            }
+            write_field_extraction(out, name, field, &sdk_crate_mod);
         }
-        // Skip extraction for skip_create fields unless they have a post-create method
-        // (post-create fields still need their values extracted)
-        if field.skip_create && field.aws_post_create_method.is_none() {
-            continue;
-        }
-        write_field_extraction(out, name, field, &sdk_crate_mod);
+        let _ = writeln!(out);
     }
-    let _ = writeln!(out);
 
     if is_gcp {
         write_gcp_create_body(out, m);
@@ -376,6 +378,17 @@ fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
 }
 
 fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
+    // Raw create code override — replaces all standard create logic
+    if let Some(ref code) = m.resource.aws_create_code {
+        for line in code.lines() {
+            let _ = writeln!(out, "    {line}");
+        }
+        let read_fn = crud_fn_name("read", &m.resource.type_path);
+        let _ = writeln!(out);
+        let _ = writeln!(out, "    self.{read_fn}(provider_id).await");
+        return;
+    }
+
     let client_field = m.resource.aws_client_field.as_deref().unwrap_or("client");
     let create_method = snake_case(&m.crud.create);
     let model_name = &m.resource.sdk_model;
@@ -389,7 +402,7 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
             let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
             let _ = writeln!(out, "    let tag_spec = Self::build_tags(config, {sdk_crate_mod}::types::ResourceType::{rt});");
         }
-        AwsTagStyle::SetTags | AwsTagStyle::TypedTags | AwsTagStyle::InlineKv => {
+        AwsTagStyle::SetTags | AwsTagStyle::TypedTags | AwsTagStyle::InlineKv | AwsTagStyle::KmsTags => {
             let _ = writeln!(out, "    let tags = super::extract_tags(config);");
         }
         AwsTagStyle::PostCreate | AwsTagStyle::None => {}
@@ -695,6 +708,18 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
         AwsTagStyle::InlineKv => {
             let _ = writeln!(out, "    for (k, v) in &tags {{");
             let _ = writeln!(out, "        req = req.tags(k, v);");
+            let _ = writeln!(out, "    }}");
+        }
+        AwsTagStyle::KmsTags => {
+            let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
+            let _ = writeln!(out, "    for (k, v) in &tags {{");
+            let _ = writeln!(out, "        req = req.tags(");
+            let _ = writeln!(out, "            {sdk_crate_mod}::types::Tag::builder()");
+            let _ = writeln!(out, "                .tag_key(k)");
+            let _ = writeln!(out, "                .tag_value(v)");
+            let _ = writeln!(out, "                .build()");
+            let _ = writeln!(out, "                .map_err(|e| ProviderError::InvalidConfig(format!(\"failed to build Tag: {{e}}\")))?");
+            let _ = writeln!(out, "        );");
             let _ = writeln!(out, "    }}");
         }
         AwsTagStyle::PostCreate | AwsTagStyle::None => {}
@@ -1830,6 +1855,17 @@ fn write_delete_fn(out: &mut String, m: &ResourceManifest) {
             "        .map_err(|e| super::classify_gcp_error(\"Delete{model_name}\", e))?;"
         );
     } else {
+        // Raw delete code override — replaces all standard delete logic
+        if let Some(ref code) = m.resource.aws_delete_code {
+            for line in code.lines() {
+                let _ = writeln!(out, "    {line}");
+            }
+            let _ = writeln!(out, "    Ok(())");
+            let _ = writeln!(out, "}}");
+            let _ = writeln!(out);
+            return;
+        }
+
         let client_field = m.resource.aws_client_field.as_deref().unwrap_or("client");
         let delete_method = snake_case(m.crud.delete.as_deref().unwrap());
         let id_param = m.resource.aws_id_param.as_deref().unwrap_or("name");

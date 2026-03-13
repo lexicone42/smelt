@@ -189,6 +189,16 @@ pub struct CatalogEntry {
     /// When set, overrides all standard update logic (field extraction, builder, send).
     #[serde(default)]
     pub aws_update_code: Option<String>,
+    /// AWS: raw Rust code to replace the standard create body.
+    /// Variables in scope: `self`, `config`.
+    /// Must set `provider_id` (as &str). Read-back is auto-appended.
+    #[serde(default)]
+    pub aws_create_code: Option<String>,
+    /// AWS: raw Rust code to replace the standard delete body.
+    /// Variables in scope: `self`, `provider_id`.
+    /// Must end with Ok(()) or return an error.
+    #[serde(default)]
+    pub aws_delete_code: Option<String>,
     /// AWS: explicit field definitions (skips SDK introspection)
     #[serde(default)]
     pub fields: Vec<AwsCatalogField>,
@@ -819,6 +829,8 @@ pub fn batch_generate_aws(catalog_path: &str, output_dir: &str) {
                 aws_post_create_code: entry.aws_post_create_code.clone(),
                 aws_pre_delete_code: entry.aws_pre_delete_code.clone(),
                 aws_update_code: entry.aws_update_code.clone(),
+                aws_create_code: entry.aws_create_code.clone(),
+                aws_delete_code: entry.aws_delete_code.clone(),
             },
             crud: CrudMethods {
                 create: entry.crud_create.clone().unwrap_or_else(|| "create".into()),

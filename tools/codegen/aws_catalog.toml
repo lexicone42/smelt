@@ -264,12 +264,185 @@ description = "Visibility timeout in seconds (0–43200)"
 aws_attr_key = "VisibilityTimeout"
 
 # ─── KMS: Key ────────────────────────────────────────────────────────────────
-# HAND-WRITTEN — cannot generate:
-#   - create_key has no .name() setter; name is set via post-create create_alias
-#   - Enum fields (key_usage, key_spec) need AWS SDK type paths (KeyUsageType, KeySpec)
-#   - Tags use tag_key/tag_value instead of key/value
-#   - Update is split: update_key_description + enable_key/disable_key (2 APIs)
-#   - Delete uses schedule_key_deletion with pending_window_in_days
+# Uses escape hatches: aws_create_code (enum conversions + alias creation),
+# aws_update_code (split update_key_description + enable/disable), aws_delete_code
+# (schedule_key_deletion with 30-day window). KMS tags use tag_key/tag_value.
+
+[[resource]]
+struct_name = "Key"
+sdk_crate = "aws-sdk-kms"
+sdk_client = "kms"
+type_path = "kms.Key"
+
+crud_create = "create_key"
+crud_read = "describe_key"
+crud_update = "update_key_description"
+crud_delete = "schedule_key_deletion"
+aws_updatable = true
+
+aws_client_field = "kms_client"
+aws_read_style = "get_single"
+aws_response_accessor = "key_metadata"
+aws_id_param = "key_id"
+aws_id_source = "response_field"
+aws_response_id_field = "key_id"
+aws_response_id_non_optional = true
+aws_tag_style = "kms_tags"
+skip_name_on_create = true
+
+aws_create_code = """
+let description = config.optional_str("/identity/description")
+    .or_else(|| config.optional_str("/identity/name"))
+    .unwrap_or("Managed by smelt");
+let key_usage = config.str_or("/security/key_usage", "ENCRYPT_DECRYPT");
+let key_spec = config.str_or("/security/key_spec", "SYMMETRIC_DEFAULT");
+
+let mut req = self.kms_client
+    .create_key()
+    .description(description)
+    .key_usage(aws_sdk_kms::types::KeyUsageType::from(key_usage))
+    .key_spec(aws_sdk_kms::types::KeySpec::from(key_spec));
+
+let tags = super::extract_tags(config);
+for (k, v) in &tags {
+    req = req.tags(
+        aws_sdk_kms::types::Tag::builder()
+            .tag_key(k)
+            .tag_value(v)
+            .build()
+            .map_err(|e| ProviderError::InvalidConfig(format!("failed to build KMS Tag: {e}")))?
+    );
+}
+
+if let Some(policy) = config.optional_str("/security/key_policy") {
+    req = req.policy(policy);
+}
+
+let result = req.send().await
+    .map_err(|e| ProviderError::ApiError(format!("create_key: {e}")))?;
+
+let key = result.key_metadata()
+    .ok_or_else(|| ProviderError::ApiError("CreateKey returned no metadata".into()))?;
+let provider_id = key.key_id();
+
+// Create alias if name is specified
+if let Some(name) = config.optional_str("/identity/name") {
+    let alias = if name.starts_with("alias/") {
+        name.to_string()
+    } else {
+        format!("alias/{name}")
+    };
+    self.kms_client
+        .create_alias()
+        .alias_name(&alias)
+        .target_key_id(provider_id)
+        .send()
+        .await
+        .map_err(|e| ProviderError::ApiError(format!("create_alias: {e}")))?;
+}
+"""
+
+aws_update_code = """
+if let Some(desc) = config.optional_str("/identity/description") {
+    self.kms_client
+        .update_key_description()
+        .key_id(provider_id)
+        .description(desc)
+        .send()
+        .await
+        .map_err(|e| ProviderError::ApiError(format!("update_key_description: {e}")))?;
+}
+
+if let Some(enabled) = config.optional_bool("/security/enabled") {
+    if enabled {
+        self.kms_client
+            .enable_key()
+            .key_id(provider_id)
+            .send()
+            .await
+            .map_err(|e| ProviderError::ApiError(format!("enable_key: {e}")))?;
+    } else {
+        self.kms_client
+            .disable_key()
+            .key_id(provider_id)
+            .send()
+            .await
+            .map_err(|e| ProviderError::ApiError(format!("disable_key: {e}")))?;
+    }
+}
+"""
+
+aws_delete_code = """
+self.kms_client
+    .schedule_key_deletion()
+    .key_id(provider_id)
+    .pending_window_in_days(30)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("schedule_key_deletion: {e}")))?;
+"""
+
+[[resource.fields]]
+name = "description"
+section = "identity"
+type = "String"
+required = false
+default_value = "Managed by smelt"
+description = "Key description"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Key alias (becomes alias/name)"
+
+[[resource.fields]]
+name = "key_usage"
+section = "security"
+type = "Enum"
+enum_values = ["ENCRYPT_DECRYPT", "SIGN_VERIFY", "GENERATE_VERIFY_MAC"]
+required = false
+default_value = "ENCRYPT_DECRYPT"
+description = "Key usage type"
+skip_create = true
+
+[[resource.fields]]
+name = "key_spec"
+section = "security"
+type = "Enum"
+enum_values = ["SYMMETRIC_DEFAULT", "RSA_2048", "RSA_4096", "ECC_NIST_P256", "ECC_NIST_P384"]
+required = false
+default_value = "SYMMETRIC_DEFAULT"
+description = "Key spec"
+skip_create = true
+
+[[resource.fields]]
+name = "key_policy"
+section = "security"
+type = "String"
+required = false
+description = "Key policy JSON"
+skip_create = true
+
+[[resource.fields]]
+name = "enabled"
+section = "security"
+type = "Bool"
+required = false
+default_value = "true"
+description = "Key enabled state"
+skip_create = true
+read_expression = "resource.enabled()"
+
+[[resource.aws_outputs]]
+name = "key_id"
+expression = "resource.key_id()"
+non_optional = true
+
+[[resource.aws_outputs]]
+name = "key_arn"
+expression = "resource.arn().unwrap_or(\"\")"
 
 # ─── SSM: Parameter ──────────────────────────────────────────────────────────
 # Pattern: name as provider_id (config_name), put_parameter for both create and update.
@@ -413,10 +586,118 @@ description = "KMS key ID for encryption at rest"
 #   - path() returns &str (non-optional) — codegen emits unwrap_or("") which won't compile
 
 # ─── IAM: InstanceProfile ──────────────────────────────────────────────────
-# HAND-WRITTEN — cannot generate:
-#   - Post-create: add_role_to_instance_profile
-#   - Delete: get + remove_role_from_instance_profile for each role
-#   - path() returns &str (non-optional) — codegen emits unwrap_or("") which won't compile
+# Uses escape hatches: aws_post_create_code (role attachment),
+# aws_delete_code (remove roles then delete). path() is non-optional.
+
+[[resource]]
+struct_name = "InstanceProfile"
+sdk_crate = "aws-sdk-iam"
+sdk_client = "iam"
+type_path = "iam.InstanceProfile"
+
+crud_create = "create_instance_profile"
+crud_read = "get_instance_profile"
+crud_delete = "delete_instance_profile"
+
+aws_client_field = "iam_client"
+aws_read_style = "get_single"
+aws_response_accessor = "instance_profile"
+aws_id_param = "instance_profile_name"
+aws_id_source = "config_name"
+aws_tag_style = "none"
+
+aws_create_code = """
+let name = config.require_str("/identity/name")?.to_string();
+
+let mut req = self.iam_client
+    .create_instance_profile()
+    .instance_profile_name(&name);
+
+if let Some(path) = config.optional_str("/identity/path") {
+    req = req.path(path);
+}
+
+req.send().await
+    .map_err(|e| ProviderError::ApiError(format!("create_instance_profile: {e}")))?;
+
+// Add role if specified
+if let Some(role_name) = config.optional_str("/security/role_name") {
+    self.iam_client
+        .add_role_to_instance_profile()
+        .instance_profile_name(&name)
+        .role_name(role_name)
+        .send()
+        .await
+        .map_err(|e| ProviderError::ApiError(format!("add_role_to_instance_profile: {e}")))?;
+}
+
+let provider_id = &name;
+"""
+
+aws_delete_code = """
+// Remove all attached roles before deletion
+let result = self.iam_client
+    .get_instance_profile()
+    .instance_profile_name(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("get_instance_profile: {e}")))?;
+
+if let Some(ip) = result.instance_profile() {
+    for role in ip.roles() {
+        self.iam_client
+            .remove_role_from_instance_profile()
+            .instance_profile_name(provider_id)
+            .role_name(role.role_name())
+            .send()
+            .await
+            .map_err(|e| ProviderError::ApiError(format!("remove_role_from_instance_profile: {e}")))?;
+    }
+}
+
+self.iam_client
+    .delete_instance_profile()
+    .instance_profile_name(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("delete_instance_profile: {e}")))?;
+"""
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Instance profile name"
+
+[[resource.fields]]
+name = "path"
+section = "identity"
+type = "String"
+required = false
+default_value = "/"
+description = "IAM path"
+skip_create = true
+read_expression = "resource.path()"
+
+[[resource.fields]]
+name = "role_name"
+section = "security"
+type = "String"
+required = false
+description = "Role to attach"
+skip_create = true
+skip_read = true
+
+[[resource.aws_outputs]]
+name = "instance_profile_arn"
+expression = "resource.arn()"
+non_optional = true
+
+[[resource.aws_outputs]]
+name = "instance_profile_name"
+expression = "resource.instance_profile_name()"
+non_optional = true
 
 # ─── IAM: Policy ──────────────────────────────────────────────────────────
 # HAND-WRITTEN — cannot generate:

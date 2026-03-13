@@ -376,124 +376,120 @@ impl AwsProvider {
         Ok(())
     }
 
-    // ─── IAM InstanceProfile ───────────────────────────────────────────
+    // ─── IAM InstanceProfile (generated) ────────────────────────────────
 
-    pub(super) async fn create_instance_profile(
+    pub(super) async fn create_iam_instance_profile(
         &self,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = config
-            .pointer("/identity/name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ProviderError::InvalidConfig("identity.name is required".into()))?;
+        let name = config.require_str("/identity/name")?.to_string();
 
         let mut req = self
             .iam_client
             .create_instance_profile()
-            .instance_profile_name(name);
+            .instance_profile_name(&name);
 
-        if let Some(path) = config.pointer("/identity/path").and_then(|v| v.as_str()) {
+        if let Some(path) = config.optional_str("/identity/path") {
             req = req.path(path);
         }
 
         req.send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("CreateInstanceProfile: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("create_instance_profile: {e}")))?;
 
         // Add role if specified
-        if let Some(role_name) = config
-            .get("role_name")
-            .or_else(|| config.pointer("/security/role_name"))
-            .and_then(|v| v.as_str())
-        {
+        if let Some(role_name) = config.optional_str("/security/role_name") {
             self.iam_client
                 .add_role_to_instance_profile()
-                .instance_profile_name(name)
+                .instance_profile_name(&name)
                 .role_name(role_name)
                 .send()
                 .await
-                .map_err(|e| ProviderError::ApiError(format!("AddRoleToInstanceProfile: {e}")))?;
+                .map_err(|e| {
+                    ProviderError::ApiError(format!("add_role_to_instance_profile: {e}"))
+                })?;
         }
 
-        self.read_instance_profile(name).await
+        let provider_id = &name;
+
+        self.read_iam_instance_profile(provider_id).await
     }
 
-    pub(super) async fn read_instance_profile(
+    pub(super) async fn read_iam_instance_profile(
         &self,
-        name: &str,
+        provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
         let result = self
             .iam_client
             .get_instance_profile()
-            .instance_profile_name(name)
+            .instance_profile_name(provider_id)
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("GetInstanceProfile: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("get_instance_profile: {e}")))?;
 
-        let ip = result
+        let resource = result
             .instance_profile()
-            .ok_or_else(|| ProviderError::NotFound(format!("InstanceProfile {name}")))?;
-
-        let roles: Vec<String> = ip
-            .roles()
-            .iter()
-            .map(|r| r.role_name().to_string())
-            .collect();
+            .ok_or_else(|| ProviderError::NotFound(format!("InstanceProfile {provider_id}")))?;
 
         let state = serde_json::json!({
             "identity": {
-                "name": ip.instance_profile_name(),
-                "path": ip.path(),
+                "name": provider_id,
+                "path": resource.path(),
             },
             "security": {
-                "roles": roles,
-            }
+            },
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert("instance_profile_arn".into(), serde_json::json!(ip.arn()));
+        outputs.insert(
+            "instance_profile_arn".into(),
+            serde_json::json!(resource.arn()),
+        );
         outputs.insert(
             "instance_profile_name".into(),
-            serde_json::json!(ip.instance_profile_name()),
+            serde_json::json!(resource.instance_profile_name()),
         );
 
         Ok(ResourceOutput {
-            provider_id: name.to_string(),
+            provider_id: provider_id.to_string(),
             state,
             outputs,
         })
     }
 
-    pub(super) async fn delete_instance_profile(&self, name: &str) -> Result<(), ProviderError> {
-        // Remove roles first
+    pub(super) async fn delete_iam_instance_profile(
+        &self,
+        provider_id: &str,
+    ) -> Result<(), ProviderError> {
+        // Remove all attached roles before deletion
         let result = self
             .iam_client
             .get_instance_profile()
-            .instance_profile_name(name)
+            .instance_profile_name(provider_id)
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("GetInstanceProfile: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("get_instance_profile: {e}")))?;
 
         if let Some(ip) = result.instance_profile() {
             for role in ip.roles() {
                 self.iam_client
                     .remove_role_from_instance_profile()
-                    .instance_profile_name(name)
+                    .instance_profile_name(provider_id)
                     .role_name(role.role_name())
                     .send()
                     .await
                     .map_err(|e| {
-                        ProviderError::ApiError(format!("RemoveRoleFromInstanceProfile: {e}"))
+                        ProviderError::ApiError(format!("remove_role_from_instance_profile: {e}"))
                     })?;
             }
         }
 
         self.iam_client
             .delete_instance_profile()
-            .instance_profile_name(name)
+            .instance_profile_name(provider_id)
             .send()
             .await
-            .map_err(|e| ProviderError::ApiError(format!("DeleteInstanceProfile: {e}")))?;
+            .map_err(|e| ProviderError::ApiError(format!("delete_instance_profile: {e}")))?;
         Ok(())
     }
 
@@ -616,14 +612,24 @@ impl AwsProvider {
                     SectionSchema {
                         name: "identity".into(),
                         description: "Profile identification".into(),
-                        fields: vec![FieldSchema {
-                            name: "name".into(),
-                            description: "Instance profile name".into(),
-                            field_type: FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            FieldSchema {
+                                name: "name".into(),
+                                description: "Instance profile name".into(),
+                                field_type: FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                            FieldSchema {
+                                name: "path".into(),
+                                description: "IAM path".into(),
+                                field_type: FieldType::String,
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     SectionSchema {
                         name: "security".into(),

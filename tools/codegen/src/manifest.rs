@@ -230,6 +230,12 @@ pub struct ResourceMeta {
     /// AWS: raw Rust code to replace the standard update body.
     #[serde(default)]
     pub aws_update_code: Option<String>,
+    /// AWS: raw Rust code to replace the standard create body.
+    #[serde(default)]
+    pub aws_create_code: Option<String>,
+    /// AWS: raw Rust code to replace the standard delete body.
+    #[serde(default)]
+    pub aws_delete_code: Option<String>,
 }
 
 /// One part of a composite provider_id.
@@ -356,6 +362,8 @@ pub enum AwsTagStyle {
     TypedTags,
     /// SQS-style: .tags(key, value) inline on create builder
     InlineKv,
+    /// KMS-style: .tags(Tag::builder().tag_key(k).tag_value(v).build()?)
+    KmsTags,
     /// SSM-style: tags applied via separate API call after create
     PostCreate,
     /// No tag support on create
@@ -702,6 +710,8 @@ impl ResourceManifest {
                 aws_post_create_code: None,
                 aws_pre_delete_code: None,
                 aws_update_code: None,
+                aws_create_code: None,
+                aws_delete_code: None,
             },
             crud,
             fields: field_defs,
