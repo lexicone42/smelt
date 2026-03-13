@@ -176,6 +176,20 @@ impl AwsProvider {
             ses_client: aws_sdk_sesv2::Client::new(config),
         }
     }
+
+    /// Build EC2 TagSpecification from smelt config tags.
+    /// Used by all EC2 resources that support tag_specifications on create.
+    fn build_tags(
+        config: &serde_json::Value,
+        resource_type: aws_sdk_ec2::types::ResourceType,
+    ) -> aws_sdk_ec2::types::TagSpecification {
+        let tags = extract_tags(config);
+        let mut spec = aws_sdk_ec2::types::TagSpecification::builder().resource_type(resource_type);
+        for (k, v) in &tags {
+            spec = spec.tags(aws_sdk_ec2::types::Tag::builder().key(k).value(v).build());
+        }
+        spec.build()
+    }
 }
 
 /// Extract tag key-value pairs from a smelt resource config JSON.
@@ -308,23 +322,23 @@ impl Provider for AwsProvider {
                 // EC2 (hybrid: generated + hand-written)
                 "ec2.Vpc" => read_ec2_vpc,
                 "ec2.Subnet" => read_ec2_subnet,
-                "ec2.SecurityGroup" => read_security_group,
+                "ec2.SecurityGroup" => read_ec2_security_group,
                 "ec2.InternetGateway" => read_ec2_internet_gateway,
-                "ec2.RouteTable" => read_route_table,
+                "ec2.RouteTable" => read_ec2_route_table,
                 "ec2.NatGateway" => read_ec2_nat_gateway,
                 "ec2.ElasticIp" => read_ec2_elastic_ip,
                 "ec2.KeyPair" => read_ec2_key_pair,
-                "ec2.Instance" => read_instance,
+                "ec2.Instance" => read_ec2_instance,
                 "ec2.VpcEndpoint" => read_ec2_vpc_endpoint,
                 "iam.Role" => read_iam_role,
                 "iam.Policy" => read_iam_policy,
                 "iam.InstanceProfile" => read_iam_instance_profile,
                 "s3.Bucket" => read_s3_bucket,
                 "ecs.Service" => read_ecs_service,
-                "ecs.TaskDefinition" => read_task_definition,
-                "route53.RecordSet" => read_record_set,
+                "ecs.TaskDefinition" => read_ecs_task_definition,
+                "route53.RecordSet" => read_route53_record_set,
                 "cloudfront.Distribution" => read_cloudfront_distribution,
-                "apigateway.Stage" => read_stage,
+                "apigateway.Stage" => read_apigateway_stage,
                 "autoscaling.Group" => read_autoscaling_group,
                 "eks.Cluster" => read_eks_cluster,
                 "eks.NodeGroup" => read_eks_node_group,
@@ -377,23 +391,23 @@ impl Provider for AwsProvider {
                 // EC2 (hybrid: generated + hand-written)
                 "ec2.Vpc" => create_ec2_vpc,
                 "ec2.Subnet" => create_ec2_subnet,
-                "ec2.SecurityGroup" => create_security_group,
+                "ec2.SecurityGroup" => create_ec2_security_group,
                 "ec2.InternetGateway" => create_ec2_internet_gateway,
-                "ec2.RouteTable" => create_route_table,
+                "ec2.RouteTable" => create_ec2_route_table,
                 "ec2.NatGateway" => create_ec2_nat_gateway,
                 "ec2.ElasticIp" => create_ec2_elastic_ip,
                 "ec2.KeyPair" => create_ec2_key_pair,
-                "ec2.Instance" => create_instance,
+                "ec2.Instance" => create_ec2_instance,
                 "ec2.VpcEndpoint" => create_ec2_vpc_endpoint,
                 "iam.Role" => create_iam_role,
                 "iam.Policy" => create_iam_policy,
                 "iam.InstanceProfile" => create_iam_instance_profile,
                 "s3.Bucket" => create_s3_bucket,
                 "ecs.Service" => create_ecs_service,
-                "ecs.TaskDefinition" => create_task_definition,
-                "route53.RecordSet" => create_record_set,
+                "ecs.TaskDefinition" => create_ecs_task_definition,
+                "route53.RecordSet" => create_route53_record_set,
                 "cloudfront.Distribution" => create_cloudfront_distribution,
-                "apigateway.Stage" => create_stage,
+                "apigateway.Stage" => create_apigateway_stage,
                 "autoscaling.Group" => create_autoscaling_group,
                 "eks.Cluster" => create_eks_cluster,
                 "eks.NodeGroup" => create_eks_node_group,
@@ -449,15 +463,15 @@ impl Provider for AwsProvider {
                 updatable: {
                     // EC2 (hybrid: generated + hand-written)
                     "ec2.Vpc" => update_ec2_vpc,
-                    "ec2.Instance" => update_instance,
-                    "ec2.RouteTable" => update_route_table,
+                    "ec2.Instance" => update_ec2_instance,
+                    "ec2.RouteTable" => update_ec2_route_table,
                     "iam.Role" => update_iam_role,
                     "iam.Policy" => update_iam_policy,
                     "s3.Bucket" => update_s3_bucket,
-                    "ecs.Service" => update_ecs_service_resource,
-                    "route53.RecordSet" => update_record_set,
+                    "ecs.Service" => update_ecs_service,
+                    "route53.RecordSet" => update_route53_record_set,
                     "cloudfront.Distribution" => update_cloudfront_distribution,
-                    "apigateway.Stage" => update_stage,
+                    "apigateway.Stage" => update_apigateway_stage,
                     "autoscaling.Group" => update_autoscaling_group,
                     "eks.Cluster" => update_eks_cluster,
                     "eks.NodeGroup" => update_eks_node_group,
@@ -522,23 +536,23 @@ impl Provider for AwsProvider {
                 // EC2 (hybrid: generated + hand-written)
                 "ec2.Vpc" => delete_ec2_vpc,
                 "ec2.Subnet" => delete_ec2_subnet,
-                "ec2.SecurityGroup" => delete_security_group,
+                "ec2.SecurityGroup" => delete_ec2_security_group,
                 "ec2.InternetGateway" => delete_ec2_internet_gateway,
-                "ec2.RouteTable" => delete_route_table,
+                "ec2.RouteTable" => delete_ec2_route_table,
                 "ec2.NatGateway" => delete_ec2_nat_gateway,
                 "ec2.ElasticIp" => delete_ec2_elastic_ip,
                 "ec2.KeyPair" => delete_ec2_key_pair,
-                "ec2.Instance" => delete_instance,
+                "ec2.Instance" => delete_ec2_instance,
                 "ec2.VpcEndpoint" => delete_ec2_vpc_endpoint,
                 "iam.Role" => delete_iam_role,
                 "iam.Policy" => delete_iam_policy,
                 "iam.InstanceProfile" => delete_iam_instance_profile,
                 "s3.Bucket" => delete_s3_bucket,
                 "ecs.Service" => delete_ecs_service,
-                "ecs.TaskDefinition" => delete_task_definition,
-                "route53.RecordSet" => delete_record_set,
+                "ecs.TaskDefinition" => delete_ecs_task_definition,
+                "route53.RecordSet" => delete_route53_record_set,
                 "cloudfront.Distribution" => delete_cloudfront_distribution,
-                "apigateway.Stage" => delete_stage,
+                "apigateway.Stage" => delete_apigateway_stage,
                 "autoscaling.Group" => delete_autoscaling_group,
                 "eks.Cluster" => delete_eks_cluster,
                 "eks.NodeGroup" => delete_eks_node_group,

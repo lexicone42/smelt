@@ -1217,6 +1217,485 @@ required = true
 description = "Cluster name"
 sdk_param = "cluster_name"
 
+# ─── ECS: Service ──────────────────────────────────────────────────────────
+# Full escape hatch — cluster ARN parsing, Fargate networking, scale-to-zero delete
+
+[[resource]]
+struct_name = "Service"
+sdk_crate = "aws-sdk-ecs"
+sdk_client = "ecs"
+type_path = "ecs.Service"
+crud_create = "CreateService"
+crud_read = "DescribeServices"
+crud_update = "UpdateService"
+crud_delete = "DeleteService"
+aws_client_field = "ecs_client"
+aws_tag_style = "none"
+aws_updatable = true
+
+aws_create_code = '''
+let name = config
+    .pointer("/identity/name")
+    .and_then(|v| v.as_str())
+    .ok_or_else(|| ProviderError::InvalidConfig("identity.name is required".into()))?;
+
+let cluster_arn = config
+    .get("cluster_arn")
+    .or_else(|| config.pointer("/sizing/cluster_arn"))
+    .and_then(|v| v.as_str())
+    .ok_or_else(|| {
+        ProviderError::InvalidConfig("cluster_arn is required for ECS Service".into())
+    })?;
+
+let task_def = config
+    .get("task_definition_arn")
+    .or_else(|| config.pointer("/sizing/task_definition"))
+    .and_then(|v| v.as_str())
+    .ok_or_else(|| ProviderError::InvalidConfig("task_definition is required".into()))?;
+
+let desired_count = config
+    .pointer("/sizing/desired_count")
+    .and_then(|v| v.as_i64())
+    .unwrap_or(1) as i32;
+
+let launch_type = config
+    .pointer("/sizing/launch_type")
+    .and_then(|v| v.as_str())
+    .unwrap_or("FARGATE");
+
+let mut req = self
+    .ecs_client
+    .create_service()
+    .cluster(cluster_arn)
+    .service_name(name)
+    .task_definition(task_def)
+    .desired_count(desired_count)
+    .launch_type(aws_sdk_ecs::types::LaunchType::from(launch_type));
+
+// Network configuration for Fargate
+if launch_type == "FARGATE" {
+    let mut net_cfg = aws_sdk_ecs::types::AwsVpcConfiguration::builder();
+
+    if let Some(subnets) = config
+        .pointer("/network/subnet_ids")
+        .and_then(|v| v.as_array())
+    {
+        for s in subnets {
+            if let Some(id) = s.as_str() {
+                net_cfg = net_cfg.subnets(id);
+            }
+        }
+    }
+    if let Some(sid) = config.get("subnet_id").and_then(|v| v.as_str()) {
+        net_cfg = net_cfg.subnets(sid);
+    }
+    if let Some(sgs) = config
+        .pointer("/security/security_group_ids")
+        .and_then(|v| v.as_array())
+    {
+        for sg in sgs {
+            if let Some(id) = sg.as_str() {
+                net_cfg = net_cfg.security_groups(id);
+            }
+        }
+    }
+    if let Some(sg) = config.get("group_id").and_then(|v| v.as_str()) {
+        net_cfg = net_cfg.security_groups(sg);
+    }
+
+    req = req.network_configuration(
+        aws_sdk_ecs::types::NetworkConfiguration::builder()
+            .awsvpc_configuration(net_cfg.build().map_err(|e| {
+                ProviderError::InvalidConfig(format!(
+                    "failed to build AwsVpcConfiguration: {e}"
+                ))
+            })?)
+            .build(),
+    );
+}
+
+let result = req
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("CreateService: {e}")))?;
+
+let service = result
+    .service()
+    .ok_or_else(|| ProviderError::ApiError("CreateService returned no service".into()))?;
+let arn = service
+    .service_arn()
+    .ok_or_else(|| ProviderError::ApiError("Service has no ARN".into()))?;
+
+let provider_id = arn;
+'''
+
+aws_read_code = '''
+// Parse cluster from ARN: arn:aws:ecs:region:acct:service/cluster/name
+let parts: Vec<&str> = provider_id.split('/').collect();
+let cluster = if parts.len() >= 2 { parts[1] } else { "" };
+
+let result = self
+    .ecs_client
+    .describe_services()
+    .cluster(cluster)
+    .services(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("DescribeServices: {e}")))?;
+
+let service = result
+    .services()
+    .first()
+    .ok_or_else(|| ProviderError::NotFound(format!("Service {provider_id}")))?;
+
+let state = serde_json::json!({
+    "identity": { "name": service.service_name().unwrap_or("") },
+    "sizing": {
+        "desired_count": service.desired_count(),
+        "running_count": service.running_count(),
+        "task_definition": service.task_definition().unwrap_or(""),
+        "launch_type": service.launch_type().map(|l| l.as_str()).unwrap_or(""),
+    }
+});
+
+let mut outputs = HashMap::new();
+outputs.insert("service_arn".into(), serde_json::json!(provider_id));
+outputs.insert(
+    "service_name".into(),
+    serde_json::json!(service.service_name().unwrap_or("")),
+);
+
+Ok(ResourceOutput {
+    provider_id: provider_id.to_string(),
+    state,
+    outputs,
+})
+'''
+
+aws_update_code = '''
+let parts: Vec<&str> = provider_id.split('/').collect();
+let cluster = if parts.len() >= 2 { parts[1] } else { "" };
+
+let mut req = self
+    .ecs_client
+    .update_service()
+    .cluster(cluster)
+    .service(provider_id);
+
+if let Some(td) = config
+    .pointer("/sizing/task_definition")
+    .and_then(|v| v.as_str())
+{
+    req = req.task_definition(td);
+}
+if let Some(count) = config
+    .pointer("/sizing/desired_count")
+    .and_then(|v| v.as_i64())
+{
+    req = req.desired_count(count as i32);
+}
+
+req.send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("UpdateService: {e}")))?;
+'''
+
+aws_delete_code = '''
+let parts: Vec<&str> = provider_id.split('/').collect();
+let cluster = if parts.len() >= 2 { parts[1] } else { "" };
+
+// Scale to 0 first
+let _ = self
+    .ecs_client
+    .update_service()
+    .cluster(cluster)
+    .service(provider_id)
+    .desired_count(0)
+    .send()
+    .await;
+
+self.ecs_client
+    .delete_service()
+    .cluster(cluster)
+    .service(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("DeleteService: {e}")))?;
+'''
+
+[[resource.aws_outputs]]
+name = "service_arn"
+expression = "provider_id"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Service name"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "desired_count"
+section = "sizing"
+type = "Integer"
+default = 1
+description = "Number of tasks to run"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "task_definition"
+section = "sizing"
+type = "String"
+required = true
+description = "Task definition family or ARN"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "launch_type"
+section = "sizing"
+type = "Enum"
+variants = ["FARGATE", "EC2"]
+default = "FARGATE"
+description = "Launch type"
+skip_create = true
+skip_read = true
+
+# ─── ECS: TaskDefinition ──────────────────────────────────────────────────
+# Full escape hatch — container definitions array, register/deregister
+
+[[resource]]
+struct_name = "TaskDefinition"
+sdk_crate = "aws-sdk-ecs"
+sdk_client = "ecs"
+type_path = "ecs.TaskDefinition"
+crud_create = "RegisterTaskDefinition"
+crud_read = "DescribeTaskDefinition"
+crud_delete = "DeregisterTaskDefinition"
+aws_client_field = "ecs_client"
+aws_tag_style = "none"
+
+aws_create_code = '''
+let family = config
+    .pointer("/identity/name")
+    .and_then(|v| v.as_str())
+    .ok_or_else(|| ProviderError::InvalidConfig("identity.name is required".into()))?;
+
+let cpu = config
+    .pointer("/sizing/cpu")
+    .and_then(|v| v.as_str())
+    .unwrap_or("256");
+let memory = config
+    .pointer("/sizing/memory")
+    .and_then(|v| v.as_str())
+    .unwrap_or("512");
+
+let mut req = self
+    .ecs_client
+    .register_task_definition()
+    .family(family)
+    .cpu(cpu)
+    .memory(memory)
+    .network_mode(aws_sdk_ecs::types::NetworkMode::Awsvpc)
+    .requires_compatibilities(aws_sdk_ecs::types::Compatibility::Fargate);
+
+// Execution role
+if let Some(role) = config
+    .get("role_arn")
+    .or_else(|| config.pointer("/security/execution_role_arn"))
+    .and_then(|v| v.as_str())
+{
+    req = req.execution_role_arn(role);
+}
+
+// Task role
+if let Some(role) = config
+    .pointer("/security/task_role_arn")
+    .and_then(|v| v.as_str())
+{
+    req = req.task_role_arn(role);
+}
+
+// Container definitions
+if let Some(containers) = config
+    .pointer("/sizing/containers")
+    .and_then(|v| v.as_array())
+{
+    for c in containers {
+        let cname = c.get("name").and_then(|v| v.as_str()).unwrap_or("app");
+        let image = c.get("image").and_then(|v| v.as_str()).unwrap_or("");
+        let cport = c.get("port").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+
+        let mut container = aws_sdk_ecs::types::ContainerDefinition::builder()
+            .name(cname)
+            .image(image)
+            .essential(true);
+
+        if cport > 0 {
+            container = container.port_mappings(
+                aws_sdk_ecs::types::PortMapping::builder()
+                    .container_port(cport)
+                    .protocol(aws_sdk_ecs::types::TransportProtocol::Tcp)
+                    .build(),
+            );
+        }
+
+        // Log configuration
+        if let Some(lg) = c
+            .get("log_group")
+            .and_then(|v| v.as_str())
+            .or_else(|| config.get("log_group_name").and_then(|v| v.as_str()))
+        {
+            container = container.log_configuration(
+                aws_sdk_ecs::types::LogConfiguration::builder()
+                    .log_driver(aws_sdk_ecs::types::LogDriver::Awslogs)
+                    .options("awslogs-group", lg)
+                    .options("awslogs-region", "us-east-1") // TODO: from config
+                    .options("awslogs-stream-prefix", cname)
+                    .build()
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!(
+                            "failed to build LogConfiguration: {e}"
+                        ))
+                    })?,
+            );
+        }
+
+        req = req.container_definitions(container.build());
+    }
+}
+
+let result = req
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("RegisterTaskDefinition: {e}")))?;
+
+let td = result.task_definition().ok_or_else(|| {
+    ProviderError::ApiError("RegisterTaskDefinition returned no def".into())
+})?;
+let arn = td
+    .task_definition_arn()
+    .ok_or_else(|| ProviderError::ApiError("TaskDefinition has no ARN".into()))?;
+
+let provider_id = arn;
+'''
+
+aws_read_code = '''
+let result = self
+    .ecs_client
+    .describe_task_definition()
+    .task_definition(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("DescribeTaskDefinition: {e}")))?;
+
+let td = result
+    .task_definition()
+    .ok_or_else(|| ProviderError::NotFound(format!("TaskDefinition {provider_id}")))?;
+
+let containers: Vec<serde_json::Value> = td
+    .container_definitions()
+    .iter()
+    .map(|c| {
+        serde_json::json!({
+            "name": c.name().unwrap_or(""),
+            "image": c.image().unwrap_or(""),
+        })
+    })
+    .collect();
+
+let state = serde_json::json!({
+    "identity": { "name": td.family().unwrap_or("") },
+    "sizing": {
+        "cpu": td.cpu().unwrap_or(""),
+        "memory": td.memory().unwrap_or(""),
+        "containers": containers,
+    }
+});
+
+let mut outputs = HashMap::new();
+outputs.insert("task_definition_arn".into(), serde_json::json!(provider_id));
+outputs.insert(
+    "family".into(),
+    serde_json::json!(td.family().unwrap_or("")),
+);
+outputs.insert("revision".into(), serde_json::json!(td.revision()));
+
+Ok(ResourceOutput {
+    provider_id: provider_id.to_string(),
+    state,
+    outputs,
+})
+'''
+
+aws_delete_code = '''
+self.ecs_client
+    .deregister_task_definition()
+    .task_definition(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("DeregisterTaskDefinition: {e}")))?;
+'''
+
+[[resource.aws_outputs]]
+name = "task_definition_arn"
+expression = "provider_id"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Task definition family name"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "cpu"
+section = "sizing"
+type = "String"
+required = true
+description = "CPU units (256, 512, 1024, 2048, 4096)"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "memory"
+section = "sizing"
+type = "String"
+required = true
+description = "Memory in MiB"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "containers"
+section = "sizing"
+type = "Record"
+required = true
+description = "Container definitions (name, image, port)"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "execution_role_arn"
+section = "security"
+type = "String"
+description = "Task execution IAM role ARN"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "task_role_arn"
+section = "security"
+type = "String"
+description = "Task IAM role ARN"
+skip_create = true
+skip_read = true
+
 # ─── EC2: Vpc ──────────────────────────────────────────────────────────────
 # Pattern: describe_list, tag_specification, response_field (vpc_id)
 # Uses aws_post_create_code for modify_vpc_attribute (dns_hostnames/dns_support)
@@ -1422,10 +1901,186 @@ sdk_non_optional = true
 read_expression = "resource.map_public_ip_on_launch()"
 
 # ─── EC2: SecurityGroup ────────────────────────────────────────────────────
-# HAND-WRITTEN — cannot generate:
-#   - Post-create: authorize_security_group_ingress/egress for rules
-#   - Update: revoke + re-authorize for rule changes
-#   - Read: ip_permissions require IpPermission struct traversal
+# Full escape hatch — post-create ingress rules, IpPermission struct traversal
+
+[[resource]]
+struct_name = "SecurityGroup"
+sdk_crate = "aws-sdk-ec2"
+sdk_client = "ec2"
+type_path = "ec2.SecurityGroup"
+crud_create = "CreateSecurityGroup"
+crud_read = "DescribeSecurityGroups"
+crud_delete = "DeleteSecurityGroup"
+aws_client_field = "ec2_client"
+aws_tag_style = "none"
+
+aws_create_code = '''
+let name = config.require_str("/identity/name")?;
+let vpc_id = config
+    .get("vpc_id")
+    .or_else(|| config.pointer("/security/vpc_id"))
+    .or_else(|| config.pointer("/network/vpc_id"))
+    .and_then(|v| v.as_str())
+    .ok_or_else(|| {
+        ProviderError::InvalidConfig(
+            "vpc_id is required (use `needs vpc.name -> vpc_id`)".into(),
+        )
+    })?;
+
+let description = config
+    .optional_str("/identity/description")
+    .map(|s| s.to_string())
+    .unwrap_or_else(|| format!("Managed by smelt: {name}"));
+
+let tag_spec = Self::build_tags(config, aws_sdk_ec2::types::ResourceType::SecurityGroup);
+
+let result = self
+    .ec2_client
+    .create_security_group()
+    .group_name(name)
+    .description(description)
+    .vpc_id(vpc_id)
+    .tag_specifications(tag_spec)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("CreateSecurityGroup: {e}")))?;
+
+let sg_id = result
+    .group_id()
+    .ok_or_else(|| ProviderError::ApiError("SecurityGroup has no ID".into()))?;
+
+if let Some(ingress) = config.optional_array("/security/ingress") {
+    let permissions: Vec<aws_sdk_ec2::types::IpPermission> = ingress
+        .iter()
+        .filter_map(|rule| {
+            let port = rule.get("port")?.as_i64()? as i32;
+            let protocol = rule.get("protocol")?.as_str()?;
+            let cidr = rule.get("cidr")?.as_str()?;
+            Some(
+                aws_sdk_ec2::types::IpPermission::builder()
+                    .ip_protocol(protocol)
+                    .from_port(port)
+                    .to_port(port)
+                    .ip_ranges(aws_sdk_ec2::types::IpRange::builder().cidr_ip(cidr).build())
+                    .build(),
+            )
+        })
+        .collect();
+
+    if !permissions.is_empty() {
+        self.ec2_client
+            .authorize_security_group_ingress()
+            .group_id(sg_id)
+            .set_ip_permissions(Some(permissions))
+            .send()
+            .await
+            .map_err(|e| {
+                ProviderError::ApiError(format!("AuthorizeSecurityGroupIngress: {e}"))
+            })?;
+    }
+}
+
+let provider_id = sg_id;
+'''
+
+aws_read_code = '''
+let result = self
+    .ec2_client
+    .describe_security_groups()
+    .group_ids(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("DescribeSecurityGroups: {e}")))?;
+
+let sg = result
+    .security_groups()
+    .first()
+    .ok_or_else(|| ProviderError::NotFound(format!("SecurityGroup {provider_id}")))?;
+
+let ingress: Vec<serde_json::Value> = sg
+    .ip_permissions()
+    .iter()
+    .flat_map(|perm| {
+        let protocol = perm.ip_protocol().unwrap_or("-1");
+        let from_port = perm.from_port().unwrap_or(0);
+        perm.ip_ranges().iter().map(move |range| {
+            serde_json::json!({
+                "port": from_port,
+                "protocol": protocol,
+                "cidr": range.cidr_ip().unwrap_or(""),
+            })
+        })
+    })
+    .collect();
+
+let state = serde_json::json!({
+    "identity": { "name": super::extract_name_tag(sg.tags()) },
+    "security": {
+        "ingress": ingress,
+        "vpc_id": sg.vpc_id().unwrap_or(""),
+    }
+});
+
+let mut outputs = HashMap::new();
+outputs.insert("group_id".into(), serde_json::json!(provider_id));
+outputs.insert(
+    "group_name".into(),
+    serde_json::json!(sg.group_name().unwrap_or("")),
+);
+
+Ok(ResourceOutput {
+    provider_id: provider_id.to_string(),
+    state,
+    outputs,
+})
+'''
+
+aws_delete_code = '''
+self.ec2_client
+    .delete_security_group()
+    .group_id(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("DeleteSecurityGroup: {e}")))?;
+'''
+
+[[resource.aws_outputs]]
+name = "group_id"
+expression = "provider_id"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Security group name"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "description"
+section = "identity"
+type = "String"
+description = "Security group description"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "vpc_id"
+section = "security"
+type = "String"
+required = true
+description = "VPC ID for the security group"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "ingress"
+section = "security"
+type = "Record"
+description = "Inbound rules (port, protocol, cidr)"
+skip_create = true
+skip_read = true
 
 # ─── EC2: InternetGateway ──────────────────────────────────────────────────
 # Pattern: describe_list, tag_specification, response_field (internet_gateway_id)
@@ -1511,9 +2166,220 @@ skip_create = true
 read_expression = "resource.attachments().first().and_then(|a| a.vpc_id()).unwrap_or(\"\")"
 
 # ─── EC2: RouteTable ───────────────────────────────────────────────────────
-# HAND-WRITTEN — cannot generate:
-#   - Post-create: associate_route_table to subnet + create_route for routes
-#   - Pre-delete: disassociate + delete routes
+# Full escape hatch — post-create routes, update deletes+recreates routes
+
+[[resource]]
+struct_name = "RouteTable"
+sdk_crate = "aws-sdk-ec2"
+sdk_client = "ec2"
+type_path = "ec2.RouteTable"
+crud_create = "CreateRouteTable"
+crud_read = "DescribeRouteTables"
+crud_update = "UpdateRouteTable"
+crud_delete = "DeleteRouteTable"
+aws_client_field = "ec2_client"
+aws_tag_style = "none"
+aws_updatable = true
+
+aws_create_code = '''
+let vpc_id = config.require_str("/network/vpc_id")?;
+
+let tag_spec = Self::build_tags(config, aws_sdk_ec2::types::ResourceType::RouteTable);
+
+let result = self
+    .ec2_client
+    .create_route_table()
+    .vpc_id(vpc_id)
+    .tag_specifications(tag_spec)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("CreateRouteTable: {e}")))?;
+
+let rt = result
+    .route_table()
+    .ok_or_else(|| ProviderError::ApiError("CreateRouteTable returned no table".into()))?;
+let rt_id = rt
+    .route_table_id()
+    .ok_or_else(|| ProviderError::ApiError("RouteTable has no ID".into()))?;
+
+// Add routes from config
+if let Some(routes) = config.optional_array("/network/routes") {
+    for route in routes {
+        let dest = route.str_or("/destination_cidr", "0.0.0.0/0");
+
+        let mut req = self
+            .ec2_client
+            .create_route()
+            .route_table_id(rt_id)
+            .destination_cidr_block(dest);
+
+        if let Some(gw) = route
+            .get("gateway_id")
+            .and_then(|v| v.as_str())
+            .or_else(|| config.get("gateway_id").and_then(|v| v.as_str()))
+        {
+            req = req.gateway_id(gw);
+        } else if let Some(nat) = route
+            .get("nat_gateway_id")
+            .and_then(|v| v.as_str())
+            .or_else(|| config.get("nat_gateway_id").and_then(|v| v.as_str()))
+        {
+            req = req.nat_gateway_id(nat);
+        }
+
+        req.send()
+            .await
+            .map_err(|e| ProviderError::ApiError(format!("CreateRoute: {e}")))?;
+    }
+}
+
+let provider_id = rt_id;
+'''
+
+aws_read_code = '''
+let result = self
+    .ec2_client
+    .describe_route_tables()
+    .route_table_ids(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("DescribeRouteTables: {e}")))?;
+
+let rt = result
+    .route_tables()
+    .first()
+    .ok_or_else(|| ProviderError::NotFound(format!("RouteTable {provider_id}")))?;
+
+let routes: Vec<serde_json::Value> = rt
+    .routes()
+    .iter()
+    .filter(|r| r.gateway_id() != Some("local"))
+    .map(|r| {
+        let mut route = serde_json::json!({
+            "destination_cidr": r.destination_cidr_block().unwrap_or(""),
+        });
+        if let Some(gw) = r.gateway_id() {
+            route["gateway_id"] = serde_json::json!(gw);
+        }
+        if let Some(nat) = r.nat_gateway_id() {
+            route["nat_gateway_id"] = serde_json::json!(nat);
+        }
+        route
+    })
+    .collect();
+
+let state = serde_json::json!({
+    "identity": { "name": super::extract_name_tag(rt.tags()) },
+    "network": {
+        "vpc_id": rt.vpc_id().unwrap_or(""),
+        "routes": routes,
+    }
+});
+
+let mut outputs = HashMap::new();
+outputs.insert("route_table_id".into(), serde_json::json!(provider_id));
+
+Ok(ResourceOutput {
+    provider_id: provider_id.to_string(),
+    state,
+    outputs,
+})
+'''
+
+aws_update_code = '''
+// Delete existing non-local routes, then re-add from config
+let current = self
+    .ec2_client
+    .describe_route_tables()
+    .route_table_ids(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("DescribeRouteTables: {e}")))?;
+
+if let Some(rt) = current.route_tables().first() {
+    for route in rt.routes() {
+        if route.gateway_id() == Some("local") {
+            continue;
+        }
+        if let Some(dest) = route.destination_cidr_block() {
+            let _ = self
+                .ec2_client
+                .delete_route()
+                .route_table_id(provider_id)
+                .destination_cidr_block(dest)
+                .send()
+                .await;
+        }
+    }
+}
+
+// Re-add routes
+if let Some(routes) = config.optional_array("/network/routes") {
+    for route in routes {
+        let dest = route.str_or("/destination_cidr", "0.0.0.0/0");
+        let mut req = self
+            .ec2_client
+            .create_route()
+            .route_table_id(provider_id)
+            .destination_cidr_block(dest);
+        if let Some(gw) = route
+            .get("gateway_id")
+            .and_then(|v| v.as_str())
+            .or_else(|| config.get("gateway_id").and_then(|v| v.as_str()))
+        {
+            req = req.gateway_id(gw);
+        } else if let Some(nat) = route
+            .get("nat_gateway_id")
+            .and_then(|v| v.as_str())
+            .or_else(|| config.get("nat_gateway_id").and_then(|v| v.as_str()))
+        {
+            req = req.nat_gateway_id(nat);
+        }
+        req.send()
+            .await
+            .map_err(|e| ProviderError::ApiError(format!("CreateRoute: {e}")))?;
+    }
+}
+'''
+
+aws_delete_code = '''
+self.ec2_client
+    .delete_route_table()
+    .route_table_id(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("DeleteRouteTable: {e}")))?;
+'''
+
+[[resource.aws_outputs]]
+name = "route_table_id"
+expression = "provider_id"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Route table name"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "vpc_id"
+section = "network"
+type = "String"
+required = true
+description = "VPC ID for the route table"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "routes"
+section = "network"
+type = "Record"
+description = "Route entries (destination_cidr, gateway_id or nat_gateway_id)"
+skip_create = true
+skip_read = true
 
 # ─── EC2: NatGateway ───────────────────────────────────────────────────────
 
@@ -2663,6 +3529,182 @@ required = true
 description = "Protocol type (HTTP or WEBSOCKET)"
 aws_enum = true
 
+# ─── API Gateway: Stage ──────────────────────────────────────────────────
+# Full escape hatch — composite provider_id (api_id:stage_name), parent API reference
+
+[[resource]]
+struct_name = "Stage"
+sdk_crate = "aws-sdk-apigatewayv2"
+sdk_client = "apigateway"
+type_path = "apigateway.Stage"
+crud_create = "CreateStage"
+crud_read = "GetStage"
+crud_update = "UpdateStage"
+crud_delete = "DeleteStage"
+aws_client_field = "apigateway_client"
+aws_tag_style = "none"
+aws_updatable = true
+
+aws_create_code = '''
+let api_id = config
+    .pointer("/network/api_id")
+    .or_else(|| config.get("api_id"))
+    .and_then(|v| v.as_str())
+    .ok_or_else(|| ProviderError::InvalidConfig("network.api_id is required".into()))?;
+
+let stage_name = config
+    .pointer("/identity/name")
+    .and_then(|v| v.as_str())
+    .ok_or_else(|| ProviderError::InvalidConfig("identity.name is required".into()))?;
+
+let description = config
+    .pointer("/identity/description")
+    .and_then(|v| v.as_str())
+    .map(|s| s.to_string());
+
+let auto_deploy = config
+    .pointer("/network/auto_deploy")
+    .and_then(|v| v.as_bool())
+    .unwrap_or(true);
+
+self.apigateway_client
+    .create_stage()
+    .api_id(api_id)
+    .stage_name(stage_name)
+    .set_description(description)
+    .auto_deploy(auto_deploy)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("CreateStage: {e}")))?;
+
+let provider_id_str = format!("{api_id}:{stage_name}");
+let provider_id = provider_id_str.as_str();
+'''
+
+aws_read_code = '''
+let (api_id, stage_name) = provider_id.split_once(':').ok_or_else(|| {
+    ProviderError::InvalidConfig("Stage provider_id must be api_id:stage_name".into())
+})?;
+
+let result = self
+    .apigateway_client
+    .get_stage()
+    .api_id(api_id)
+    .stage_name(stage_name)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("GetStage: {e}")))?;
+
+let state = serde_json::json!({
+    "identity": {
+        "name": result.stage_name().unwrap_or(""),
+        "description": result.description().unwrap_or(""),
+    },
+    "network": {
+        "auto_deploy": result.auto_deploy(),
+        "api_id": api_id,
+    }
+});
+
+let mut outputs = HashMap::new();
+outputs.insert(
+    "stage_name".into(),
+    serde_json::json!(result.stage_name().unwrap_or("")),
+);
+outputs.insert(
+    "invoke_url".into(),
+    serde_json::json!(format!(
+        "https://{api_id}.execute-api.amazonaws.com/{}",
+        result.stage_name().unwrap_or("")
+    )),
+);
+
+Ok(ResourceOutput {
+    provider_id: provider_id.to_string(),
+    state,
+    outputs,
+})
+'''
+
+aws_update_code = '''
+let (api_id, stage_name) = provider_id.split_once(':').ok_or_else(|| {
+    ProviderError::InvalidConfig("Stage provider_id must be api_id:stage_name".into())
+})?;
+
+let description = config
+    .pointer("/identity/description")
+    .and_then(|v| v.as_str())
+    .map(|s| s.to_string());
+
+let auto_deploy = config
+    .pointer("/network/auto_deploy")
+    .and_then(|v| v.as_bool())
+    .unwrap_or(true);
+
+self.apigateway_client
+    .update_stage()
+    .api_id(api_id)
+    .stage_name(stage_name)
+    .set_description(description)
+    .auto_deploy(auto_deploy)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("UpdateStage: {e}")))?;
+'''
+
+aws_delete_code = '''
+let (api_id, stage_name) = provider_id.split_once(':').ok_or_else(|| {
+    ProviderError::InvalidConfig("Stage provider_id must be api_id:stage_name".into())
+})?;
+
+self.apigateway_client
+    .delete_stage()
+    .api_id(api_id)
+    .stage_name(stage_name)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("DeleteStage: {e}")))?;
+'''
+
+[[resource.aws_outputs]]
+name = "stage_name"
+expression = "result.stage_name().unwrap_or(\"\")"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Stage name"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "description"
+section = "identity"
+type = "String"
+description = "Stage description"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "api_id"
+section = "network"
+type = "String"
+required = true
+description = "Parent API ID"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "auto_deploy"
+section = "network"
+type = "Bool"
+default = true
+description = "Enable automatic deployment"
+skip_create = true
+skip_read = true
+
 # ─── DynamoDB: Table ─────────────────────────────────────────────────────
 # Uses escape hatches for create/read/update (key schema builders, billing_mode_summary):
 #   - Key schema requires programmatic KeySchemaElement + AttributeDefinition builders
@@ -2946,12 +3988,303 @@ description = "Domain name (e.g., example.com)"
 sdk_non_optional = true
 
 # ─── Route53: RecordSet ─────────────────────────────────────────────────
-# HAND-WRITTEN — cannot generate:
-#   - Uses ChangeResourceRecordSets with UPSERT/DELETE actions (not standard CRUD)
-#   - Deeply nested: ChangeBatch → Change → ResourceRecordSet → ResourceRecord
-#   - Conditional alias vs values logic
-#   - Composite provider_id: zone_id:name:type
-#   - Delete requires read-back of current state to build matching record set
+# Full escape hatch — UPSERT/DELETE ChangeBatch, composite ID, alias vs values
+
+[[resource]]
+struct_name = "RecordSet"
+sdk_crate = "aws-sdk-route53"
+sdk_client = "route53"
+type_path = "route53.RecordSet"
+crud_create = "ChangeResourceRecordSets"
+crud_read = "ListResourceRecordSets"
+crud_update = "ChangeResourceRecordSets"
+crud_delete = "ChangeResourceRecordSets"
+aws_client_field = "route53_client"
+aws_tag_style = "none"
+aws_updatable = true
+
+aws_create_code = '''
+let hosted_zone_id = config
+    .get("hosted_zone_id")
+    .or_else(|| config.pointer("/network/hosted_zone_id"))
+    .and_then(|v| v.as_str())
+    .ok_or_else(|| {
+        ProviderError::InvalidConfig("hosted_zone_id is required for RecordSet".into())
+    })?;
+
+let record_name = config
+    .pointer("/network/name")
+    .and_then(|v| v.as_str())
+    .ok_or_else(|| ProviderError::InvalidConfig("network.name is required".into()))?;
+
+let record_type = config
+    .pointer("/network/record_type")
+    .and_then(|v| v.as_str())
+    .ok_or_else(|| {
+        ProviderError::InvalidConfig("network.record_type is required".into())
+    })?;
+
+let ttl = config
+    .pointer("/network/ttl")
+    .and_then(|v| v.as_i64())
+    .unwrap_or(300);
+
+let mut rr_set = aws_sdk_route53::types::ResourceRecordSet::builder()
+    .name(record_name)
+    .r#type(aws_sdk_route53::types::RrType::from(record_type))
+    .ttl(ttl);
+
+// Alias record (e.g., pointing to ALB)
+if let Some(alias_target) = config.pointer("/network/alias") {
+    let dns_name = alias_target
+        .get("dns_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let hz_id = alias_target
+        .get("hosted_zone_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    rr_set = rr_set
+        .alias_target(
+            aws_sdk_route53::types::AliasTarget::builder()
+                .dns_name(dns_name)
+                .hosted_zone_id(hz_id)
+                .evaluate_target_health(true)
+                .build()
+                .map_err(|e| {
+                    ProviderError::InvalidConfig(format!(
+                        "failed to build AliasTarget: {e}"
+                    ))
+                })?,
+        )
+        .set_ttl(None); // Alias records don't have TTL
+} else {
+    // Standard record values
+    if let Some(values) = config.pointer("/network/values").and_then(|v| v.as_array()) {
+        for val in values {
+            if let Some(v) = val.as_str() {
+                rr_set = rr_set.resource_records(
+                    aws_sdk_route53::types::ResourceRecord::builder()
+                        .value(v)
+                        .build()
+                        .map_err(|e| {
+                            ProviderError::InvalidConfig(format!(
+                                "failed to build ResourceRecord: {e}"
+                            ))
+                        })?,
+                );
+            }
+        }
+    }
+}
+
+let change = aws_sdk_route53::types::Change::builder()
+    .action(aws_sdk_route53::types::ChangeAction::Upsert)
+    .resource_record_set(rr_set.build().map_err(|e| {
+        ProviderError::InvalidConfig(format!("failed to build ResourceRecordSet: {e}"))
+    })?)
+    .build()
+    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build Change: {e}")))?;
+
+self.route53_client
+    .change_resource_record_sets()
+    .hosted_zone_id(hosted_zone_id)
+    .change_batch(
+        aws_sdk_route53::types::ChangeBatch::builder()
+            .changes(change)
+            .build()
+            .map_err(|e| {
+                ProviderError::InvalidConfig(format!("failed to build ChangeBatch: {e}"))
+            })?,
+    )
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("ChangeResourceRecordSets: {e}")))?;
+
+let provider_id_str = format!("{hosted_zone_id}:{record_name}:{record_type}");
+let provider_id = provider_id_str.as_str();
+'''
+
+aws_read_code = '''
+let parts: Vec<&str> = provider_id.splitn(3, ':').collect();
+if parts.len() != 3 {
+    return Err(ProviderError::InvalidConfig(
+        "RecordSet provider_id must be zone_id:name:type".into(),
+    ));
+}
+let (zone_id, record_name, record_type) = (parts[0], parts[1], parts[2]);
+
+let result = self
+    .route53_client
+    .list_resource_record_sets()
+    .hosted_zone_id(zone_id)
+    .start_record_name(record_name)
+    .start_record_type(aws_sdk_route53::types::RrType::from(record_type))
+    .max_items(1)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("ListResourceRecordSets: {e}")))?;
+
+let rr = result
+    .resource_record_sets()
+    .first()
+    .ok_or_else(|| ProviderError::NotFound(format!("RecordSet {provider_id}")))?;
+
+let values: Vec<String> = rr
+    .resource_records()
+    .iter()
+    .map(|r| r.value().to_string())
+    .collect();
+
+let state = serde_json::json!({
+    "network": {
+        "name": rr.name(),
+        "record_type": rr.r#type().as_str(),
+        "ttl": rr.ttl().unwrap_or(0),
+        "values": values,
+    }
+});
+
+let mut outputs = HashMap::new();
+outputs.insert("fqdn".into(), serde_json::json!(rr.name()));
+
+Ok(ResourceOutput {
+    provider_id: provider_id.to_string(),
+    state,
+    outputs,
+})
+'''
+
+aws_update_code = '''
+// Upsert handles both create and update — delegate to create which does UPSERT
+let parts: Vec<&str> = provider_id.splitn(3, ':').collect();
+if parts.len() != 3 {
+    return Err(ProviderError::InvalidConfig(
+        "RecordSet provider_id must be zone_id:name:type".into(),
+    ));
+}
+let zone_id = parts[0];
+
+let mut config_with_zone = config.clone();
+config_with_zone["hosted_zone_id"] = serde_json::json!(zone_id);
+// create_route53_record_set does UPSERT + read, codegen also adds read, so suppress
+let _ = self.create_route53_record_set(&config_with_zone).await?;
+'''
+
+aws_delete_code = '''
+let parts: Vec<&str> = provider_id.splitn(3, ':').collect();
+if parts.len() != 3 {
+    return Err(ProviderError::InvalidConfig(
+        "RecordSet provider_id must be zone_id:name:type".into(),
+    ));
+}
+let (zone_id, record_name, record_type) = (parts[0], parts[1], parts[2]);
+
+// Get current record to delete it
+let current = self.read_route53_record_set(provider_id).await?;
+let ttl = current
+    .state
+    .pointer("/network/ttl")
+    .and_then(|v| v.as_i64())
+    .unwrap_or(300);
+let values: Vec<&str> = current
+    .state
+    .pointer("/network/values")
+    .and_then(|v| v.as_array())
+    .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+    .unwrap_or_default();
+
+let mut rr_set = aws_sdk_route53::types::ResourceRecordSet::builder()
+    .name(record_name)
+    .r#type(aws_sdk_route53::types::RrType::from(record_type))
+    .ttl(ttl);
+
+for v in &values {
+    rr_set = rr_set.resource_records(
+        aws_sdk_route53::types::ResourceRecord::builder()
+            .value(*v)
+            .build()
+            .map_err(|e| {
+                ProviderError::InvalidConfig(format!("failed to build ResourceRecord: {e}"))
+            })?,
+    );
+}
+
+let change = aws_sdk_route53::types::Change::builder()
+    .action(aws_sdk_route53::types::ChangeAction::Delete)
+    .resource_record_set(rr_set.build().map_err(|e| {
+        ProviderError::InvalidConfig(format!("failed to build ResourceRecordSet: {e}"))
+    })?)
+    .build()
+    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build Change: {e}")))?;
+
+self.route53_client
+    .change_resource_record_sets()
+    .hosted_zone_id(zone_id)
+    .change_batch(
+        aws_sdk_route53::types::ChangeBatch::builder()
+            .changes(change)
+            .build()
+            .map_err(|e| {
+                ProviderError::InvalidConfig(format!("failed to build ChangeBatch: {e}"))
+            })?,
+    )
+    .send()
+    .await
+    .map_err(|e| {
+        ProviderError::ApiError(format!("ChangeResourceRecordSets (DELETE): {e}"))
+    })?;
+'''
+
+[[resource.aws_outputs]]
+name = "fqdn"
+expression = "rr.name()"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Record name (FQDN)"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "record_type"
+section = "network"
+type = "Enum"
+variants = ["A", "AAAA", "CNAME", "MX", "TXT", "NS", "SOA", "SRV"]
+required = true
+description = "Record type"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "ttl"
+section = "network"
+type = "Integer"
+default = 300
+description = "Time to live in seconds"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "values"
+section = "network"
+type = "StringArray"
+description = "Record values"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "hosted_zone_id"
+section = "network"
+type = "String"
+required = true
+description = "Hosted zone ID"
+skip_create = true
+skip_read = true
 
 # ─── EKS: Cluster ───────────────────────────────────────────────────────────
 # Pattern: get_single (describe_cluster), set_tags, config_name
@@ -4275,6 +5608,226 @@ default = "Gateway"
 description = "Endpoint type (Gateway or Interface)"
 aws_enum = true
 skip_update = true
+skip_read = true
+
+# ─── EC2: Instance ─────────────────────────────────────────────────────────
+# Full escape hatch — RunInstances, stop/modify/start update, TerminateInstances
+
+[[resource]]
+struct_name = "Instance"
+sdk_crate = "aws-sdk-ec2"
+sdk_client = "ec2"
+type_path = "ec2.Instance"
+crud_create = "RunInstances"
+crud_read = "DescribeInstances"
+crud_update = "ModifyInstanceAttribute"
+crud_delete = "TerminateInstances"
+aws_client_field = "ec2_client"
+aws_tag_style = "none"
+aws_updatable = true
+
+aws_create_code = '''
+let ami = config.require_str("/sizing/ami_id")?;
+let instance_type = config.require_str("/sizing/instance_type")?;
+let subnet_id = config.require_str("/network/subnet_id")?;
+
+let tag_spec = Self::build_tags(config, aws_sdk_ec2::types::ResourceType::Instance);
+
+let it = aws_sdk_ec2::types::InstanceType::from(instance_type);
+
+let mut req = self
+    .ec2_client
+    .run_instances()
+    .image_id(ami)
+    .instance_type(it)
+    .subnet_id(subnet_id)
+    .min_count(1)
+    .max_count(1)
+    .tag_specifications(tag_spec);
+
+// Key pair
+if let Ok(key) = config.require_str("/security/key_name") {
+    req = req.key_name(key);
+}
+
+// Security groups
+if let Ok(sg) = config.require_str("/security/security_group_id") {
+    req = req.security_group_ids(sg);
+}
+if let Some(sgs) = config.optional_array("/security/security_group_ids") {
+    for sg in sgs {
+        if let Some(id) = sg.as_str() {
+            req = req.security_group_ids(id);
+        }
+    }
+}
+
+let result = req
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("RunInstances: {e}")))?;
+
+let instance = result
+    .instances()
+    .first()
+    .ok_or_else(|| ProviderError::ApiError("RunInstances returned no instance".into()))?;
+let instance_id = instance
+    .instance_id()
+    .ok_or_else(|| ProviderError::ApiError("Instance has no ID".into()))?;
+
+// Wait briefly for instance to be describable (eventual consistency)
+tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+let provider_id = instance_id;
+'''
+
+aws_read_code = '''
+let result = self
+    .ec2_client
+    .describe_instances()
+    .instance_ids(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("DescribeInstances: {e}")))?;
+
+let instance = result
+    .reservations()
+    .first()
+    .and_then(|r| r.instances().first())
+    .ok_or_else(|| ProviderError::NotFound(format!("Instance {provider_id}")))?;
+
+let state = serde_json::json!({
+    "identity": { "name": super::extract_name_tag(instance.tags()) },
+    "sizing": {
+        "instance_type": instance.instance_type().map(|t| t.as_str()).unwrap_or(""),
+        "ami_id": instance.image_id().unwrap_or(""),
+    },
+    "network": {
+        "subnet_id": instance.subnet_id().unwrap_or(""),
+        "vpc_id": instance.vpc_id().unwrap_or(""),
+        "availability_zone": instance.placement()
+            .and_then(|p| p.availability_zone())
+            .unwrap_or(""),
+    }
+});
+
+let mut outputs = HashMap::new();
+outputs.insert("instance_id".into(), serde_json::json!(provider_id));
+outputs.insert(
+    "private_ip".into(),
+    serde_json::json!(instance.private_ip_address().unwrap_or("")),
+);
+outputs.insert(
+    "public_ip".into(),
+    serde_json::json!(instance.public_ip_address().unwrap_or("")),
+);
+if let Some(s) = instance.state() {
+    outputs.insert(
+        "state".into(),
+        serde_json::json!(s.name().map(|n| n.as_str()).unwrap_or("")),
+    );
+}
+
+Ok(ResourceOutput {
+    provider_id: provider_id.to_string(),
+    state,
+    outputs,
+})
+'''
+
+aws_update_code = '''
+// Instance type changes require stop → modify → start
+if let Some(it) = config.optional_str("/sizing/instance_type") {
+    self.ec2_client
+        .stop_instances()
+        .instance_ids(provider_id)
+        .send()
+        .await
+        .map_err(|e| ProviderError::ApiError(format!("StopInstances: {e}")))?;
+
+    self.ec2_client
+        .modify_instance_attribute()
+        .instance_id(provider_id)
+        .instance_type(
+            aws_sdk_ec2::types::AttributeValue::builder()
+                .value(it)
+                .build(),
+        )
+        .send()
+        .await
+        .map_err(|e| ProviderError::ApiError(format!("ModifyInstanceAttribute: {e}")))?;
+
+    self.ec2_client
+        .start_instances()
+        .instance_ids(provider_id)
+        .send()
+        .await
+        .map_err(|e| ProviderError::ApiError(format!("StartInstances: {e}")))?;
+}
+'''
+
+aws_delete_code = '''
+self.ec2_client
+    .terminate_instances()
+    .instance_ids(provider_id)
+    .send()
+    .await
+    .map_err(|e| ProviderError::ApiError(format!("TerminateInstances: {e}")))?;
+'''
+
+[[resource.aws_outputs]]
+name = "instance_id"
+expression = "provider_id"
+
+[[resource.fields]]
+name = "name"
+section = "identity"
+type = "String"
+required = true
+description = "Instance name"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "instance_type"
+section = "sizing"
+type = "String"
+required = true
+description = "Instance type (e.g., t3.micro)"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "ami_id"
+section = "sizing"
+type = "String"
+required = true
+description = "Amazon Machine Image ID"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "subnet_id"
+section = "network"
+type = "String"
+required = true
+description = "Subnet to launch in"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "key_name"
+section = "security"
+type = "String"
+description = "SSH key pair name"
+skip_create = true
+skip_read = true
+
+[[resource.fields]]
+name = "security_group_ids"
+section = "security"
+type = "StringArray"
+description = "Security group IDs"
+skip_create = true
 skip_read = true
 
 # ─── Lambda: EventSourceMapping ───────────────────────────────────────────
