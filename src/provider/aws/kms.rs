@@ -59,17 +59,17 @@ impl AwsProvider {
                             crate::provider::FieldSchema {
                                 name: "key_spec".into(),
                                 description: "Key spec".into(),
-                                field_type: crate::provider::FieldType::String, /* Enum */
+                                field_type: crate::provider::FieldType::String,
                                 required: false,
-                                default: None,
+                                default: Some(serde_json::json!("SYMMETRIC_DEFAULT")),
                                 sensitive: false,
                             },
                             crate::provider::FieldSchema {
                                 name: "key_usage".into(),
                                 description: "Key usage type".into(),
-                                field_type: crate::provider::FieldType::String, /* Enum */
+                                field_type: crate::provider::FieldType::String,
                                 required: false,
-                                default: None,
+                                default: Some(serde_json::json!("ENCRYPT_DECRYPT")),
                                 sensitive: false,
                             },
                         ],
@@ -166,8 +166,8 @@ impl AwsProvider {
             },
             "security": {
                 "enabled": resource.enabled(),
-                "key_spec": resource.key_spec().map(|s| s.as_str()).unwrap_or(""),
-                "key_usage": resource.key_usage().map(|s| s.as_str()).unwrap_or(""),
+                "key_spec": resource.key_spec().map(|r| r.as_str()).unwrap_or(""),
+                "key_usage": resource.key_usage().map(|r| r.as_str()).unwrap_or(""),
             },
         });
 

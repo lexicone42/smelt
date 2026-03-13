@@ -131,7 +131,7 @@ impl AwsProvider {
         let state = serde_json::json!({
             "identity": {
                 "fifo": attrs.get(&aws_sdk_sqs::types::QueueAttributeName::FifoQueue).map(|v| v == "true").unwrap_or(false),
-                "name": provider_id.rsplit(':').next().unwrap_or(""),
+                "name": provider_id.rsplit('/').next().unwrap_or(""),
             },
             "reliability": {
                 "delay_seconds": attrs.get(&aws_sdk_sqs::types::QueueAttributeName::DelaySeconds).and_then(|v| v.parse::<i64>().ok()).unwrap_or(0),

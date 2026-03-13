@@ -232,15 +232,45 @@ impl AwsProvider {
             })
             .unwrap_or("PAY_PER_REQUEST");
 
+        // Extract key schema
+        let key_schema = table.key_schema();
+        let attr_defs = table.attribute_definitions();
+        let partition_key = key_schema
+            .iter()
+            .find(|k| k.key_type() == &aws_sdk_dynamodb::types::KeyType::Hash)
+            .map(|k| k.attribute_name())
+            .unwrap_or("");
+        let partition_key_type = attr_defs
+            .iter()
+            .find(|a| a.attribute_name() == partition_key)
+            .map(|a| a.attribute_type().as_str())
+            .unwrap_or("S");
+        let sort_key = key_schema
+            .iter()
+            .find(|k| k.key_type() == &aws_sdk_dynamodb::types::KeyType::Range)
+            .map(|k| k.attribute_name())
+            .unwrap_or("");
+
+        let mut sizing = serde_json::json!({
+            "billing_mode": billing,
+            "partition_key": partition_key,
+            "partition_key_type": partition_key_type,
+        });
+        if !sort_key.is_empty() {
+            let sort_key_type = attr_defs
+                .iter()
+                .find(|a| a.attribute_name() == sort_key)
+                .map(|a| a.attribute_type().as_str())
+                .unwrap_or("S");
+            sizing["sort_key"] = serde_json::json!(sort_key);
+            sizing["sort_key_type"] = serde_json::json!(sort_key_type);
+        }
+
         let state = serde_json::json!({
             "identity": {
                 "name": table.table_name().unwrap_or(""),
             },
-            "sizing": {
-                "billing_mode": billing,
-                "item_count": table.item_count().unwrap_or(0),
-                "table_size_bytes": table.table_size_bytes().unwrap_or(0),
-            }
+            "sizing": sizing,
         });
 
         let mut outputs = HashMap::new();

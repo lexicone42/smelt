@@ -311,8 +311,11 @@ impl AwsProvider {
             .await
             .map_err(|e| ProviderError::ApiError(format!("describe_event_bus: {e}")))?;
 
+        let resource = &result;
+
         let state = serde_json::json!({
             "identity": {
+                "description": resource.description().unwrap_or(""),
                 "name": provider_id,
             },
         });
@@ -320,11 +323,11 @@ impl AwsProvider {
         let mut outputs = HashMap::new();
         outputs.insert(
             "event_bus_arn".into(),
-            serde_json::json!(result.arn().unwrap_or("")),
+            serde_json::json!(resource.arn().unwrap_or("")),
         );
         outputs.insert(
             "event_bus_name".into(),
-            serde_json::json!(result.name().unwrap_or("")),
+            serde_json::json!(resource.name().unwrap_or("")),
         );
 
         Ok(ResourceOutput {

@@ -152,6 +152,7 @@ impl AwsProvider {
         let description = config.optional_str("/identity/description");
         let tier = config.optional_str("/sizing/tier");
         let type_val = config.optional_str("/sizing/type");
+        let value = config.optional_str("/sizing/value");
 
         let mut req = self.ssm_client.put_parameter().name(provider_id);
 
@@ -164,7 +165,11 @@ impl AwsProvider {
         if let Some(v) = type_val {
             req = req.r#type(aws_sdk_ssm::types::ParameterType::from(v));
         }
+        if let Some(v) = value {
+            req = req.value(v);
+        }
 
+        req = req.overwrite(true);
         req.send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("put_parameter: {e}")))?;

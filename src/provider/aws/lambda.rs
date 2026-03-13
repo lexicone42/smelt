@@ -349,7 +349,7 @@ impl AwsProvider {
             "identity": {
             },
             "runtime": {
-                "enabled": resource.state().map(|s| s == "Enabled").unwrap_or(false),
+                "enabled": resource.state().map(|s| s == "Enabled").unwrap_or(true),
                 "event_source_arn": resource.event_source_arn().unwrap_or(""),
                 "function_name": resource.function_arn().unwrap_or(""),
             },
