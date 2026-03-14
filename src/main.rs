@@ -14,6 +14,7 @@ use smelt::secrets::SecretStore;
 use smelt::{apply, audit, explain, formatter, parser, plan, signing, store};
 
 fn main() -> Result<()> {
+    let _telemetry = smelt::telemetry::init();
     let cli = Cli::parse();
 
     match cli.command {
@@ -490,6 +491,7 @@ fn load_current_state(
 /// for reads, so we can fire them all at once and collect results.
 ///
 /// Returns a map of resource_id -> live CurrentResource.
+#[tracing::instrument(skip(graph, registry))]
 fn load_live_state(
     environment: &str,
     graph: &DependencyGraph,
@@ -551,7 +553,7 @@ fn load_live_state(
         return Ok(BTreeMap::new());
     }
 
-    eprintln!("  refreshing {} resources from cloud...", targets.len());
+    tracing::info!(count = targets.len(), "refreshing resources from cloud");
 
     // Fire all reads concurrently
     let results: Vec<(
@@ -591,9 +593,10 @@ fn load_live_state(
                     .find(|t| t.resource_id == resource_id)
                     .map(|t| t.provider_id.as_str())
                     .unwrap_or("?");
-                eprintln!(
-                    "  warning: {} [{}] not found in cloud — may need recreation",
-                    resource_id, pid
+                tracing::warn!(
+                    resource = %resource_id,
+                    provider_id = pid,
+                    "not found in cloud — may need recreation"
                 );
             }
             Err(e) => {
@@ -602,7 +605,12 @@ fn load_live_state(
                     .find(|t| t.resource_id == resource_id)
                     .map(|t| t.provider_id.as_str())
                     .unwrap_or("?");
-                eprintln!("  warning: failed to read {} [{}]: {}", resource_id, pid, e);
+                tracing::warn!(
+                    resource = %resource_id,
+                    provider_id = pid,
+                    error = %e,
+                    "failed to read resource"
+                );
                 // Fall back to stored state for this resource
                 if let Some(store::TreeEntry::Object(hash)) = tree.children.get(&resource_id)
                     && let Ok(obj) = s.get_object(hash)
@@ -737,11 +745,11 @@ fn cmd_graph(files: &[std::path::PathBuf], dot: bool) -> Result<()> {
 }
 
 fn build_registry() -> smelt::provider::ProviderRegistry {
-    use smelt::provider::ProviderRegistry;
     use smelt::provider::aws::AwsProvider;
     use smelt::provider::cloudflare::CloudflareProvider;
     use smelt::provider::gcp::GcpProvider;
     use smelt::provider::google_workspace::GoogleWorkspaceProvider;
+    use smelt::provider::{ProviderRegistry, TracingProvider};
 
     let mut registry = ProviderRegistry::new();
 
@@ -751,7 +759,7 @@ fn build_registry() -> smelt::provider::ProviderRegistry {
         .build()
         .expect("tokio runtime");
     let aws_provider = rt.block_on(AwsProvider::from_env());
-    registry.register(Box::new(aws_provider));
+    registry.register(TracingProvider::wrap(Box::new(aws_provider)));
 
     // GCP — resolve project from GOOGLE_CLOUD_PROJECT, GCLOUD_PROJECT, or gcloud CLI
     let gcp_project = std::env::var("GOOGLE_CLOUD_PROJECT")
@@ -770,12 +778,17 @@ fn build_registry() -> smelt::provider::ProviderRegistry {
     let gcp_provider = rt
         .block_on(GcpProvider::from_env(&gcp_project, &gcp_region))
         .expect("Failed to initialize GCP provider");
-    registry.register(Box::new(gcp_provider));
-    registry.register(Box::new(CloudflareProvider::new("default")));
-    registry.register(Box::new(GoogleWorkspaceProvider::new("default")));
+    registry.register(TracingProvider::wrap(Box::new(gcp_provider)));
+    registry.register(TracingProvider::wrap(Box::new(CloudflareProvider::new(
+        "default",
+    ))));
+    registry.register(TracingProvider::wrap(Box::new(
+        GoogleWorkspaceProvider::new("default"),
+    )));
     registry
 }
 
+#[tracing::instrument(skip(files))]
 fn cmd_apply(
     environment: &str,
     files: &[std::path::PathBuf],
@@ -864,6 +877,7 @@ fn cmd_apply(
     Ok(())
 }
 
+#[tracing::instrument(skip(files))]
 fn cmd_destroy(environment: &str, files: &[std::path::PathBuf], yes: bool) -> Result<()> {
     let files = resolve_files(files)?;
     let parsed = parse_files(&files)?;
@@ -1231,7 +1245,7 @@ fn cmd_import(
         new_hash: Some(hash),
     };
     if let Err(e) = s.append_event(&event) {
-        eprintln!("warning: failed to write audit event: {e}");
+        tracing::warn!(error = %e, "failed to write audit event");
     }
 
     eprintln!("imported {} from {}", resource, provider_id);
@@ -1371,7 +1385,7 @@ fn cmd_rollback(environment: &str, target: &str, yes: bool) -> Result<()> {
         new_hash: Some(resolved_hash.clone()),
     };
     if let Err(e) = s.append_event(&event) {
-        eprintln!("warning: failed to write audit event: {e}");
+        tracing::warn!(error = %e, "failed to write audit event");
     }
 
     eprintln!("rolled back to {}", resolved_hash.short());
@@ -1519,7 +1533,7 @@ fn cmd_recover(environment: &str, tree_hash: &str, yes: bool) -> Result<()> {
         new_hash: Some(resolved_hash.clone()),
     };
     if let Err(e) = s.append_event(&event) {
-        eprintln!("warning: failed to write audit event: {e}");
+        tracing::warn!(error = %e, "failed to write audit event");
     }
 
     eprintln!(
@@ -1838,7 +1852,7 @@ fn cmd_state_rm(environment: &str, resource: &str, yes: bool) -> Result<()> {
         new_hash: None,
     };
     if let Err(e) = s.append_event(&event) {
-        eprintln!("warning: failed to write audit event: {e}");
+        tracing::warn!(error = %e, "failed to write audit event");
     }
 
     eprintln!("removed '{}' from environment '{}'", resource, environment);
@@ -1896,7 +1910,7 @@ fn cmd_state_mv(environment: &str, from: &str, to: &str) -> Result<()> {
                 new_hash: Some(new_hash.clone()),
             };
             if let Err(e) = s.append_event(&event) {
-                eprintln!("warning: failed to write audit event: {e}");
+                tracing::warn!(error = %e, "failed to write audit event");
             }
 
             store::TreeEntry::Object(new_hash)

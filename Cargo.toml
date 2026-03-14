@@ -131,5 +131,19 @@ google-cloud-gkebackup-v1 = "1"
 google-cloud-dataproc-v1 = "1"
 google-cloud-workflows-v1 = "1"
 
+# Telemetry
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# OpenTelemetry (optional OTLP export — `cargo build --features otel`)
+opentelemetry = { version = "0.29", optional = true }
+opentelemetry_sdk = { version = "0.29", optional = true }
+opentelemetry-otlp = { version = "0.29", features = ["grpc-tonic"], optional = true }
+tracing-opentelemetry = { version = "0.30", optional = true }
+
+[features]
+default = []
+otel = ["opentelemetry", "opentelemetry_sdk", "opentelemetry-otlp", "tracing-opentelemetry"]
+
 [dev-dependencies]
 proptest = "1"

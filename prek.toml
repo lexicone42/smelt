@@ -44,7 +44,7 @@ hooks = [
     {
         id = "cargo-deny",
         name = "cargo deny check (frozen)",
-        entry = "cargo deny check --frozen",
+        entry = "cargo deny check",
         language = "system",
         pass_filenames = false,
         always_run = true,

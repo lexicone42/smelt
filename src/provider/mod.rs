@@ -452,6 +452,104 @@ impl ConfigExt for serde_json::Value {
     }
 }
 
+/// A tracing wrapper around any [`Provider`] that instruments CRUD calls with spans.
+///
+/// Each `read`, `create`, `update`, and `delete` call is wrapped in a
+/// `tracing::info_span!` recording the provider name, resource type, and
+/// (where applicable) provider ID. This enables timing visibility in console
+/// output and exports spans to OTel collectors when the `otel` feature is active.
+pub struct TracingProvider {
+    inner: Box<dyn Provider>,
+}
+
+impl TracingProvider {
+    pub fn wrap(inner: Box<dyn Provider>) -> Box<dyn Provider> {
+        Box::new(Self { inner })
+    }
+}
+
+impl Provider for TracingProvider {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    fn resource_types(&self) -> Vec<ResourceTypeInfo> {
+        self.inner.resource_types()
+    }
+
+    fn read(
+        &self,
+        resource_type: &str,
+        provider_id: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<ResourceOutput, ProviderError>> + Send + '_>> {
+        let span = tracing::info_span!(
+            "provider.read",
+            provider = self.inner.name(),
+            resource_type,
+            provider_id,
+        );
+        let fut = self.inner.read(resource_type, provider_id);
+        Box::pin(tracing::Instrument::instrument(fut, span))
+    }
+
+    fn create(
+        &self,
+        resource_type: &str,
+        config: &serde_json::Value,
+    ) -> Pin<Box<dyn Future<Output = Result<ResourceOutput, ProviderError>> + Send + '_>> {
+        let span = tracing::info_span!(
+            "provider.create",
+            provider = self.inner.name(),
+            resource_type,
+        );
+        let fut = self.inner.create(resource_type, config);
+        Box::pin(tracing::Instrument::instrument(fut, span))
+    }
+
+    fn update(
+        &self,
+        resource_type: &str,
+        provider_id: &str,
+        old_config: &serde_json::Value,
+        new_config: &serde_json::Value,
+    ) -> Pin<Box<dyn Future<Output = Result<ResourceOutput, ProviderError>> + Send + '_>> {
+        let span = tracing::info_span!(
+            "provider.update",
+            provider = self.inner.name(),
+            resource_type,
+            provider_id,
+        );
+        let fut = self
+            .inner
+            .update(resource_type, provider_id, old_config, new_config);
+        Box::pin(tracing::Instrument::instrument(fut, span))
+    }
+
+    fn delete(
+        &self,
+        resource_type: &str,
+        provider_id: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ProviderError>> + Send + '_>> {
+        let span = tracing::info_span!(
+            "provider.delete",
+            provider = self.inner.name(),
+            resource_type,
+            provider_id,
+        );
+        let fut = self.inner.delete(resource_type, provider_id);
+        Box::pin(tracing::Instrument::instrument(fut, span))
+    }
+
+    fn diff(
+        &self,
+        resource_type: &str,
+        desired: &serde_json::Value,
+        actual: &serde_json::Value,
+    ) -> Vec<FieldChange> {
+        self.inner.diff(resource_type, desired, actual)
+    }
+}
+
 /// Generic recursive JSON diff — produces FieldChange entries for all differences.
 ///
 /// This is provider-agnostic and can be used by any provider's `diff()` implementation.

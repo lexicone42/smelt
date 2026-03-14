@@ -108,6 +108,13 @@ pub fn execute_plan_with_config(
     parsed_files: &[SmeltFile],
     secret_store: Option<&SecretStore>,
 ) -> ApplySummary {
+    let _span = tracing::info_span!(
+        "execute_plan",
+        environment = %plan.environment,
+        tiers = plan.tiers.len(),
+    )
+    .entered();
+
     // Expand components so config/dep maps include scoped resources
     let expanded = expand_components_from_files(parsed_files);
 
@@ -163,10 +170,15 @@ pub fn execute_plan_with_config(
             continue;
         }
 
+        let _tier_span =
+            tracing::info_span!("apply.tier", tier = tier_num, actions = tier_actions.len())
+                .entered();
+
         if tier_actions.len() > 1 {
-            eprintln!(
-                "  tier {tier_num}: executing {} resources in parallel",
-                tier_actions.len()
+            tracing::info!(
+                tier = tier_num,
+                count = tier_actions.len(),
+                "executing resources in parallel"
             );
         }
 
@@ -400,9 +412,9 @@ pub fn execute_plan_with_config(
                             {
                                 Ok(output) => CallOutcome::Output(output),
                                 Err(crate::provider::ProviderError::RequiresReplacement(_)) => {
-                                    eprintln!(
-                                        "  {} requires replacement — deleting and recreating",
-                                        p.action.resource_id
+                                    tracing::info!(
+                                        resource = %p.action.resource_id,
+                                        "requires replacement — deleting and recreating"
                                     );
                                     if let Err(e) =
                                         p.provider.delete(&p.resource_type, pid).await
@@ -468,9 +480,10 @@ pub fn execute_plan_with_config(
                         && let Some(paths) = secret_paths_map.get(&p.action.resource_id)
                         && let Err(e) = ss.encrypt_json_at_paths(&mut redacted, paths)
                     {
-                        eprintln!(
-                            "  warning: failed to encrypt secrets for {}: {e}",
-                            p.action.resource_id
+                        tracing::warn!(
+                            resource = %p.action.resource_id,
+                            error = %e,
+                            "failed to encrypt secrets"
                         );
                     }
                     let stored_outputs = if output.outputs.is_empty() {
@@ -578,7 +591,7 @@ pub fn execute_plan_with_config(
                     new_hash,
                 };
                 if let Err(e) = store.append_event(&event) {
-                    eprintln!("warning: failed to write audit event: {e}");
+                    tracing::warn!(error = %e, "failed to write audit event");
                 }
                 seq += 1;
 
@@ -605,15 +618,12 @@ pub fn execute_plan_with_config(
         .any(|r| matches!(r.outcome, ApplyOutcome::Failed { .. }));
 
     if has_failures {
-        eprintln!(
-            "warning: partial failure — environment ref NOT updated to preserve consistent state"
-        );
-        eprintln!(
-            "  partial tree saved as {} for recovery",
-            new_tree_hash.short()
+        tracing::warn!(
+            tree_hash = %new_tree_hash.short(),
+            "partial failure — environment ref NOT updated to preserve consistent state"
         );
     } else if let Err(e) = store.set_ref(&plan.environment, &new_tree_hash) {
-        eprintln!("warning: failed to update environment ref: {e}");
+        tracing::warn!(error = %e, "failed to update environment ref");
     }
 
     // Sign the transition
@@ -634,14 +644,14 @@ pub fn execute_plan_with_config(
                     .join(".smelt/transitions")
                     .join(format!("{}.json", new_tree_hash.short()));
                 if let Err(e) = std::fs::create_dir_all(sig_path.parent().unwrap()) {
-                    eprintln!("warning: failed to create transitions dir: {e}");
+                    tracing::warn!(error = %e, "failed to create transitions dir");
                 }
                 if let Err(e) = std::fs::write(&sig_path, sig_data) {
-                    eprintln!("warning: failed to write signed transition: {e}");
+                    tracing::warn!(error = %e, "failed to write signed transition");
                 }
             }
             Err(e) => {
-                eprintln!("warning: could not sign transition: {e}");
+                tracing::warn!(error = %e, "could not sign transition");
             }
         }
     }
@@ -675,6 +685,8 @@ pub fn execute_plan_with_config(
         .iter()
         .filter(|r| matches!(r.outcome, ApplyOutcome::Skipped { .. }))
         .count();
+
+    tracing::info!(created, updated, deleted, failed, skipped, "apply complete");
 
     ApplySummary {
         environment: plan.environment.clone(),
@@ -729,10 +741,10 @@ fn build_dependency_map(
                 if segments.len() >= 2 {
                     // SE-09: Validate binding names
                     if !is_valid_binding_name(&dep.binding) {
-                        eprintln!(
-                            "warning: {resource_id}: invalid binding name '{}' \
-                             (must be lowercase alphanumeric + underscore)",
-                            dep.binding
+                        tracing::warn!(
+                            resource = %resource_id,
+                            binding = %dep.binding,
+                            "invalid binding name (must be lowercase alphanumeric + underscore)"
                         );
                     }
                     // 3+ segments means an output key:
@@ -1104,8 +1116,8 @@ fn get_actor(project_root: &Path) -> String {
     {
         Some(identity) => identity,
         None => {
-            eprintln!(
-                "warning: no signing key found — audit events will use 'unknown' actor (run `smelt init` to create one)"
+            tracing::warn!(
+                "no signing key found — audit events will use 'unknown' actor (run `smelt init` to create one)"
             );
             "unknown".to_string()
         }
