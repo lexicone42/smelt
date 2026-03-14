@@ -151,20 +151,27 @@ impl AwsProvider {
 
         let resource = &result;
 
-        let state = serde_json::json!({
-            "identity": {
-                "description": resource.description().unwrap_or(""),
-                "name": provider_id,
-            },
-            "network": {
-                "event_bus_name": resource.event_bus_name().unwrap_or(""),
-            },
-            "sizing": {
-                "event_pattern": resource.event_pattern().unwrap_or(""),
-                "schedule_expression": resource.schedule_expression().unwrap_or(""),
-                "state": resource.state().map(|r| r.as_str()).unwrap_or(""),
-            },
+        let mut identity = serde_json::json!({ "name": provider_id });
+        if let Some(desc) = resource.description().filter(|s| !s.is_empty()) {
+            identity["description"] = serde_json::json!(desc);
+        }
+        let mut sizing = serde_json::Map::new();
+        if let Some(ep) = resource.event_pattern().filter(|s| !s.is_empty()) {
+            sizing.insert("event_pattern".into(), serde_json::json!(ep));
+        }
+        if let Some(se) = resource.schedule_expression().filter(|s| !s.is_empty()) {
+            sizing.insert("schedule_expression".into(), serde_json::json!(se));
+        }
+        if let Some(st) = resource.state().map(|r| r.as_str()) {
+            sizing.insert("state".into(), serde_json::json!(st));
+        }
+        let mut state = serde_json::json!({
+            "identity": identity,
+            "sizing": sizing,
         });
+        if let Some(ebn) = resource.event_bus_name().filter(|s| !s.is_empty()) {
+            state["network"] = serde_json::json!({ "event_bus_name": ebn });
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert(

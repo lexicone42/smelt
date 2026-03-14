@@ -109,17 +109,17 @@ impl AwsProvider {
             .first()
             .ok_or_else(|| ProviderError::NotFound(format!("LogGroup {provider_id}")))?;
 
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "identity": {
                 "name": provider_id,
             },
             "reliability": {
                 "retention_days": resource.retention_in_days().unwrap_or(0),
             },
-            "security": {
-                "kms_key_id": resource.kms_key_id().unwrap_or(""),
-            },
         });
+        if let Some(kms_key_id) = resource.kms_key_id().filter(|s| !s.is_empty()) {
+            state["security"] = serde_json::json!({ "kms_key_id": kms_key_id });
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert(

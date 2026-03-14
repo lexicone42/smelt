@@ -117,14 +117,41 @@ impl AwsProvider {
             .parameter()
             .ok_or_else(|| ProviderError::NotFound(format!("Parameter {provider_id}")))?;
 
+        // describe_parameters returns description + tier (get_parameter does not)
+        let desc_result = self
+            .ssm_client
+            .describe_parameters()
+            .parameter_filters(
+                aws_sdk_ssm::types::ParameterStringFilter::builder()
+                    .key("Name")
+                    .values(provider_id)
+                    .build()
+                    .map_err(|e| ProviderError::ApiError(format!("filter build: {e}")))?,
+            )
+            .send()
+            .await
+            .ok();
+        let param_meta = desc_result.as_ref().and_then(|r| r.parameters().first());
+
+        let mut identity = serde_json::json!({ "name": provider_id });
+        if let Some(desc) = param_meta
+            .and_then(|p| p.description())
+            .filter(|s| !s.is_empty())
+        {
+            identity["description"] = serde_json::json!(desc);
+        }
+
+        let mut sizing = serde_json::json!({
+            "type": resource.r#type().map(|r| r.as_str()).unwrap_or(""),
+            "value": resource.value().unwrap_or(""),
+        });
+        if let Some(tier) = param_meta.and_then(|p| p.tier()).map(|t| t.as_str()) {
+            sizing["tier"] = serde_json::json!(tier);
+        }
+
         let state = serde_json::json!({
-            "identity": {
-                "name": provider_id,
-            },
-            "sizing": {
-                "type": resource.r#type().map(|r| r.as_str()).unwrap_or(""),
-                "value": resource.value().unwrap_or(""),
-            },
+            "identity": identity,
+            "sizing": sizing,
         });
 
         let mut outputs = HashMap::new();

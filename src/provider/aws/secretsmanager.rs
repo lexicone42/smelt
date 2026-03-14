@@ -127,15 +127,16 @@ impl AwsProvider {
 
         let resource = &result;
 
-        let state = serde_json::json!({
-            "identity": {
-                "description": resource.description().unwrap_or(""),
-                "name": resource.name().unwrap_or(""),
-            },
-            "security": {
-                "kms_key_id": resource.kms_key_id().unwrap_or(""),
-            },
+        let mut identity = serde_json::json!({
+            "name": resource.name().unwrap_or(""),
         });
+        if let Some(desc) = resource.description().filter(|s| !s.is_empty()) {
+            identity["description"] = serde_json::json!(desc);
+        }
+        let mut state = serde_json::json!({ "identity": identity });
+        if let Some(kms_key_id) = resource.kms_key_id().filter(|s| !s.is_empty()) {
+            state["security"] = serde_json::json!({ "kms_key_id": kms_key_id });
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert(

@@ -200,11 +200,30 @@ impl AwsProvider {
         let table_name = result
             .table_description()
             .and_then(|t| t.table_name())
-            .unwrap_or(&name);
+            .unwrap_or(&name)
+            .to_string();
 
-        let provider_id = table_name;
+        // Wait for table to become ACTIVE (required before read/update/delete)
+        for _ in 0..30 {
+            let desc = self
+                .dynamodb_client
+                .describe_table()
+                .table_name(&table_name)
+                .send()
+                .await
+                .ok();
+            let status = desc
+                .as_ref()
+                .and_then(|d| d.table())
+                .and_then(|t| t.table_status())
+                .map(|s| s.as_str());
+            if status == Some("ACTIVE") {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
 
-        self.read_dynamodb_table(provider_id).await
+        self.read_dynamodb_table(&table_name).await
     }
 
     pub(super) async fn read_dynamodb_table(

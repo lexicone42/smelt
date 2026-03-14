@@ -252,7 +252,6 @@ async fn logs_log_group_crud() {
         "reliability": {
             "retention_days": 1,
         },
-        "security": {}
     });
 
     let (created, _read, changes) = crud_cycle(&provider, "logs.LogGroup", &config, &name).await;
@@ -263,7 +262,6 @@ async fn logs_log_group_crud() {
     let config2 = serde_json::json!({
         "identity": { "name": &name2 },
         "reliability": { "retention_days": 1 },
-        "security": {}
     });
     println!("\n[PREFIX-MATCH TEST] Creating {name2}...");
     let created2 = provider.create("logs.LogGroup", &config2).await;
@@ -537,6 +535,231 @@ async fn dynamodb_table_crud() {
         .delete("dynamodb.Table", &created.provider_id)
         .await
         .expect("DELETE dynamodb.Table failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CloudWatch Alarm — free, tests metric alarm pattern
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn cloudwatch_alarm_crud() {
+    let provider = AwsProvider::from_env().await;
+    let name = test_name("cw");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test alarm",
+        },
+        "sizing": {
+            "namespace": "AWS/EC2",
+            "metric_name": "CPUUtilization",
+            "statistic": "Average",
+            "period": 300,
+            "evaluation_periods": 1,
+            "threshold": 80.0,
+            "comparison_operator": "GreaterThanThreshold",
+        }
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "cloudwatch.Alarm", &config, &name).await;
+
+    // ── Cleanup ──
+    println!("\n[DELETE] cloudwatch.Alarm...");
+    provider
+        .delete("cloudwatch.Alarm", &created.provider_id)
+        .await
+        .expect("DELETE cloudwatch.Alarm failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Cognito UserPool — free tier
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn cognito_user_pool_crud() {
+    let provider = AwsProvider::from_env().await;
+    let name = test_name("cognito");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "cognito.UserPool", &config, &name).await;
+
+    // ── Cleanup ──
+    println!("\n[DELETE] cognito.UserPool...");
+    provider
+        .delete("cognito.UserPool", &created.provider_id)
+        .await
+        .expect("DELETE cognito.UserPool failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SES EmailIdentity — free
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn ses_email_identity_crud() {
+    let provider = AwsProvider::from_env().await;
+    let name = format!(
+        "smelt-test-{}.example.com",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    );
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+        },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "ses.EmailIdentity", &config, &name).await;
+
+    // ── Cleanup ──
+    println!("\n[DELETE] ses.EmailIdentity...");
+    provider
+        .delete("ses.EmailIdentity", &created.provider_id)
+        .await
+        .expect("DELETE ses.EmailIdentity failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// S3 Bucket — free
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn s3_bucket_crud() {
+    let provider = AwsProvider::from_env().await;
+    let name = test_name("s3");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "s3.Bucket", &config, &name).await;
+
+    // ── Cleanup ──
+    println!("\n[DELETE] s3.Bucket...");
+    provider
+        .delete("s3.Bucket", &created.provider_id)
+        .await
+        .expect("DELETE s3.Bucket failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ECS Cluster — free
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn ecs_cluster_crud() {
+    let provider = AwsProvider::from_env().await;
+    let name = test_name("ecs");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "ecs.Cluster", &config, &name).await;
+
+    // ── Cleanup ──
+    println!("\n[DELETE] ecs.Cluster...");
+    provider
+        .delete("ecs.Cluster", &created.provider_id)
+        .await
+        .expect("DELETE ecs.Cluster failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// API Gateway v2 Api — free tier
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn apigateway_api_crud() {
+    let provider = AwsProvider::from_env().await;
+    let name = test_name("apigw");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test api",
+        },
+        "network": {
+            "protocol_type": "HTTP",
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "apigateway.Api", &config, &name).await;
+
+    // ── Cleanup ──
+    println!("\n[DELETE] apigateway.Api...");
+    provider
+        .delete("apigateway.Api", &created.provider_id)
+        .await
+        .expect("DELETE apigateway.Api failed");
     println!("  Deleted.");
 
     if !changes.is_empty() {

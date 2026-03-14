@@ -71,10 +71,26 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let name = config.require_str("/identity/name")?.to_string();
 
-        self.s3_client
-            .create_bucket()
-            .bucket(&name)
-            .send()
+        let mut req = self.s3_client.create_bucket().bucket(&name);
+
+        // S3 requires a location constraint for all regions except us-east-1
+        let region = self
+            .s3_client
+            .config()
+            .region()
+            .map(|r| r.as_ref().to_string())
+            .unwrap_or_default();
+        if region != "us-east-1" && !region.is_empty() {
+            req = req.create_bucket_configuration(
+                aws_sdk_s3::types::CreateBucketConfiguration::builder()
+                    .location_constraint(aws_sdk_s3::types::BucketLocationConstraint::from(
+                        region.as_str(),
+                    ))
+                    .build(),
+            );
+        }
+
+        req.send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("CreateBucket: {e}")))?;
 
