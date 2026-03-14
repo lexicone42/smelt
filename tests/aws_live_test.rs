@@ -769,3 +769,122 @@ async fn apigateway_api_crud() {
         }
     }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// IAM Role — free, fast, tests assume-role policy pattern
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn iam_role_crud() {
+    let provider = AwsProvider::from_env().await;
+    let name = test_name("iam-role");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test role",
+        },
+        "security": {
+            "assume_role_policy": {
+                "Version": "2012-10-17",
+                "Statement": [{
+                    "Effect": "Allow",
+                    "Principal": { "Service": "lambda.amazonaws.com" },
+                    "Action": "sts:AssumeRole"
+                }]
+            }
+        }
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "iam.Role", &config, &name).await;
+
+    // ── Update: change description ──
+    println!("\n[UPDATE] iam.Role (change description)...");
+    let update_config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test role - updated",
+        },
+        "security": {
+            "assume_role_policy": {
+                "Version": "2012-10-17",
+                "Statement": [{
+                    "Effect": "Allow",
+                    "Principal": { "Service": "lambda.amazonaws.com" },
+                    "Action": "sts:AssumeRole"
+                }]
+            }
+        }
+    });
+    let update_result = provider
+        .update("iam.Role", &created.provider_id, &config, &update_config)
+        .await;
+    match &update_result {
+        Ok(output) => println!(
+            "  Updated. state = {}",
+            serde_json::to_string_pretty(&output.state).unwrap()
+        ),
+        Err(e) => println!("  UPDATE FAILED: {e:?}"),
+    }
+
+    // ── Cleanup ──
+    println!("\n[DELETE] iam.Role...");
+    provider
+        .delete("iam.Role", &created.provider_id)
+        .await
+        .expect("DELETE iam.Role failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// IAM Policy — free, fast, tests policy document pattern
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn iam_policy_crud() {
+    let provider = AwsProvider::from_env().await;
+    let name = test_name("iam-pol");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test policy",
+        },
+        "security": {
+            "policy_document": {
+                "Version": "2012-10-17",
+                "Statement": [{
+                    "Effect": "Allow",
+                    "Action": "logs:CreateLogGroup",
+                    "Resource": "*"
+                }]
+            }
+        }
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "iam.Policy", &config, &name).await;
+
+    // ── Cleanup ──
+    println!("\n[DELETE] iam.Policy...");
+    provider
+        .delete("iam.Policy", &created.provider_id)
+        .await
+        .expect("DELETE iam.Policy failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}

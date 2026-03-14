@@ -5058,6 +5058,7 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "urlencoding",
 ]
 
 [[package]]

@@ -131,6 +131,9 @@ google-cloud-gkebackup-v1 = "1"
 google-cloud-dataproc-v1 = "1"
 google-cloud-workflows-v1 = "1"
 
+# URL encoding (for IAM policy document decoding)
+urlencoding = "2"
+
 # Telemetry
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

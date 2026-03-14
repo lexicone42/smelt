@@ -170,14 +170,24 @@ impl AwsProvider {
             .role()
             .ok_or_else(|| ProviderError::NotFound(format!("Role {provider_id}")))?;
 
+        let mut identity = serde_json::json!({ "name": role.role_name() });
+        if let Some(desc) = role.description().filter(|s| !s.is_empty()) {
+            identity["description"] = serde_json::json!(desc);
+        }
+
+        // AWS returns URL-encoded JSON; decode and parse back to a JSON value
+        let assume_policy_val = role
+            .assume_role_policy_document()
+            .and_then(|doc| {
+                let decoded = urlencoding::decode(doc).ok()?;
+                serde_json::from_str::<serde_json::Value>(&decoded).ok()
+            })
+            .unwrap_or_else(|| serde_json::json!(""));
+
         let state = serde_json::json!({
-            "identity": {
-                "name": role.role_name(),
-                "description": role.description().unwrap_or(""),
-                "path": role.path(),
-            },
+            "identity": identity,
             "security": {
-                "assume_role_policy": role.assume_role_policy_document().unwrap_or(""),
+                "assume_role_policy": assume_policy_val,
             }
         });
 
