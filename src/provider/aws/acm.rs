@@ -17,26 +17,30 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "name".into(),
-                            description: "Domain name for certificate".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "name".into(),
+                                description: "Domain name for certificate".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "security".into(),
                         description: "Security configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "validation_method".into(),
-                            description: "Validation method (DNS or EMAIL)".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: false,
-                            default: Some(serde_json::json!("DNS")),
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "validation_method".into(),
+                                description: "Validation method (DNS or EMAIL)".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: false,
+                                default: Some(serde_json::json!("DNS")),
+                                sensitive: false,
+                            },
+                        ],
                     },
                 ],
             },
@@ -49,26 +53,23 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
         let name = config.require_str("/identity/name")?.to_string();
-        let validation_method = config
-            .str_or("/security/validation_method", "DNS")
-            .to_string();
+        let validation_method = config.str_or("/security/validation_method", "DNS").to_string();
 
         let tags = super::extract_tags(config);
 
-        let mut req = self.acm_client.request_certificate().domain_name(&name);
+        let mut req = self.acm_client
+            .request_certificate()
+            .domain_name(&name)
+        ;
 
-        req = req.validation_method(aws_sdk_acm::types::ValidationMethod::from(
-            validation_method.as_str(),
-        ));
+        req = req.validation_method(aws_sdk_acm::types::ValidationMethod::from(validation_method.as_str()));
         for (k, v) in &tags {
             req = req.tags(
                 aws_sdk_acm::types::Tag::builder()
                     .key(k)
                     .value(v)
                     .build()
-                    .map_err(|e| {
-                        ProviderError::InvalidConfig(format!("failed to build Tag: {e}"))
-                    })?,
+                    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build Tag: {e}")))?
             );
         }
 
@@ -77,9 +78,9 @@ impl AwsProvider {
             .await
             .map_err(|e| ProviderError::ApiError(format!("request_certificate: {e}")))?;
 
-        let provider_id = result.certificate_arn().ok_or_else(|| {
-            ProviderError::ApiError("request_certificate returned no certificate_arn".into())
-        })?;
+        let provider_id = result
+            .certificate_arn()
+            .ok_or_else(|| ProviderError::ApiError("request_certificate returned no certificate_arn".into()))?;
 
         self.read_acm_certificate(provider_id).await
     }
@@ -88,8 +89,7 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .acm_client
+        let result = self.acm_client
             .describe_certificate()
             .certificate_arn(provider_id)
             .send()
@@ -104,16 +104,11 @@ impl AwsProvider {
             "identity": {
                 "name": resource.domain_name().unwrap_or(""),
             },
-            "security": {
-            },
         });
 
         let mut outputs = HashMap::new();
         outputs.insert("certificate_arn".into(), serde_json::json!(provider_id));
-        outputs.insert(
-            "domain_name".into(),
-            serde_json::json!(resource.domain_name().unwrap_or("")),
-        );
+        outputs.insert("domain_name".into(), serde_json::json!(resource.domain_name().unwrap_or("")));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -128,9 +123,7 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement(
-            "resource does not support in-place update".into(),
-        ))
+        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
     }
 
     pub(super) async fn delete_acm_certificate(
@@ -145,4 +138,6 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_certificate: {e}")))?;
         Ok(())
     }
+
+
 }

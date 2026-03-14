@@ -13,28 +13,30 @@ impl AwsProvider {
             type_path: "sns.Topic".into(),
             description: "Topic resource".into(),
             schema: crate::provider::ResourceSchema {
-                sections: vec![crate::provider::SectionSchema {
-                    name: "identity".into(),
-                    description: "Identity configuration".into(),
-                    fields: vec![
-                        crate::provider::FieldSchema {
-                            name: "fifo".into(),
-                            description: "FIFO topic".into(),
-                            field_type: crate::provider::FieldType::Bool,
-                            required: false,
-                            default: Some(serde_json::json!(false)),
-                            sensitive: false,
-                        },
-                        crate::provider::FieldSchema {
-                            name: "name".into(),
-                            description: "Topic name".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        },
-                    ],
-                }],
+                sections: vec![
+                    crate::provider::SectionSchema {
+                        name: "identity".into(),
+                        description: "Identity configuration".into(),
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "fifo".into(),
+                                description: "FIFO topic".into(),
+                                field_type: crate::provider::FieldType::Bool,
+                                required: false,
+                                default: Some(serde_json::json!(false)),
+                                sensitive: false,
+                            },
+                            crate::provider::FieldSchema {
+                                name: "name".into(),
+                                description: "Topic name".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
+                    },
+                ],
             },
         }
     }
@@ -49,7 +51,10 @@ impl AwsProvider {
 
         let tags = super::extract_tags(config);
 
-        let mut req = self.sns_client.create_topic().name(&name);
+        let mut req = self.sns_client
+            .create_topic()
+            .name(&name)
+        ;
 
         if fifo {
             req = req.attributes("FifoTopic", "true");
@@ -60,9 +65,7 @@ impl AwsProvider {
                     .key(k)
                     .value(v)
                     .build()
-                    .map_err(|e| {
-                        ProviderError::InvalidConfig(format!("failed to build Tag: {e}"))
-                    })?,
+                    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build Tag: {e}")))?
             );
         }
 
@@ -82,13 +85,13 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .sns_client
+        let result = self.sns_client
             .get_topic_attributes()
             .topic_arn(provider_id)
             .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("get_topic_attributes: {e}")))?;
+
 
         let attrs = result.attributes().cloned().unwrap_or_default();
 
@@ -101,10 +104,7 @@ impl AwsProvider {
 
         let mut outputs = HashMap::new();
         outputs.insert("topic_arn".into(), serde_json::json!(provider_id));
-        outputs.insert(
-            "topic_name".into(),
-            serde_json::json!(provider_id.rsplit(':').next().unwrap_or("")),
-        );
+        outputs.insert("topic_name".into(), serde_json::json!(provider_id.rsplit(':').next().unwrap_or("")));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -119,12 +119,13 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement(
-            "resource does not support in-place update".into(),
-        ))
+        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
     }
 
-    pub(super) async fn delete_sns_topic(&self, provider_id: &str) -> Result<(), ProviderError> {
+    pub(super) async fn delete_sns_topic(
+        &self,
+        provider_id: &str,
+    ) -> Result<(), ProviderError> {
         self.sns_client
             .delete_topic()
             .topic_arn(provider_id)
@@ -133,4 +134,6 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_topic: {e}")))?;
         Ok(())
     }
+
+
 }

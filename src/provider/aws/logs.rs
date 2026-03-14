@@ -17,38 +17,44 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "name".into(),
-                            description: "Log group name (e.g., /ecs/my-service)".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "name".into(),
+                                description: "Log group name (e.g., /ecs/my-service)".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "reliability".into(),
                         description: "Reliability configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "retention_days".into(),
-                            description: "Log retention in days (0 = never expire)".into(),
-                            field_type: crate::provider::FieldType::Integer,
-                            required: false,
-                            default: Some(serde_json::json!(0)),
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "retention_days".into(),
+                                description: "Log retention in days (0 = never expire)".into(),
+                                field_type: crate::provider::FieldType::Integer,
+                                required: false,
+                                default: Some(serde_json::json!(0)),
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "security".into(),
                         description: "Security configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "kms_key_id".into(),
-                            description: "KMS key for encryption".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: false,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "kms_key_id".into(),
+                                description: "KMS key for encryption".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                 ],
             },
@@ -60,22 +66,24 @@ impl AwsProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        let kms_key_id = config
-            .optional_str("/security/kms_key_id")
-            .map(String::from);
+        let kms_key_id = config.optional_str("/security/kms_key_id").map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
         let retention_days = config.i64_or("/reliability/retention_days", 0);
 
         let tags = super::extract_tags(config);
 
-        let mut req = self.logs_client.create_log_group().log_group_name(&name);
+        let mut req = self.logs_client
+            .create_log_group()
+            .log_group_name(&name)
+        ;
 
         if let Some(ref v) = kms_key_id {
             req = req.kms_key_id(v);
         }
         req = req.set_tags(Some(tags));
 
-        req.send()
+        req
+            .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_log_group: {e}")))?;
 
@@ -96,8 +104,7 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .logs_client
+        let result = self.logs_client
             .describe_log_groups()
             .log_group_name_prefix(provider_id)
             .send()
@@ -117,19 +124,16 @@ impl AwsProvider {
                 "retention_days": resource.retention_in_days().unwrap_or(0),
             },
         });
-        if let Some(kms_key_id) = resource.kms_key_id().filter(|s| !s.is_empty()) {
-            state["security"] = serde_json::json!({ "kms_key_id": kms_key_id });
+        if let Some(val) = resource.kms_key_id().filter(|s| !s.is_empty()) {
+            if state.get("security").is_none() {
+                state["security"] = serde_json::json!({});
+            }
+            state["security"]["kms_key_id"] = serde_json::json!(val);
         }
 
         let mut outputs = HashMap::new();
-        outputs.insert(
-            "log_group_arn".into(),
-            serde_json::json!(resource.arn().unwrap_or("")),
-        );
-        outputs.insert(
-            "log_group_name".into(),
-            serde_json::json!(resource.log_group_name().unwrap_or("")),
-        );
+        outputs.insert("log_group_arn".into(), serde_json::json!(resource.arn().unwrap_or("")));
+        outputs.insert("log_group_name".into(), serde_json::json!(resource.log_group_name().unwrap_or("")));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -144,9 +148,7 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement(
-            "resource does not support in-place update".into(),
-        ))
+        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
     }
 
     pub(super) async fn delete_logs_log_group(
@@ -161,4 +163,6 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_log_group: {e}")))?;
         Ok(())
     }
+
+
 }

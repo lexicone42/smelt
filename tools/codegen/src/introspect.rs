@@ -41,9 +41,9 @@ pub enum SimplifiedType {
     Timestamp,
     HashMap(Box<SimplifiedType>, Box<SimplifiedType>),
     Vec(Box<SimplifiedType>),
-    Enum(String),       // enum type name
-    Nested(String),     // nested struct type name
-    Unknown(String),    // couldn't classify
+    Enum(String),    // enum type name
+    Nested(String),  // nested struct type name
+    Unknown(String), // couldn't classify
 }
 
 impl std::fmt::Display for SimplifiedType {
@@ -117,9 +117,7 @@ pub enum OneofInnerType {
 /// List all top-level `pub struct` names in the source.
 pub fn list_structs(source: &str) -> Vec<String> {
     let re = Regex::new(r"(?m)^(?:\s+)?pub struct (\w+)\b").unwrap();
-    re.captures_iter(source)
-        .map(|c| c[1].to_string())
-        .collect()
+    re.captures_iter(source).map(|c| c[1].to_string()).collect()
 }
 
 /// Quickly scan all structs and return (name, field_count, has_name_field).
@@ -304,8 +302,7 @@ pub fn parse_oneof_variants(source: &str, enum_name: &str) -> Vec<OneofVariant> 
     };
 
     // Match variants with inner types: VariantName(Type) or VariantName(Box<Type>)
-    let variant_re =
-        Regex::new(r"(?m)^\s+(\w+)\(([^)]+)\)\s*,?\s*$").unwrap();
+    let variant_re = Regex::new(r"(?m)^\s+(\w+)\(([^)]+)\)\s*,?\s*$").unwrap();
 
     let mut variants = Vec::new();
     for cap in variant_re.captures_iter(&body) {
@@ -419,11 +416,7 @@ pub fn parse_struct_fields_resolved(source: &str, struct_name: &str) -> Vec<SdkF
 }
 
 /// Discover all enum types referenced by a struct's fields and parse their variants.
-pub fn resolve_enums(
-    source: &str,
-    fields: &[SdkField],
-    provider: &str,
-) -> Vec<SdkEnum> {
+pub fn resolve_enums(source: &str, fields: &[SdkField], provider: &str) -> Vec<SdkEnum> {
     let mut enums = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
@@ -546,9 +539,8 @@ fn parse_fields_from_body(body: &str) -> Vec<SdkField> {
     fields
 }
 
-static FIELD_LINE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"pub(?:\(crate\))?\s+(?:r#)?(\w+)\s*:\s*(.+?),?\s*$").unwrap()
-});
+static FIELD_LINE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"pub(?:\(crate\))?\s+(?:r#)?(\w+)\s*:\s*(.+?),?\s*$").unwrap());
 
 fn parse_field_line(line: &str, docs: &[String], deprecated: bool) -> Option<SdkField> {
     let cap = FIELD_LINE_RE.captures(line)?;
@@ -662,9 +654,7 @@ fn classify_type_inner(t: &str) -> (SimplifiedType, bool) {
     }
 }
 
-static HTML_TAG_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"<[^>]+>").unwrap()
-});
+static HTML_TAG_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]+>").unwrap());
 
 /// Strip simple HTML tags from AWS SDK doc comments.
 fn strip_html_tags(s: &str) -> String {
@@ -676,7 +666,10 @@ fn strip_html_tags(s: &str) -> String {
 fn strip_wrapper(s: &str, wrapper: &str) -> Option<String> {
     let prefix = format!("{wrapper}<");
     if s.starts_with(&prefix) && s.ends_with('>') {
-        let inner = s[prefix.len()..s.len() - 1].trim().trim_end_matches(',').trim();
+        let inner = s[prefix.len()..s.len() - 1]
+            .trim()
+            .trim_end_matches(',')
+            .trim();
         Some(inner.to_string())
     } else {
         None
@@ -710,7 +703,8 @@ mod tests {
 
     #[test]
     fn test_classify_hashmap() {
-        let (t, opt) = classify_type("std::collections::HashMap<std::string::String, std::string::String>");
+        let (t, opt) =
+            classify_type("std::collections::HashMap<std::string::String, std::string::String>");
         assert!(matches!(t, SimplifiedType::HashMap(_, _)));
         assert!(!opt);
     }
@@ -724,7 +718,8 @@ mod tests {
 
     #[test]
     fn test_classify_option_enum() {
-        let (t, opt) = classify_type("std::option::Option<crate::model::network_routing_config::RoutingMode>");
+        let (t, opt) =
+            classify_type("std::option::Option<crate::model::network_routing_config::RoutingMode>");
         assert!(matches!(t, SimplifiedType::Enum(_)));
         assert!(opt);
     }
@@ -847,11 +842,18 @@ impl Tenancy {
         let variants = parse_oneof_variants(source, "Resource");
         assert_eq!(variants.len(), 3);
         assert_eq!(variants[0].name, "MonitoredResource");
-        assert!(matches!(variants[0].inner_type, OneofInnerType::CrossCrateStruct(_)));
+        assert!(matches!(
+            variants[0].inner_type,
+            OneofInnerType::CrossCrateStruct(_)
+        ));
         assert_eq!(variants[1].name, "ResourceGroup");
-        assert!(matches!(variants[1].inner_type, OneofInnerType::SameCrateStruct(ref n) if n == "crate::model::uptime_check_config::ResourceGroup"));
+        assert!(
+            matches!(variants[1].inner_type, OneofInnerType::SameCrateStruct(ref n) if n == "crate::model::uptime_check_config::ResourceGroup")
+        );
         assert_eq!(variants[2].name, "SyntheticMonitor");
-        assert!(matches!(variants[2].inner_type, OneofInnerType::SameCrateStruct(ref n) if n == "crate::model::SyntheticMonitorTarget"));
+        assert!(
+            matches!(variants[2].inner_type, OneofInnerType::SameCrateStruct(ref n) if n == "crate::model::SyntheticMonitorTarget")
+        );
     }
 
     #[test]
@@ -874,9 +876,13 @@ pub struct NetworkRoutingConfig {
         let fields = parse_struct_fields_resolved(source, "Network");
         assert_eq!(fields.len(), 2);
         // routing_config references a top-level struct → Nested
-        assert!(matches!(fields[0].simplified_type, SimplifiedType::Nested(ref n) if n == "NetworkRoutingConfig"));
+        assert!(
+            matches!(fields[0].simplified_type, SimplifiedType::Nested(ref n) if n == "NetworkRoutingConfig")
+        );
         // mode references a nested enum → Enum
-        assert!(matches!(fields[1].simplified_type, SimplifiedType::Enum(ref n) if n == "RoutingMode"));
+        assert!(
+            matches!(fields[1].simplified_type, SimplifiedType::Enum(ref n) if n == "RoutingMode")
+        );
     }
 
     #[test]
@@ -898,11 +904,18 @@ pub struct ForwardingRule {
         let fields = parse_struct_fields(source, "ForwardingRule");
         assert_eq!(fields.len(), 3, "Should parse 3 fields, got: {fields:?}");
         assert_eq!(fields[0].name, "name");
-        assert_eq!(fields[1].name, "external_managed_backend_bucket_migration_state");
-        assert!(fields[1].optional, "multi-line Option field should be optional");
+        assert_eq!(
+            fields[1].name,
+            "external_managed_backend_bucket_migration_state"
+        );
+        assert!(
+            fields[1].optional,
+            "multi-line Option field should be optional"
+        );
         assert!(
             matches!(fields[1].simplified_type, SimplifiedType::Enum(ref n) if n == "ExternalManagedBackendBucketMigrationState"),
-            "Should parse as Enum, got: {:?}", fields[1].simplified_type
+            "Should parse as Enum, got: {:?}",
+            fields[1].simplified_type
         );
         assert_eq!(fields[2].name, "all_ports");
     }
@@ -922,7 +935,11 @@ pub struct NotificationChannel {
 }
 "#;
         let fields = parse_struct_fields(source, "NotificationChannel");
-        assert_eq!(fields.len(), 3, "Should parse 3 fields including r#type, got: {fields:?}");
+        assert_eq!(
+            fields.len(),
+            3,
+            "Should parse 3 fields including r#type, got: {fields:?}"
+        );
         assert_eq!(fields[0].name, "type", "r# prefix should be stripped");
         assert_eq!(fields[0].simplified_type, SimplifiedType::String);
         assert!(!fields[0].optional);
@@ -980,10 +997,17 @@ pub struct Foo {
 
         // Basic struct parsing
         let fields = parse_struct_fields_resolved(&source, "Network");
-        assert!(fields.len() >= 10, "Network should have 10+ fields, got {}", fields.len());
+        assert!(
+            fields.len() >= 10,
+            "Network should have 10+ fields, got {}",
+            fields.len()
+        );
 
         // name field present and is String
-        let name_field = fields.iter().find(|f| f.name == "name").expect("Network should have 'name'");
+        let name_field = fields
+            .iter()
+            .find(|f| f.name == "name")
+            .expect("Network should have 'name'");
         assert_eq!(name_field.simplified_type, SimplifiedType::String);
 
         // routing_config should be Nested (it's a struct, not enum)
@@ -1023,10 +1047,17 @@ pub struct Foo {
         let source = std::fs::read_to_string(&path).unwrap();
 
         let fields = parse_struct_fields(&source, "Vpc");
-        assert!(fields.len() >= 5, "Vpc should have 5+ fields, got {}", fields.len());
+        assert!(
+            fields.len() >= 5,
+            "Vpc should have 5+ fields, got {}",
+            fields.len()
+        );
 
         // cidr_block should be String
-        let cidr = fields.iter().find(|f| f.name == "cidr_block").expect("Vpc should have cidr_block");
+        let cidr = fields
+            .iter()
+            .find(|f| f.name == "cidr_block")
+            .expect("Vpc should have cidr_block");
         assert_eq!(cidr.simplified_type, SimplifiedType::String);
 
         // instance_tenancy should be Enum

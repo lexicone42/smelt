@@ -17,14 +17,16 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "name".into(),
-                            description: "Table name".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "name".into(),
+                                description: "Table name".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "sizing".into(),
@@ -33,7 +35,7 @@ impl AwsProvider {
                             crate::provider::FieldSchema {
                                 name: "billing_mode".into(),
                                 description: "Billing mode".into(),
-                                field_type: crate::provider::FieldType::String, /* Enum */
+                                field_type: crate::provider::FieldType::String /* Enum */,
                                 required: false,
                                 default: Some(serde_json::json!("PAY_PER_REQUEST")),
                                 sensitive: false,
@@ -49,7 +51,7 @@ impl AwsProvider {
                             crate::provider::FieldSchema {
                                 name: "partition_key_type".into(),
                                 description: "Partition key type (S, N, B)".into(),
-                                field_type: crate::provider::FieldType::String, /* Enum */
+                                field_type: crate::provider::FieldType::String /* Enum */,
                                 required: false,
                                 default: Some(serde_json::json!("S")),
                                 sensitive: false,
@@ -99,23 +101,15 @@ impl AwsProvider {
                 .attribute_name(&partition_key)
                 .key_type(aws_sdk_dynamodb::types::KeyType::Hash)
                 .build()
-                .map_err(|e| {
-                    ProviderError::InvalidConfig(format!("failed to build KeySchemaElement: {e}"))
-                })?,
+                .map_err(|e| ProviderError::InvalidConfig(format!("failed to build KeySchemaElement: {e}")))?,
         ];
 
         let mut attr_defs = vec![
             aws_sdk_dynamodb::types::AttributeDefinition::builder()
                 .attribute_name(&partition_key)
-                .attribute_type(aws_sdk_dynamodb::types::ScalarAttributeType::from(
-                    partition_key_type,
-                ))
+                .attribute_type(aws_sdk_dynamodb::types::ScalarAttributeType::from(partition_key_type))
                 .build()
-                .map_err(|e| {
-                    ProviderError::InvalidConfig(format!(
-                        "failed to build AttributeDefinition: {e}"
-                    ))
-                })?,
+                .map_err(|e| ProviderError::InvalidConfig(format!("failed to build AttributeDefinition: {e}")))?,
         ];
 
         if let Some(sort_key) = config.optional_str("/sizing/sort_key") {
@@ -126,31 +120,20 @@ impl AwsProvider {
                     .attribute_name(sort_key)
                     .key_type(aws_sdk_dynamodb::types::KeyType::Range)
                     .build()
-                    .map_err(|e| {
-                        ProviderError::InvalidConfig(format!(
-                            "failed to build KeySchemaElement: {e}"
-                        ))
-                    })?,
+                    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build KeySchemaElement: {e}")))?,
             );
             attr_defs.push(
                 aws_sdk_dynamodb::types::AttributeDefinition::builder()
                     .attribute_name(sort_key)
-                    .attribute_type(aws_sdk_dynamodb::types::ScalarAttributeType::from(
-                        sort_key_type,
-                    ))
+                    .attribute_type(aws_sdk_dynamodb::types::ScalarAttributeType::from(sort_key_type))
                     .build()
-                    .map_err(|e| {
-                        ProviderError::InvalidConfig(format!(
-                            "failed to build AttributeDefinition: {e}"
-                        ))
-                    })?,
+                    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build AttributeDefinition: {e}")))?,
             );
         }
 
         let billing_mode = config.str_or("/sizing/billing_mode", "PAY_PER_REQUEST");
 
-        let mut req = self
-            .dynamodb_client
+        let mut req = self.dynamodb_client
             .create_table()
             .table_name(&name)
             .set_key_schema(Some(key_schema))
@@ -158,24 +141,14 @@ impl AwsProvider {
             .billing_mode(aws_sdk_dynamodb::types::BillingMode::from(billing_mode));
 
         if billing_mode == "PROVISIONED" {
-            let rcu = config
-                .pointer("/sizing/read_capacity")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(5);
-            let wcu = config
-                .pointer("/sizing/write_capacity")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(5);
+            let rcu = config.pointer("/sizing/read_capacity").and_then(|v| v.as_i64()).unwrap_or(5);
+            let wcu = config.pointer("/sizing/write_capacity").and_then(|v| v.as_i64()).unwrap_or(5);
             req = req.provisioned_throughput(
                 aws_sdk_dynamodb::types::ProvisionedThroughput::builder()
                     .read_capacity_units(rcu)
                     .write_capacity_units(wcu)
                     .build()
-                    .map_err(|e| {
-                        ProviderError::InvalidConfig(format!(
-                            "failed to build ProvisionedThroughput: {e}"
-                        ))
-                    })?,
+                    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build ProvisionedThroughput: {e}")))?,
             );
         }
 
@@ -186,19 +159,14 @@ impl AwsProvider {
                     .key(k)
                     .value(v)
                     .build()
-                    .map_err(|e| {
-                        ProviderError::InvalidConfig(format!("failed to build DynamoDB Tag: {e}"))
-                    })?,
+                    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build DynamoDB Tag: {e}")))?,
             );
         }
 
-        let result = req
-            .send()
-            .await
+        let result = req.send().await
             .map_err(|e| ProviderError::ApiError(format!("CreateTable: {e}")))?;
 
-        let table_name = result
-            .table_description()
+        let table_name = result.table_description()
             .and_then(|t| t.table_name())
             .unwrap_or(&name)
             .to_string();
@@ -230,42 +198,32 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .dynamodb_client
+        let result = self.dynamodb_client
             .describe_table()
             .table_name(provider_id)
             .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("DescribeTable: {e}")))?;
 
-        let table = result
-            .table()
+        let table = result.table()
             .ok_or_else(|| ProviderError::NotFound(format!("Table {provider_id}")))?;
 
-        let billing = table
-            .billing_mode_summary()
-            .map(|b| {
-                b.billing_mode()
-                    .map(|m| m.as_str())
-                    .unwrap_or("PAY_PER_REQUEST")
-            })
+        let billing = table.billing_mode_summary()
+            .map(|b| b.billing_mode().map(|m| m.as_str()).unwrap_or("PAY_PER_REQUEST"))
             .unwrap_or("PAY_PER_REQUEST");
 
         // Extract key schema
         let key_schema = table.key_schema();
         let attr_defs = table.attribute_definitions();
-        let partition_key = key_schema
-            .iter()
+        let partition_key = key_schema.iter()
             .find(|k| k.key_type() == &aws_sdk_dynamodb::types::KeyType::Hash)
             .map(|k| k.attribute_name())
             .unwrap_or("");
-        let partition_key_type = attr_defs
-            .iter()
+        let partition_key_type = attr_defs.iter()
             .find(|a| a.attribute_name() == partition_key)
             .map(|a| a.attribute_type().as_str())
             .unwrap_or("S");
-        let sort_key = key_schema
-            .iter()
+        let sort_key = key_schema.iter()
             .find(|k| k.key_type() == &aws_sdk_dynamodb::types::KeyType::Range)
             .map(|k| k.attribute_name())
             .unwrap_or("");
@@ -276,8 +234,7 @@ impl AwsProvider {
             "partition_key_type": partition_key_type,
         });
         if !sort_key.is_empty() {
-            let sort_key_type = attr_defs
-                .iter()
+            let sort_key_type = attr_defs.iter()
                 .find(|a| a.attribute_name() == sort_key)
                 .map(|a| a.attribute_type().as_str())
                 .unwrap_or("S");
@@ -293,14 +250,8 @@ impl AwsProvider {
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert(
-            "table_arn".into(),
-            serde_json::json!(table.table_arn().unwrap_or("")),
-        );
-        outputs.insert(
-            "table_name".into(),
-            serde_json::json!(table.table_name().unwrap_or("")),
-        );
+        outputs.insert("table_arn".into(), serde_json::json!(table.table_arn().unwrap_or("")));
+        outputs.insert("table_name".into(), serde_json::json!(table.table_name().unwrap_or("")));
 
         Ok(ResourceOutput {
             provider_id: table.table_name().unwrap_or("").to_string(),
@@ -316,36 +267,24 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let billing_mode = config.str_or("/sizing/billing_mode", "PAY_PER_REQUEST");
 
-        let mut req = self
-            .dynamodb_client
+        let mut req = self.dynamodb_client
             .update_table()
             .table_name(provider_id)
             .billing_mode(aws_sdk_dynamodb::types::BillingMode::from(billing_mode));
 
         if billing_mode == "PROVISIONED" {
-            let rcu = config
-                .pointer("/sizing/read_capacity")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(5);
-            let wcu = config
-                .pointer("/sizing/write_capacity")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(5);
+            let rcu = config.pointer("/sizing/read_capacity").and_then(|v| v.as_i64()).unwrap_or(5);
+            let wcu = config.pointer("/sizing/write_capacity").and_then(|v| v.as_i64()).unwrap_or(5);
             req = req.provisioned_throughput(
                 aws_sdk_dynamodb::types::ProvisionedThroughput::builder()
                     .read_capacity_units(rcu)
                     .write_capacity_units(wcu)
                     .build()
-                    .map_err(|e| {
-                        ProviderError::InvalidConfig(format!(
-                            "failed to build ProvisionedThroughput: {e}"
-                        ))
-                    })?,
+                    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build ProvisionedThroughput: {e}")))?,
             );
         }
 
-        req.send()
-            .await
+        req.send().await
             .map_err(|e| ProviderError::ApiError(format!("UpdateTable: {e}")))?;
 
         self.read_dynamodb_table(provider_id).await
@@ -363,4 +302,6 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_table: {e}")))?;
         Ok(())
     }
+
+
 }

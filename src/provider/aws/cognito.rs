@@ -17,26 +17,30 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "name".into(),
-                            description: "User pool name".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "name".into(),
+                                description: "User pool name".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "security".into(),
                         description: "Security configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "mfa_configuration".into(),
-                            description: "MFA configuration (OFF, ON, OPTIONAL)".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: false,
-                            default: Some(serde_json::json!("OFF")),
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "mfa_configuration".into(),
+                                description: "MFA configuration (OFF, ON, OPTIONAL)".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: false,
+                                default: Some(serde_json::json!("OFF")),
+                                sensitive: false,
+                            },
+                        ],
                     },
                 ],
             },
@@ -48,27 +52,25 @@ impl AwsProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        let mfa_configuration = config
-            .str_or("/security/mfa_configuration", "OFF")
-            .to_string();
+        let mfa_configuration = config.str_or("/security/mfa_configuration", "OFF").to_string();
         let name = config.require_str("/identity/name")?.to_string();
 
-        let mut req = self.cognito_client.create_user_pool().pool_name(&name);
 
-        req = req.mfa_configuration(
-            aws_sdk_cognitoidentityprovider::types::UserPoolMfaType::from(
-                mfa_configuration.as_str(),
-            ),
-        );
+        let mut req = self.cognito_client
+            .create_user_pool()
+            .pool_name(&name)
+        ;
+
+        req = req.mfa_configuration(aws_sdk_cognitoidentityprovider::types::UserPoolMfaType::from(mfa_configuration.as_str()));
 
         let result = req
             .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_user_pool: {e}")))?;
 
-        let container = result.user_pool().ok_or_else(|| {
-            ProviderError::ApiError("create_user_pool returned no user_pool".into())
-        })?;
+        let container = result
+            .user_pool()
+            .ok_or_else(|| ProviderError::ApiError("create_user_pool returned no user_pool".into()))?;
         let provider_id = container
             .id()
             .ok_or_else(|| ProviderError::ApiError("create_user_pool returned no id".into()))?;
@@ -80,8 +82,7 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .cognito_client
+        let result = self.cognito_client
             .describe_user_pool()
             .user_pool_id(provider_id)
             .send()
@@ -103,10 +104,7 @@ impl AwsProvider {
 
         let mut outputs = HashMap::new();
         outputs.insert("user_pool_id".into(), serde_json::json!(provider_id));
-        outputs.insert(
-            "user_pool_arn".into(),
-            serde_json::json!(resource.arn().unwrap_or("")),
-        );
+        outputs.insert("user_pool_arn".into(), serde_json::json!(resource.arn().unwrap_or("")));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -122,15 +120,13 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let mfa_configuration = config.optional_str("/security/mfa_configuration");
 
-        let mut req = self
-            .cognito_client
+        let mut req = self.cognito_client
             .update_user_pool()
-            .user_pool_id(provider_id);
+            .user_pool_id(provider_id)
+        ;
 
         if let Some(v) = mfa_configuration {
-            req = req.mfa_configuration(
-                aws_sdk_cognitoidentityprovider::types::UserPoolMfaType::from(v),
-            );
+            req = req.mfa_configuration(aws_sdk_cognitoidentityprovider::types::UserPoolMfaType::from(v));
         }
 
         req.send()
@@ -152,4 +148,6 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_user_pool: {e}")))?;
         Ok(())
     }
+
+
 }

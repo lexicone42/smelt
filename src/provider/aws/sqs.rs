@@ -50,8 +50,7 @@ impl AwsProvider {
                             },
                             crate::provider::FieldSchema {
                                 name: "message_retention_seconds".into(),
-                                description: "Message retention period in seconds (60–1209600)"
-                                    .into(),
+                                description: "Message retention period in seconds (60–1209600)".into(),
                                 field_type: crate::provider::FieldType::Integer,
                                 required: false,
                                 default: Some(serde_json::json!(345600)),
@@ -79,23 +78,22 @@ impl AwsProvider {
         // Extract fields from config
         let delay_seconds = config.i64_or("/reliability/delay_seconds", 0);
         let fifo = config.bool_or("/identity/fifo", false);
-        let message_retention_seconds =
-            config.i64_or("/reliability/message_retention_seconds", 345600);
+        let message_retention_seconds = config.i64_or("/reliability/message_retention_seconds", 345600);
         let name = config.require_str("/identity/name")?.to_string();
         let visibility_timeout = config.i64_or("/reliability/visibility_timeout", 30);
 
         let tags = super::extract_tags(config);
 
-        let mut req = self.sqs_client.create_queue().queue_name(&name);
+        let mut req = self.sqs_client
+            .create_queue()
+            .queue_name(&name)
+        ;
 
         req = req.attributes("DelaySeconds".into(), delay_seconds.to_string());
         if fifo {
             req = req.attributes("FifoQueue".into(), "true");
         }
-        req = req.attributes(
-            "MessageRetentionPeriod".into(),
-            message_retention_seconds.to_string(),
-        );
+        req = req.attributes("MessageRetentionPeriod".into(), message_retention_seconds.to_string());
         req = req.attributes("VisibilityTimeout".into(), visibility_timeout.to_string());
         for (k, v) in &tags {
             req = req.tags(k, v);
@@ -117,14 +115,14 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .sqs_client
+        let result = self.sqs_client
             .get_queue_attributes()
             .queue_url(provider_id)
             .attribute_names(aws_sdk_sqs::types::QueueAttributeName::All)
             .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("get_queue_attributes: {e}")))?;
+
 
         let attrs = result.attributes().cloned().unwrap_or_default();
 
@@ -142,15 +140,7 @@ impl AwsProvider {
 
         let mut outputs = HashMap::new();
         outputs.insert("queue_url".into(), serde_json::json!(provider_id));
-        outputs.insert(
-            "queue_arn".into(),
-            serde_json::json!(
-                attrs
-                    .get(&aws_sdk_sqs::types::QueueAttributeName::QueueArn)
-                    .cloned()
-                    .unwrap_or_default()
-            ),
-        );
+        outputs.insert("queue_arn".into(), serde_json::json!(attrs.get(&aws_sdk_sqs::types::QueueAttributeName::QueueArn).cloned().unwrap_or_default()));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -166,14 +156,13 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let delay_seconds = config.optional_i64("/reliability/delay_seconds");
         let fifo = config.optional_bool("/identity/fifo");
-        let message_retention_seconds =
-            config.optional_i64("/reliability/message_retention_seconds");
+        let message_retention_seconds = config.optional_i64("/reliability/message_retention_seconds");
         let visibility_timeout = config.optional_i64("/reliability/visibility_timeout");
 
-        let mut req = self
-            .sqs_client
+        let mut req = self.sqs_client
             .set_queue_attributes()
-            .queue_url(provider_id);
+            .queue_url(provider_id)
+        ;
 
         if let Some(v) = delay_seconds {
             req = req.attributes("DelaySeconds".into(), v.to_string());
@@ -195,7 +184,10 @@ impl AwsProvider {
         self.read_sqs_queue(provider_id).await
     }
 
-    pub(super) async fn delete_sqs_queue(&self, provider_id: &str) -> Result<(), ProviderError> {
+    pub(super) async fn delete_sqs_queue(
+        &self,
+        provider_id: &str,
+    ) -> Result<(), ProviderError> {
         self.sqs_client
             .delete_queue()
             .queue_url(provider_id)
@@ -204,4 +196,6 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_queue: {e}")))?;
         Ok(())
     }
+
+
 }

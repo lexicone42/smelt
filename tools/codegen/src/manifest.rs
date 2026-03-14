@@ -124,7 +124,6 @@ pub struct ResourceMeta {
     pub raw_labels: bool,
 
     // ── AWS-specific fields ─────────────────────────────────────────────────
-
     /// AWS: client field name on AwsProvider (e.g., "ec2_client", "lambda_client").
     #[serde(default)]
     pub aws_client_field: Option<String>,
@@ -528,7 +527,11 @@ impl ResourceManifest {
         // Detect API style: compute SDK uses insert/get/patch/delete,
         // other GCP SDKs use create_noun/get_noun/update_noun/delete_noun
         let is_compute = sdk_crate.contains("compute");
-        let api_style = if is_compute { ApiStyle::Compute } else { ApiStyle::ResourceName };
+        let api_style = if is_compute {
+            ApiStyle::Compute
+        } else {
+            ApiStyle::ResourceName
+        };
 
         let crud = if provider == "gcp" {
             if is_compute {
@@ -736,7 +739,13 @@ impl ResourceManifest {
         enums: &[SdkEnum],
     ) -> Self {
         Self::from_introspected_with_enums_and_source(
-            provider, sdk_crate, struct_name, sdk_client, fields, enums, None,
+            provider,
+            sdk_crate,
+            struct_name,
+            sdk_client,
+            fields,
+            enums,
+            None,
         )
     }
 
@@ -750,7 +759,8 @@ impl ResourceManifest {
         enums: &[SdkEnum],
         sdk_source: Option<&str>,
     ) -> Self {
-        let mut manifest = Self::from_introspected(provider, sdk_crate, struct_name, sdk_client, fields);
+        let mut manifest =
+            Self::from_introspected(provider, sdk_crate, struct_name, sdk_client, fields);
 
         // Build a lookup: enum name → variant strings
         let enum_lookup: std::collections::HashMap<&str, &[String]> = enums
@@ -787,7 +797,7 @@ impl ResourceManifest {
                         if let Some(ref path) = field_def.sdk_type_path {
                             let is_same_crate_nested = path.starts_with("crate::model::")
                                 && path.matches("::").count() > 2;
-                                if is_same_crate_nested {
+                            if is_same_crate_nested {
                                 field_def.sdk_type_path = None;
                             }
                         }
@@ -840,7 +850,11 @@ fn extract_inner_type(raw: &str) -> Option<String> {
 
     // Strip Option<> wrapper, handling multi-line joined types with internal commas
     let inner = if t.starts_with("Option<") && t.ends_with('>') {
-        t[7..t.len() - 1].trim().trim_end_matches(',').trim().to_string()
+        t[7..t.len() - 1]
+            .trim()
+            .trim_end_matches(',')
+            .trim()
+            .to_string()
     } else {
         t
     };
@@ -869,9 +883,7 @@ fn infer_type_path(sdk_crate: &str, struct_name: &str) -> String {
         format!("{service}.{struct_name}")
     } else if sdk_crate.starts_with("aws-sdk-") {
         // "aws-sdk-ec2" → "ec2"
-        let service = sdk_crate
-            .strip_prefix("aws-sdk-")
-            .unwrap_or(sdk_crate);
+        let service = sdk_crate.strip_prefix("aws-sdk-").unwrap_or(sdk_crate);
         format!("{service}.{struct_name}")
     } else {
         format!("unknown.{struct_name}")
@@ -892,22 +904,46 @@ fn infer_scope(fields: &[SdkField]) -> Scope {
 fn infer_section(field_name: &str) -> String {
     match field_name {
         "name" | "id" | "labels" | "description" | "display_name" | "tags" => "identity",
-        "network" | "subnetwork" | "subnet" | "cidr_block" | "cidr_range"
-        | "ip_address" | "ip_cidr_range" | "network_interfaces" | "routing_config"
-        | "auto_create_subnetworks" | "mtu" | "peerings" | "subnetworks"
-        | "vpc_id" | "subnet_id" | "security_group_ids" => "network",
-        "machine_type" | "zone" | "region" | "size" | "disk_size_gb"
-        | "instance_type" | "availability_zone" => "sizing",
-        "boot_disk" | "image" | "startup_script" | "metadata" | "service_account"
-        | "source_image" | "initialization_params" => "runtime",
-        "allowed" | "denied" | "direction" | "priority" | "source_ranges"
-        | "target_tags" | "source_tags" | "firewall_policy" | "encryption"
-        | "kms_key_name" | "iam_policy" => "security",
+        "network"
+        | "subnetwork"
+        | "subnet"
+        | "cidr_block"
+        | "cidr_range"
+        | "ip_address"
+        | "ip_cidr_range"
+        | "network_interfaces"
+        | "routing_config"
+        | "auto_create_subnetworks"
+        | "mtu"
+        | "peerings"
+        | "subnetworks"
+        | "vpc_id"
+        | "subnet_id"
+        | "security_group_ids" => "network",
+        "machine_type" | "zone" | "region" | "size" | "disk_size_gb" | "instance_type"
+        | "availability_zone" => "sizing",
+        "boot_disk"
+        | "image"
+        | "startup_script"
+        | "metadata"
+        | "service_account"
+        | "source_image"
+        | "initialization_params" => "runtime",
+        "allowed" | "denied" | "direction" | "priority" | "source_ranges" | "target_tags"
+        | "source_tags" | "firewall_policy" | "encryption" | "kms_key_name" | "iam_policy" => {
+            "security"
+        }
         "versioning" | "lifecycle" | "replication" | "backup" | "replicas" => "reliability",
         "ttl" | "type_" | "rrdatas" | "dns_name" | "record_type" => "dns",
-        s if s.contains("self_link") || s.contains("creation_timestamp")
-            || s.contains("status") || s.contains("fingerprint")
-            || s.starts_with("kind") || s.starts_with("gateway") => "output",
+        s if s.contains("self_link")
+            || s.contains("creation_timestamp")
+            || s.contains("status")
+            || s.contains("fingerprint")
+            || s.starts_with("kind")
+            || s.starts_with("gateway") =>
+        {
+            "output"
+        }
         _ => "config",
     }
     .into()

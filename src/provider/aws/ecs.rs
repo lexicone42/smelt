@@ -13,18 +13,22 @@ impl AwsProvider {
             type_path: "ecs.Cluster".into(),
             description: "Cluster resource".into(),
             schema: crate::provider::ResourceSchema {
-                sections: vec![crate::provider::SectionSchema {
-                    name: "identity".into(),
-                    description: "Identity configuration".into(),
-                    fields: vec![crate::provider::FieldSchema {
-                        name: "name".into(),
-                        description: "Cluster name".into(),
-                        field_type: crate::provider::FieldType::String,
-                        required: true,
-                        default: None,
-                        sensitive: false,
-                    }],
-                }],
+                sections: vec![
+                    crate::provider::SectionSchema {
+                        name: "identity".into(),
+                        description: "Identity configuration".into(),
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "name".into(),
+                                description: "Cluster name".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
+                    },
+                ],
             },
         }
     }
@@ -38,10 +42,18 @@ impl AwsProvider {
 
         let tags = super::extract_tags(config);
 
-        let mut req = self.ecs_client.create_cluster().cluster_name(&name);
+        let mut req = self.ecs_client
+            .create_cluster()
+            .cluster_name(&name)
+        ;
 
         for (k, v) in &tags {
-            req = req.tags(aws_sdk_ecs::types::Tag::builder().key(k).value(v).build());
+            req = req.tags(
+                aws_sdk_ecs::types::Tag::builder()
+                    .key(k)
+                    .value(v)
+                    .build()
+            );
         }
 
         let result = req
@@ -52,9 +64,9 @@ impl AwsProvider {
         let container = result
             .cluster()
             .ok_or_else(|| ProviderError::ApiError("create_cluster returned no cluster".into()))?;
-        let provider_id = container.cluster_arn().ok_or_else(|| {
-            ProviderError::ApiError("create_cluster returned no cluster_arn".into())
-        })?;
+        let provider_id = container
+            .cluster_arn()
+            .ok_or_else(|| ProviderError::ApiError("create_cluster returned no cluster_arn".into()))?;
 
         self.read_ecs_cluster(provider_id).await
     }
@@ -63,8 +75,7 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .ecs_client
+        let result = self.ecs_client
             .describe_clusters()
             .clusters(provider_id)
             .send()
@@ -83,14 +94,8 @@ impl AwsProvider {
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert(
-            "cluster_arn".into(),
-            serde_json::json!(resource.cluster_arn().unwrap_or("")),
-        );
-        outputs.insert(
-            "cluster_name".into(),
-            serde_json::json!(resource.cluster_name().unwrap_or("")),
-        );
+        outputs.insert("cluster_arn".into(), serde_json::json!(resource.cluster_arn().unwrap_or("")));
+        outputs.insert("cluster_name".into(), serde_json::json!(resource.cluster_name().unwrap_or("")));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -105,12 +110,13 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement(
-            "resource does not support in-place update".into(),
-        ))
+        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
     }
 
-    pub(super) async fn delete_ecs_cluster(&self, provider_id: &str) -> Result<(), ProviderError> {
+    pub(super) async fn delete_ecs_cluster(
+        &self,
+        provider_id: &str,
+    ) -> Result<(), ProviderError> {
         self.ecs_client
             .delete_cluster()
             .cluster(provider_id)
@@ -119,6 +125,7 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_cluster: {e}")))?;
         Ok(())
     }
+
 
     pub(super) fn ecs_service_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
@@ -129,14 +136,16 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "name".into(),
-                            description: "Service name".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "name".into(),
+                                description: "Service name".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "sizing".into(),
@@ -153,7 +162,7 @@ impl AwsProvider {
                             crate::provider::FieldSchema {
                                 name: "launch_type".into(),
                                 description: "Launch type".into(),
-                                field_type: crate::provider::FieldType::String, /* Enum */
+                                field_type: crate::provider::FieldType::String /* Enum */,
                                 required: false,
                                 default: Some(serde_json::json!("FARGATE")),
                                 sensitive: false,
@@ -354,7 +363,10 @@ impl AwsProvider {
         self.read_ecs_service(provider_id).await
     }
 
-    pub(super) async fn delete_ecs_service(&self, provider_id: &str) -> Result<(), ProviderError> {
+    pub(super) async fn delete_ecs_service(
+        &self,
+        provider_id: &str,
+    ) -> Result<(), ProviderError> {
         let parts: Vec<&str> = provider_id.split('/').collect();
         let cluster = if parts.len() >= 2 { parts[1] } else { "" };
 
@@ -378,6 +390,7 @@ impl AwsProvider {
         Ok(())
     }
 
+
     pub(super) fn ecs_task_definition_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
             type_path: "ecs.TaskDefinition".into(),
@@ -387,14 +400,16 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "name".into(),
-                            description: "Task definition family name".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "name".into(),
+                                description: "Task definition family name".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "security".into(),
@@ -620,9 +635,7 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement(
-            "resource does not support in-place update".into(),
-        ))
+        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
     }
 
     pub(super) async fn delete_ecs_task_definition(
@@ -637,4 +650,6 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("DeregisterTaskDefinition: {e}")))?;
         Ok(())
     }
+
+
 }

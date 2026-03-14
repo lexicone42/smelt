@@ -39,26 +39,30 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "network".into(),
                         description: "Network configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "scope".into(),
-                            description: "ACL scope".into(),
-                            field_type: crate::provider::FieldType::String, /* Enum */
-                            required: false,
-                            default: Some(serde_json::json!("REGIONAL")),
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "scope".into(),
+                                description: "ACL scope".into(),
+                                field_type: crate::provider::FieldType::String /* Enum */,
+                                required: false,
+                                default: Some(serde_json::json!("REGIONAL")),
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "security".into(),
                         description: "Security configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "default_action".into(),
-                            description: "Default action for requests".into(),
-                            field_type: crate::provider::FieldType::String, /* Enum */
-                            required: false,
-                            default: Some(serde_json::json!("allow")),
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "default_action".into(),
+                                description: "Default action for requests".into(),
+                                field_type: crate::provider::FieldType::String /* Enum */,
+                                required: false,
+                                default: Some(serde_json::json!("allow")),
+                                sensitive: false,
+                            },
+                        ],
                     },
                 ],
             },
@@ -90,12 +94,9 @@ impl AwsProvider {
             .cloud_watch_metrics_enabled(true)
             .metric_name(&name)
             .build()
-            .map_err(|e| {
-                ProviderError::InvalidConfig(format!("failed to build VisibilityConfig: {e}"))
-            })?;
+            .map_err(|e| ProviderError::InvalidConfig(format!("failed to build VisibilityConfig: {e}")))?;
 
-        let result = self
-            .wafv2_client
+        let result = self.wafv2_client
             .create_web_acl()
             .name(&name)
             .description(description)
@@ -106,8 +107,7 @@ impl AwsProvider {
             .await
             .map_err(|e| ProviderError::ApiError(format!("CreateWebACL: {e}")))?;
 
-        let summary = result
-            .summary()
+        let summary = result.summary()
             .ok_or_else(|| ProviderError::ApiError("CreateWebACL returned no summary".into()))?;
 
         let acl_id = summary.id().unwrap_or("");
@@ -128,8 +128,7 @@ impl AwsProvider {
         }
         let (acl_id, name, scope) = (parts[0], parts[1], parts[2]);
 
-        let result = self
-            .wafv2_client
+        let result = self.wafv2_client
             .get_web_acl()
             .id(acl_id)
             .name(name)
@@ -138,8 +137,7 @@ impl AwsProvider {
             .await
             .map_err(|e| ProviderError::ApiError(format!("GetWebACL: {e}")))?;
 
-        let acl = result
-            .web_acl()
+        let acl = result.web_acl()
             .ok_or_else(|| ProviderError::NotFound(format!("WebACL {provider_id}")))?;
 
         let state = serde_json::json!({
@@ -181,8 +179,7 @@ impl AwsProvider {
         let (acl_id, name, scope) = (parts[0], parts[1], parts[2]);
 
         // Need lock_token for updates
-        let get = self
-            .wafv2_client
+        let get = self.wafv2_client
             .get_web_acl()
             .id(acl_id)
             .name(name)
@@ -191,16 +188,13 @@ impl AwsProvider {
             .await
             .map_err(|e| ProviderError::ApiError(format!("GetWebACL: {e}")))?;
 
-        let lock_token = get
-            .lock_token()
+        let lock_token = get.lock_token()
             .ok_or_else(|| ProviderError::ApiError("GetWebACL returned no lock_token".into()))?
             .to_string();
-        let acl = get
-            .web_acl()
+        let acl = get.web_acl()
             .ok_or_else(|| ProviderError::NotFound(format!("WebACL {provider_id}")))?;
 
-        let description = config
-            .optional_str("/identity/description")
+        let description = config.optional_str("/identity/description")
             .unwrap_or(acl.description().unwrap_or(""));
 
         let default_action_allow = config.str_or("/security/default_action", "allow") == "allow";
@@ -220,9 +214,7 @@ impl AwsProvider {
             .cloud_watch_metrics_enabled(true)
             .metric_name(name)
             .build()
-            .map_err(|e| {
-                ProviderError::InvalidConfig(format!("failed to build VisibilityConfig: {e}"))
-            })?;
+            .map_err(|e| ProviderError::InvalidConfig(format!("failed to build VisibilityConfig: {e}")))?;
 
         self.wafv2_client
             .update_web_acl()
@@ -252,8 +244,7 @@ impl AwsProvider {
         }
         let (acl_id, name, scope) = (parts[0], parts[1], parts[2]);
 
-        let get = self
-            .wafv2_client
+        let get = self.wafv2_client
             .get_web_acl()
             .id(acl_id)
             .name(name)
@@ -262,8 +253,7 @@ impl AwsProvider {
             .await
             .map_err(|e| ProviderError::ApiError(format!("GetWebACL: {e}")))?;
 
-        let lock_token = get
-            .lock_token()
+        let lock_token = get.lock_token()
             .ok_or_else(|| ProviderError::ApiError("GetWebACL returned no lock_token".into()))?
             .to_string();
 
@@ -278,4 +268,6 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("DeleteWebACL: {e}")))?;
         Ok(())
     }
+
+
 }

@@ -100,9 +100,7 @@ impl AwsProvider {
                 aws_sdk_cloudfront::types::ViewerProtocolPolicy::RedirectToHttps,
             )
             .build()
-            .map_err(|e| {
-                ProviderError::InvalidConfig(format!("failed to build DefaultCacheBehavior: {e}"))
-            })?;
+            .map_err(|e| ProviderError::InvalidConfig(format!("failed to build DefaultCacheBehavior: {e}")))?;
 
         let caller_ref = format!("smelt-{}", chrono::Utc::now().timestamp());
 
@@ -112,30 +110,24 @@ impl AwsProvider {
                     .quantity(1)
                     .items(origin)
                     .build()
-                    .map_err(|e| {
-                        ProviderError::InvalidConfig(format!("failed to build Origins: {e}"))
-                    })?,
+                    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build Origins: {e}")))?,
             )
             .default_cache_behavior(default_cache)
             .comment(comment)
             .enabled(enabled)
             .caller_reference(&caller_ref)
             .build()
-            .map_err(|e| {
-                ProviderError::InvalidConfig(format!("failed to build DistributionConfig: {e}"))
-            })?;
+            .map_err(|e| ProviderError::InvalidConfig(format!("failed to build DistributionConfig: {e}")))?;
 
-        let result = self
-            .cloudfront_client
+        let result = self.cloudfront_client
             .create_distribution()
             .distribution_config(dist_config)
             .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("CreateDistribution: {e}")))?;
 
-        let dist = result.distribution().ok_or_else(|| {
-            ProviderError::ApiError("CreateDistribution returned no distribution".into())
-        })?;
+        let dist = result.distribution()
+            .ok_or_else(|| ProviderError::ApiError("CreateDistribution returned no distribution".into()))?;
 
         let provider_id = dist.id();
 
@@ -146,16 +138,14 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .cloudfront_client
+        let result = self.cloudfront_client
             .get_distribution()
             .id(provider_id)
             .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("GetDistribution: {e}")))?;
 
-        let dist = result
-            .distribution()
+        let dist = result.distribution()
             .ok_or_else(|| ProviderError::NotFound(format!("Distribution {provider_id}")))?;
 
         let dc = dist.distribution_config();
@@ -198,8 +188,7 @@ impl AwsProvider {
         provider_id: &str,
     ) -> Result<(), ProviderError> {
         // Must get ETag first
-        let get = self
-            .cloudfront_client
+        let get = self.cloudfront_client
             .get_distribution()
             .id(provider_id)
             .send()
@@ -217,4 +206,6 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("DeleteDistribution: {e}")))?;
         Ok(())
     }
+
+
 }

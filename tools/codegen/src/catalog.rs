@@ -11,8 +11,8 @@ use serde::Deserialize;
 use crate::generate;
 use crate::introspect;
 use crate::manifest::{
-    ApiStyle, AwsBuilderGroup, AwsIdSource, AwsOutput, AwsReadStyle, AwsTagStyle,
-    CompositeIdPart, CrudMethods, FieldDef, ResourceManifest, ResourceMeta, Scope,
+    ApiStyle, AwsBuilderGroup, AwsIdSource, AwsOutput, AwsReadStyle, AwsTagStyle, CompositeIdPart,
+    CrudMethods, FieldDef, ResourceManifest, ResourceMeta, Scope,
 };
 use crate::snake_case;
 
@@ -92,7 +92,6 @@ pub struct CatalogEntry {
     pub field_sections: BTreeMap<String, String>,
 
     // ── AWS-specific catalog fields ─────────────────────────────────────
-
     /// AWS: client field name on AwsProvider (e.g., "ec2_client")
     #[serde(default)]
     pub aws_client_field: Option<String>,
@@ -289,7 +288,6 @@ pub struct AwsBuilderGroupCatalog {
     pub read_accessor: Option<String>,
 }
 
-
 /// Apply a catalog Option override: if Some(""), clear the field; if Some(val), set it; if None, keep existing.
 fn apply_optional(target: &mut Option<String>, source: &Option<String>) {
     if let Some(val) = source {
@@ -319,7 +317,11 @@ fn find_sdk_model(sdk_crate: &str, cargo_home: &Path) -> Option<PathBuf> {
     let index_dir = std::fs::read_dir(&registry)
         .ok()?
         .filter_map(|e| e.ok())
-        .find(|e| e.file_name().to_string_lossy().starts_with("index.crates.io"))?;
+        .find(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("index.crates.io")
+        })?;
 
     // Find the crate directory (match prefix, take latest version)
     let mut candidates: Vec<_> = std::fs::read_dir(index_dir.path())
@@ -357,8 +359,8 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
     let catalog_str = std::fs::read_to_string(catalog_path)
         .unwrap_or_else(|e| panic!("Cannot read catalog {catalog_path}: {e}"));
 
-    let catalog: Catalog = toml::from_str(&catalog_str)
-        .unwrap_or_else(|e| panic!("Invalid catalog: {e}"));
+    let catalog: Catalog =
+        toml::from_str(&catalog_str).unwrap_or_else(|e| panic!("Invalid catalog: {e}"));
 
     let cargo_home = dirs::home_dir()
         .expect("Cannot find home directory")
@@ -428,12 +430,27 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
         manifest.resource.sdk_client = entry.sdk_client.clone();
 
         apply_optional_set(&mut manifest.resource.parent_format, &entry.parent_format);
-        apply_optional(&mut manifest.resource.resource_id_setter, &entry.resource_id_setter);
-        apply_optional(&mut manifest.resource.resource_body_setter, &entry.resource_body_setter);
-        apply_optional_set(&mut manifest.resource.client_accessor, &entry.client_accessor);
-        apply_optional_set(&mut manifest.resource.resource_id_param, &entry.resource_id_param);
+        apply_optional(
+            &mut manifest.resource.resource_id_setter,
+            &entry.resource_id_setter,
+        );
+        apply_optional(
+            &mut manifest.resource.resource_body_setter,
+            &entry.resource_body_setter,
+        );
+        apply_optional_set(
+            &mut manifest.resource.client_accessor,
+            &entry.client_accessor,
+        );
+        apply_optional_set(
+            &mut manifest.resource.resource_id_param,
+            &entry.resource_id_param,
+        );
         apply_optional_set(&mut manifest.resource.parent_setter, &entry.parent_setter);
-        apply_optional_set(&mut manifest.resource.resource_name_param, &entry.resource_name_param);
+        apply_optional_set(
+            &mut manifest.resource.resource_name_param,
+            &entry.resource_name_param,
+        );
         if let Some(hum) = entry.has_update_mask {
             manifest.resource.has_update_mask = hum;
         }
@@ -485,7 +502,9 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
                 required: true,
                 default: None,
                 sensitive: false,
-                description: Some("Provider ID of the parent resource (injected via binding)".into()),
+                description: Some(
+                    "Provider ID of the parent resource (injected via binding)".into(),
+                ),
                 variants: Vec::new(),
                 output_only: true, // appears in schema but codegen skips it for model setters
                 deprecated: false,
@@ -538,8 +557,7 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
                     .replace("{parent_resource}", "*")
                     .replace("{project}", "{project}")
                     .replace("{location}", "{location}");
-                manifest.resource.provider_id_format =
-                    format!("{base}/{noun_plural}/{{name}}");
+                manifest.resource.provider_id_format = format!("{base}/{noun_plural}/{{name}}");
             }
         } else {
             manifest.resource.provider_id_format = match entry.scope {
@@ -604,10 +622,7 @@ pub fn batch_generate(catalog_path: &str, output_dir: &str) {
             .unwrap_or("unknown")
             .to_string();
 
-        by_service
-            .entry(service)
-            .or_default()
-            .push((code, entry));
+        by_service.entry(service).or_default().push((code, entry));
 
         success_count += 1;
     }
@@ -688,8 +703,8 @@ pub fn batch_generate_aws(catalog_path: &str, output_dir: &str) {
     let catalog_str = std::fs::read_to_string(catalog_path)
         .unwrap_or_else(|e| panic!("Cannot read catalog {catalog_path}: {e}"));
 
-    let catalog: Catalog = toml::from_str(&catalog_str)
-        .unwrap_or_else(|e| panic!("Invalid catalog: {e}"));
+    let catalog: Catalog =
+        toml::from_str(&catalog_str).unwrap_or_else(|e| panic!("Invalid catalog: {e}"));
 
     // Group entries by service (first part of type_path)
     let mut by_service: BTreeMap<String, Vec<(String, &CatalogEntry)>> = BTreeMap::new();
@@ -697,7 +712,10 @@ pub fn batch_generate_aws(catalog_path: &str, output_dir: &str) {
 
     for entry in &catalog.resource {
         let type_path = entry.type_path.clone().unwrap_or_else(|| {
-            let service = entry.sdk_crate.strip_prefix("aws-sdk-").unwrap_or(&entry.sdk_crate);
+            let service = entry
+                .sdk_crate
+                .strip_prefix("aws-sdk-")
+                .unwrap_or(&entry.sdk_crate);
             format!("{service}.{}", entry.struct_name)
         });
 
@@ -821,7 +839,9 @@ pub fn batch_generate_aws(catalog_path: &str, output_dir: &str) {
                 aws_read_id_param: entry.aws_read_id_param.clone(),
                 aws_delete_id_param: entry.aws_delete_id_param.clone(),
                 aws_response_id_non_optional: entry.aws_response_id_non_optional.unwrap_or(false),
-                aws_response_accessor_non_optional: entry.aws_response_accessor_non_optional.unwrap_or(false),
+                aws_response_accessor_non_optional: entry
+                    .aws_response_accessor_non_optional
+                    .unwrap_or(false),
                 aws_create_no_container: entry.aws_create_no_container.unwrap_or(false),
                 aws_create_list_accessor: entry.aws_create_list_accessor.clone(),
                 aws_create_extra_setters: entry.aws_create_extra_setters.clone(),
@@ -937,29 +957,35 @@ fn strip_header(code: &str) -> String {
 
 /// Parse composite ID entries like ["cluster_name", "name:nodegroup_name"] into parts.
 fn parse_composite_id(entries: &[String]) -> Vec<CompositeIdPart> {
-    entries.iter().map(|entry| {
-        if let Some((field, setter)) = entry.split_once(':') {
-            CompositeIdPart {
-                field_name: field.to_string(),
-                setter: setter.to_string(),
+    entries
+        .iter()
+        .map(|entry| {
+            if let Some((field, setter)) = entry.split_once(':') {
+                CompositeIdPart {
+                    field_name: field.to_string(),
+                    setter: setter.to_string(),
+                }
+            } else {
+                CompositeIdPart {
+                    field_name: entry.to_string(),
+                    setter: entry.to_string(),
+                }
             }
-        } else {
-            CompositeIdPart {
-                field_name: entry.to_string(),
-                setter: entry.to_string(),
-            }
-        }
-    }).collect()
+        })
+        .collect()
 }
 
 /// Convert catalog builder groups to manifest builder groups.
 fn parse_builder_groups(entries: &[AwsBuilderGroupCatalog]) -> Vec<AwsBuilderGroup> {
-    entries.iter().map(|e| AwsBuilderGroup {
-        group: e.group.clone(),
-        setter: e.setter.clone(),
-        type_name: e.type_name.clone(),
-        read_accessor: e.read_accessor.clone(),
-    }).collect()
+    entries
+        .iter()
+        .map(|e| AwsBuilderGroup {
+            group: e.group.clone(),
+            setter: e.setter.clone(),
+            type_name: e.type_name.clone(),
+            read_accessor: e.read_accessor.clone(),
+        })
+        .collect()
 }
 
 /// Split code into methods (schema/create/read/update/delete) and standalone functions (forces_replacement).

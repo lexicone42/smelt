@@ -39,14 +39,16 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "network".into(),
                         description: "Network configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "protocol_type".into(),
-                            description: "Protocol type (HTTP or WEBSOCKET)".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "protocol_type".into(),
+                                description: "Protocol type (HTTP or WEBSOCKET)".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                 ],
             },
@@ -58,21 +60,17 @@ impl AwsProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        let description = config
-            .optional_str("/identity/description")
-            .map(String::from);
+        let description = config.optional_str("/identity/description").map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
         let protocol_type = config.require_str("/network/protocol_type")?.to_string();
 
         let tags = super::extract_tags(config);
 
-        let mut req = self
-            .apigateway_client
+        let mut req = self.apigateway_client
             .create_api()
             .name(&name)
-            .protocol_type(aws_sdk_apigatewayv2::types::ProtocolType::from(
-                protocol_type.as_str(),
-            ));
+            .protocol_type(aws_sdk_apigatewayv2::types::ProtocolType::from(protocol_type.as_str()))
+        ;
 
         if let Some(ref v) = description {
             req = req.description(v);
@@ -95,8 +93,7 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .apigateway_client
+        let result = self.apigateway_client
             .get_api()
             .api_id(provider_id)
             .send()
@@ -105,22 +102,21 @@ impl AwsProvider {
 
         let resource = &result;
 
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "identity": {
-                "description": resource.description().unwrap_or(""),
                 "name": resource.name().unwrap_or(""),
             },
             "network": {
                 "protocol_type": resource.protocol_type().map(|r| r.as_str()).unwrap_or(""),
             },
         });
+        if let Some(val) = resource.description().filter(|s| !s.is_empty()) {
+            state["identity"]["description"] = serde_json::json!(val);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("api_id".into(), serde_json::json!(provider_id));
-        outputs.insert(
-            "api_endpoint".into(),
-            serde_json::json!(resource.api_endpoint().unwrap_or("")),
-        );
+        outputs.insert("api_endpoint".into(), serde_json::json!(resource.api_endpoint().unwrap_or("")));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -136,7 +132,10 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let description = config.optional_str("/identity/description");
 
-        let mut req = self.apigateway_client.update_api().api_id(provider_id);
+        let mut req = self.apigateway_client
+            .update_api()
+            .api_id(provider_id)
+        ;
 
         if let Some(v) = description {
             req = req.description(v);
@@ -161,6 +160,7 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_api: {e}")))?;
         Ok(())
     }
+
 
     pub(super) fn apigateway_stage_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
@@ -355,4 +355,6 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("DeleteStage: {e}")))?;
         Ok(())
     }
+
+
 }

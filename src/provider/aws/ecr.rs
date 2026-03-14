@@ -17,14 +17,16 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "name".into(),
-                            description: "Repository name".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "name".into(),
+                                description: "Repository name".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "security".into(),
@@ -58,23 +60,22 @@ impl AwsProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        let image_tag_mutability = config
-            .str_or("/security/image_tag_mutability", "MUTABLE")
-            .to_string();
+        let image_tag_mutability = config.str_or("/security/image_tag_mutability", "MUTABLE").to_string();
         let name = config.require_str("/identity/name")?.to_string();
         let scan_on_push = config.bool_or("/security/scan_on_push", true);
 
         let tags = super::extract_tags(config);
 
-        let mut req = self.ecr_client.create_repository().repository_name(&name);
+        let mut req = self.ecr_client
+            .create_repository()
+            .repository_name(&name)
+        ;
 
-        req = req.image_tag_mutability(aws_sdk_ecr::types::ImageTagMutability::from(
-            image_tag_mutability.as_str(),
-        ));
+        req = req.image_tag_mutability(aws_sdk_ecr::types::ImageTagMutability::from(image_tag_mutability.as_str()));
         req = req.image_scanning_configuration(
             aws_sdk_ecr::types::ImageScanningConfiguration::builder()
                 .scan_on_push(scan_on_push)
-                .build(),
+                .build()
         );
         for (k, v) in &tags {
             req = req.tags(
@@ -82,13 +83,12 @@ impl AwsProvider {
                     .key(k)
                     .value(v)
                     .build()
-                    .map_err(|e| {
-                        ProviderError::InvalidConfig(format!("failed to build Tag: {e}"))
-                    })?,
+                    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build Tag: {e}")))?
             );
         }
 
-        req.send()
+        req
+            .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_repository: {e}")))?;
 
@@ -99,8 +99,7 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .ecr_client
+        let result = self.ecr_client
             .describe_repositories()
             .repository_names(provider_id)
             .send()
@@ -123,14 +122,8 @@ impl AwsProvider {
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert(
-            "repository_uri".into(),
-            serde_json::json!(resource.repository_uri().unwrap_or("")),
-        );
-        outputs.insert(
-            "repository_arn".into(),
-            serde_json::json!(resource.repository_arn().unwrap_or("")),
-        );
+        outputs.insert("repository_uri".into(), serde_json::json!(resource.repository_uri().unwrap_or("")));
+        outputs.insert("repository_arn".into(), serde_json::json!(resource.repository_arn().unwrap_or("")));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -145,9 +138,7 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement(
-            "resource does not support in-place update".into(),
-        ))
+        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
     }
 
     pub(super) async fn delete_ecr_repository(
@@ -162,4 +153,6 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_repository: {e}")))?;
         Ok(())
     }
+
+
 }

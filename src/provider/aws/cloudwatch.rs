@@ -108,12 +108,8 @@ impl AwsProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        let comparison_operator = config
-            .require_str("/sizing/comparison_operator")?
-            .to_string();
-        let description = config
-            .optional_str("/identity/description")
-            .map(String::from);
+        let comparison_operator = config.require_str("/sizing/comparison_operator")?.to_string();
+        let description = config.optional_str("/identity/description").map(String::from);
         let evaluation_periods = config.i64_or("/sizing/evaluation_periods", 1);
         let metric_name = config.require_str("/sizing/metric_name")?.to_string();
         let name = config.require_str("/identity/name")?.to_string();
@@ -124,35 +120,32 @@ impl AwsProvider {
 
         let tags = super::extract_tags(config);
 
-        let mut req = self
-            .cloudwatch_client
+        let mut req = self.cloudwatch_client
             .put_metric_alarm()
-            .comparison_operator(aws_sdk_cloudwatch::types::ComparisonOperator::from(
-                comparison_operator.as_str(),
-            ))
+            .comparison_operator(aws_sdk_cloudwatch::types::ComparisonOperator::from(comparison_operator.as_str()))
             .metric_name(&metric_name)
             .alarm_name(&name)
             .namespace(&namespace)
-            .threshold(threshold);
+            .threshold(threshold)
+        ;
 
         if let Some(ref v) = description {
             req = req.alarm_description(v);
         }
         req = req.evaluation_periods(evaluation_periods as i32);
         req = req.period(period as i32);
-        req = req.statistic(aws_sdk_cloudwatch::types::Statistic::from(
-            statistic.as_str(),
-        ));
+        req = req.statistic(aws_sdk_cloudwatch::types::Statistic::from(statistic.as_str()));
         for (k, v) in &tags {
             req = req.tags(
                 aws_sdk_cloudwatch::types::Tag::builder()
                     .key(k)
                     .value(v)
-                    .build(),
+                    .build()
             );
         }
 
-        req.send()
+        req
+            .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("put_metric_alarm: {e}")))?;
 
@@ -163,8 +156,7 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .cloudwatch_client
+        let result = self.cloudwatch_client
             .describe_alarms()
             .alarm_names(provider_id)
             .send()
@@ -176,9 +168,8 @@ impl AwsProvider {
             .first()
             .ok_or_else(|| ProviderError::NotFound(format!("Alarm {provider_id}")))?;
 
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "identity": {
-                "description": resource.alarm_description().unwrap_or(""),
                 "name": provider_id,
             },
             "sizing": {
@@ -191,16 +182,13 @@ impl AwsProvider {
                 "threshold": resource.threshold().unwrap_or(0.0),
             },
         });
+        if let Some(val) = resource.alarm_description().filter(|s| !s.is_empty()) {
+            state["identity"]["description"] = serde_json::json!(val);
+        }
 
         let mut outputs = HashMap::new();
-        outputs.insert(
-            "alarm_arn".into(),
-            serde_json::json!(resource.alarm_arn().unwrap_or("")),
-        );
-        outputs.insert(
-            "alarm_name".into(),
-            serde_json::json!(resource.alarm_name().unwrap_or("")),
-        );
+        outputs.insert("alarm_arn".into(), serde_json::json!(resource.alarm_arn().unwrap_or("")));
+        outputs.insert("alarm_name".into(), serde_json::json!(resource.alarm_name().unwrap_or("")));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -219,10 +207,10 @@ impl AwsProvider {
         let period = config.optional_i64("/sizing/period");
         let statistic = config.optional_str("/sizing/statistic");
 
-        let mut req = self
-            .cloudwatch_client
+        let mut req = self.cloudwatch_client
             .put_metric_alarm()
-            .alarm_name(provider_id);
+            .alarm_name(provider_id)
+        ;
 
         if let Some(v) = description {
             req = req.alarm_description(v);
@@ -256,4 +244,6 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_alarms: {e}")))?;
         Ok(())
     }
+
+
 }

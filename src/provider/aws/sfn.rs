@@ -17,38 +17,44 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "name".into(),
-                            description: "State machine name".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "name".into(),
+                                description: "State machine name".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "security".into(),
                         description: "Security configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "role_arn".into(),
-                            description: "Execution IAM role ARN".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "role_arn".into(),
+                                description: "Execution IAM role ARN".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "sizing".into(),
                         description: "Sizing configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "definition".into(),
-                            description: "ASL definition (JSON)".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "definition".into(),
+                                description: "ASL definition (JSON)".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                 ],
             },
@@ -66,15 +72,20 @@ impl AwsProvider {
 
         let tags = super::extract_tags(config);
 
-        let mut req = self
-            .sfn_client
+        let mut req = self.sfn_client
             .create_state_machine()
             .definition(&definition)
             .name(&name)
-            .role_arn(&role_arn);
+            .role_arn(&role_arn)
+        ;
 
         for (k, v) in &tags {
-            req = req.tags(aws_sdk_sfn::types::Tag::builder().key(k).value(v).build());
+            req = req.tags(
+                aws_sdk_sfn::types::Tag::builder()
+                    .key(k)
+                    .value(v)
+                    .build()
+            );
         }
 
         let result = req
@@ -82,7 +93,9 @@ impl AwsProvider {
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_state_machine: {e}")))?;
 
-        let provider_id = result.state_machine_arn();
+        let provider_id = result
+            .state_machine_arn()
+        ;
 
         self.read_sfn_state_machine(provider_id).await
     }
@@ -91,8 +104,7 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .sfn_client
+        let result = self.sfn_client
             .describe_state_machine()
             .state_machine_arn(provider_id)
             .send()
@@ -131,10 +143,10 @@ impl AwsProvider {
         let definition = config.optional_str("/sizing/definition");
         let role_arn = config.optional_str("/security/role_arn");
 
-        let mut req = self
-            .sfn_client
+        let mut req = self.sfn_client
             .update_state_machine()
-            .state_machine_arn(provider_id);
+            .state_machine_arn(provider_id)
+        ;
 
         if let Some(v) = definition {
             req = req.definition(v);
@@ -162,4 +174,6 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_state_machine: {e}")))?;
         Ok(())
     }
+
+
 }

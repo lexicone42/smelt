@@ -39,14 +39,16 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "security".into(),
                         description: "Security configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "role_arn".into(),
-                            description: "Execution IAM role ARN".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "role_arn".into(),
+                                description: "Execution IAM role ARN".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "sizing".into(),
@@ -96,12 +98,8 @@ impl AwsProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        let description = config
-            .optional_str("/identity/description")
-            .map(String::from);
-        let handler = config
-            .str_or("/sizing/handler", "index.handler")
-            .to_string();
+        let description = config.optional_str("/identity/description").map(String::from);
+        let handler = config.str_or("/sizing/handler", "index.handler").to_string();
         let memory_size = config.i64_or("/sizing/memory_size", 128);
         let name = config.require_str("/identity/name")?.to_string();
         let role_arn = config.require_str("/security/role_arn")?.to_string();
@@ -110,12 +108,12 @@ impl AwsProvider {
 
         let tags = super::extract_tags(config);
 
-        let mut req = self
-            .lambda_client
+        let mut req = self.lambda_client
             .create_function()
             .function_name(&name)
             .role(&role_arn)
-            .runtime(aws_sdk_lambda::types::Runtime::from(runtime.as_str()));
+            .runtime(aws_sdk_lambda::types::Runtime::from(runtime.as_str()))
+        ;
 
         if let Some(ref v) = description {
             req = req.description(v);
@@ -125,7 +123,8 @@ impl AwsProvider {
         req = req.timeout(timeout as i32);
         req = req.set_tags(Some(tags));
 
-        req.send()
+        req
+            .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_function: {e}")))?;
 
@@ -136,8 +135,7 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .lambda_client
+        let result = self.lambda_client
             .get_function()
             .function_name(provider_id)
             .send()
@@ -148,9 +146,8 @@ impl AwsProvider {
             .configuration()
             .ok_or_else(|| ProviderError::NotFound(format!("Function {provider_id}")))?;
 
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "identity": {
-                "description": resource.description().unwrap_or(""),
                 "name": provider_id,
             },
             "security": {
@@ -163,20 +160,14 @@ impl AwsProvider {
                 "timeout": resource.timeout().unwrap_or(0),
             },
         });
+        if let Some(val) = resource.description().filter(|s| !s.is_empty()) {
+            state["identity"]["description"] = serde_json::json!(val);
+        }
 
         let mut outputs = HashMap::new();
-        outputs.insert(
-            "function_arn".into(),
-            serde_json::json!(resource.function_arn().unwrap_or("")),
-        );
-        outputs.insert(
-            "function_name".into(),
-            serde_json::json!(resource.function_name().unwrap_or("")),
-        );
-        outputs.insert(
-            "last_modified".into(),
-            serde_json::json!(resource.last_modified().unwrap_or("")),
-        );
+        outputs.insert("function_arn".into(), serde_json::json!(resource.function_arn().unwrap_or("")));
+        outputs.insert("function_name".into(), serde_json::json!(resource.function_name().unwrap_or("")));
+        outputs.insert("last_modified".into(), serde_json::json!(resource.last_modified().unwrap_or("")));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -195,10 +186,10 @@ impl AwsProvider {
         let memory_size = config.optional_i64("/sizing/memory_size");
         let timeout = config.optional_i64("/sizing/timeout");
 
-        let mut req = self
-            .lambda_client
+        let mut req = self.lambda_client
             .update_function_configuration()
-            .function_name(provider_id);
+            .function_name(provider_id)
+        ;
 
         if let Some(v) = description {
             req = req.description(v);
@@ -233,6 +224,7 @@ impl AwsProvider {
         Ok(())
     }
 
+
     pub(super) fn lambda_event_source_mapping_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
             type_path: "lambda.EventSourceMapping".into(),
@@ -242,14 +234,16 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "name".into(),
-                            description: "Mapping identifier (used for smelt naming only)".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "name".into(),
+                                description: "Mapping identifier (used for smelt naming only)".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "runtime".into(),
@@ -265,9 +259,7 @@ impl AwsProvider {
                             },
                             crate::provider::FieldSchema {
                                 name: "event_source_arn".into(),
-                                description:
-                                    "ARN of event source (SQS, Kinesis, DynamoDB stream, etc.)"
-                                        .into(),
+                                description: "ARN of event source (SQS, Kinesis, DynamoDB stream, etc.)".into(),
                                 field_type: crate::provider::FieldType::String,
                                 required: true,
                                 default: None,
@@ -286,14 +278,16 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "sizing".into(),
                         description: "Sizing configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "batch_size".into(),
-                            description: "Maximum records per batch".into(),
-                            field_type: crate::provider::FieldType::Integer,
-                            required: false,
-                            default: Some(serde_json::json!(10)),
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "batch_size".into(),
+                                description: "Maximum records per batch".into(),
+                                field_type: crate::provider::FieldType::Integer,
+                                required: false,
+                                default: Some(serde_json::json!(10)),
+                                sensitive: false,
+                            },
+                        ],
                     },
                 ],
             },
@@ -310,11 +304,12 @@ impl AwsProvider {
         let event_source_arn = config.require_str("/runtime/event_source_arn")?.to_string();
         let function_name = config.require_str("/runtime/function_name")?.to_string();
 
-        let mut req = self
-            .lambda_client
+
+        let mut req = self.lambda_client
             .create_event_source_mapping()
             .event_source_arn(&event_source_arn)
-            .function_name(&function_name);
+            .function_name(&function_name)
+        ;
 
         req = req.batch_size(batch_size as i32);
         req = req.enabled(enabled);
@@ -324,9 +319,9 @@ impl AwsProvider {
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_event_source_mapping: {e}")))?;
 
-        let provider_id = result.uuid().ok_or_else(|| {
-            ProviderError::ApiError("create_event_source_mapping returned no uuid".into())
-        })?;
+        let provider_id = result
+            .uuid()
+            .ok_or_else(|| ProviderError::ApiError("create_event_source_mapping returned no uuid".into()))?;
 
         self.read_lambda_event_source_mapping(provider_id).await
     }
@@ -335,8 +330,7 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .lambda_client
+        let result = self.lambda_client
             .get_event_source_mapping()
             .uuid(provider_id)
             .send()
@@ -346,8 +340,6 @@ impl AwsProvider {
         let resource = &result;
 
         let state = serde_json::json!({
-            "identity": {
-            },
             "runtime": {
                 "enabled": resource.state().map(|s| s == "Enabled").unwrap_or(true),
                 "event_source_arn": resource.event_source_arn().unwrap_or(""),
@@ -360,14 +352,8 @@ impl AwsProvider {
 
         let mut outputs = HashMap::new();
         outputs.insert("uuid".into(), serde_json::json!(provider_id));
-        outputs.insert(
-            "function_arn".into(),
-            serde_json::json!(resource.function_arn().unwrap_or("")),
-        );
-        outputs.insert(
-            "state".into(),
-            serde_json::json!(resource.state().unwrap_or("")),
-        );
+        outputs.insert("function_arn".into(), serde_json::json!(resource.function_arn().unwrap_or("")));
+        outputs.insert("state".into(), serde_json::json!(resource.state().unwrap_or("")));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -385,10 +371,10 @@ impl AwsProvider {
         let enabled = config.optional_bool("/runtime/enabled");
         let function_name = config.optional_str("/runtime/function_name");
 
-        let mut req = self
-            .lambda_client
+        let mut req = self.lambda_client
             .update_event_source_mapping()
-            .uuid(provider_id);
+            .uuid(provider_id)
+        ;
 
         if let Some(v) = batch_size {
             req = req.batch_size(v as i32);
@@ -419,4 +405,6 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_event_source_mapping: {e}")))?;
         Ok(())
     }
+
+
 }

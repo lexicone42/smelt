@@ -13,7 +13,10 @@ use clap::{Parser, Subcommand};
 use smelt_codegen::{catalog, generate, introspect, manifest};
 
 #[derive(Parser)]
-#[command(name = "smelt-codegen", about = "Generate smelt provider code from SDK introspection")]
+#[command(
+    name = "smelt-codegen",
+    about = "Generate smelt provider code from SDK introspection"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -133,8 +136,8 @@ fn main() {
             let toml_str = std::fs::read_to_string(&manifest)
                 .unwrap_or_else(|e| panic!("Cannot read {manifest}: {e}"));
 
-            let manifest: manifest::ResourceManifest = toml::from_str(&toml_str)
-                .unwrap_or_else(|e| panic!("Invalid manifest: {e}"));
+            let manifest: manifest::ResourceManifest =
+                toml::from_str(&toml_str).unwrap_or_else(|e| panic!("Invalid manifest: {e}"));
 
             let code = generate::generate_provider_code(&manifest);
 
@@ -182,12 +185,18 @@ fn main() {
 
             println!("=== {provider} SDK: {} ===", model_file);
             println!();
-            println!("Resource-like structs ({} found, have 'name' field + 3+ fields):", resources.len());
+            println!(
+                "Resource-like structs ({} found, have 'name' field + 3+ fields):",
+                resources.len()
+            );
             for (name, count) in &resources {
                 println!("  {name:40} ({count} fields)");
             }
             println!();
-            println!("Supporting structs ({} found, 2+ fields, no 'name'):", supporting.len());
+            println!(
+                "Supporting structs ({} found, 2+ fields, no 'name'):",
+                supporting.len()
+            );
             for (name, count) in supporting.iter().take(30) {
                 println!("  {name:40} ({count} fields)");
             }
@@ -214,12 +223,18 @@ fn main() {
             }
         }
 
-        Command::Batch { catalog, output_dir } => {
+        Command::Batch {
+            catalog,
+            output_dir,
+        } => {
             eprintln!("Batch generating (GCP) from {catalog} -> {output_dir}");
             catalog::batch_generate(&catalog, &output_dir);
         }
 
-        Command::AwsBatch { catalog, output_dir } => {
+        Command::AwsBatch {
+            catalog,
+            output_dir,
+        } => {
             eprintln!("Batch generating (AWS) from {catalog} -> {output_dir}");
             catalog::batch_generate_aws(&catalog, &output_dir);
         }

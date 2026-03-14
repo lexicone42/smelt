@@ -6,7 +6,10 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use crate::manifest::{ApiStyle, AwsBuilderGroup, AwsIdSource, AwsReadStyle, AwsTagStyle, CompositeIdPart, FieldDef, ResourceManifest, Scope};
+use crate::manifest::{
+    ApiStyle, AwsBuilderGroup, AwsIdSource, AwsReadStyle, AwsTagStyle, CompositeIdPart, FieldDef,
+    ResourceManifest, Scope,
+};
 use crate::{raw_field, safe_ident, snake_case};
 
 pub fn generate_provider_code(manifest: &ResourceManifest) -> String {
@@ -34,14 +37,24 @@ fn write_header(out: &mut String, m: &ResourceManifest) {
     );
     let _ = writeln!(out, "//");
     let _ = writeln!(out, "// Resource: {}", m.resource.type_path);
-    let _ = writeln!(out, "// SDK: {} ({})", m.resource.sdk_crate, m.resource.sdk_model);
+    let _ = writeln!(
+        out,
+        "// SDK: {} ({})",
+        m.resource.sdk_crate, m.resource.sdk_model
+    );
     let _ = writeln!(out);
 
     if m.resource.provider == "gcp" {
-        let _ = writeln!(out, "use crate::provider::{{ConfigExt, ProviderError, ResourceOutput}};");
+        let _ = writeln!(
+            out,
+            "use crate::provider::{{ConfigExt, ProviderError, ResourceOutput}};"
+        );
         let _ = writeln!(out, "use std::collections::HashMap;");
     } else {
-        let _ = writeln!(out, "use crate::provider::{{ConfigExt, ProviderError, ResourceOutput}};");
+        let _ = writeln!(
+            out,
+            "use crate::provider::{{ConfigExt, ProviderError, ResourceOutput}};"
+        );
         let _ = writeln!(out, "use std::collections::HashMap;");
     }
     let _ = writeln!(out);
@@ -97,7 +110,10 @@ fn write_schema_fn(out: &mut String, m: &ResourceManifest) {
 }
 
 fn write_field_schema(out: &mut String, name: &str, f: &FieldDef) {
-    let _ = writeln!(out, "                        crate::provider::FieldSchema {{");
+    let _ = writeln!(
+        out,
+        "                        crate::provider::FieldSchema {{"
+    );
     let _ = writeln!(out, "                            name: \"{name}\".into(),");
     let _ = writeln!(
         out,
@@ -113,11 +129,7 @@ fn write_field_schema(out: &mut String, name: &str, f: &FieldDef) {
         "                            field_type: {},",
         field_type_expr(&f.field_type, &f.variants)
     );
-    let _ = writeln!(
-        out,
-        "                            required: {},",
-        f.required
-    );
+    let _ = writeln!(out, "                            required: {},", f.required);
 
     if let Some(ref default) = f.default {
         let _ = writeln!(
@@ -179,7 +191,11 @@ fn write_create_fn(out: &mut String, m: &ResourceManifest) {
 fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
     let model = &m.resource.sdk_model;
     let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
-    let client_accessor = m.resource.client_accessor.clone().unwrap_or_else(|| snake_case(&m.resource.sdk_client));
+    let client_accessor = m
+        .resource
+        .client_accessor
+        .clone()
+        .unwrap_or_else(|| snake_case(&m.resource.sdk_client));
     let create_method = &m.crud.create;
     let is_direct_model = m.resource.api_style == ApiStyle::DirectModel;
     let skip_name = m.resource.skip_name_on_create;
@@ -190,15 +206,27 @@ fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
         if m.resource.raw_labels {
             // Raw labels: extract directly without injecting managed_by.
             // Used for resources where labels are type-specific config (e.g., NotificationChannel).
-            let _ = writeln!(out, "    // NotificationChannel.labels are channel-type-specific config fields");
-            let _ = writeln!(out, "    // (e.g. email_address for email channels), NOT user labels.");
-            let _ = writeln!(out, "    // Do NOT inject managed_by — use the user's labels as-is.");
+            let _ = writeln!(
+                out,
+                "    // NotificationChannel.labels are channel-type-specific config fields"
+            );
+            let _ = writeln!(
+                out,
+                "    // (e.g. email_address for email channels), NOT user labels."
+            );
+            let _ = writeln!(
+                out,
+                "    // Do NOT inject managed_by — use the user's labels as-is."
+            );
             let _ = writeln!(out, "    let labels: HashMap<String, String> = config");
             let _ = writeln!(out, "        .pointer(\"/identity/labels\")");
             let _ = writeln!(out, "        .and_then(|v| v.as_object())");
             let _ = writeln!(out, "        .map(|m| {{");
             let _ = writeln!(out, "            m.iter()");
-            let _ = writeln!(out, "                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))");
+            let _ = writeln!(
+                out,
+                "                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))"
+            );
             let _ = writeln!(out, "                .collect()");
             let _ = writeln!(out, "        }})");
             let _ = writeln!(out, "        .unwrap_or_default();");
@@ -209,7 +237,10 @@ fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
 
     // When skip_name_on_create and no resource_id_setter, name variable is unused
     if skip_name && m.resource.resource_id_setter.is_none() {
-        let _ = writeln!(out, "    let _ = &name; // server-assigned name — not set on model");
+        let _ = writeln!(
+            out,
+            "    let _ = &name; // server-assigned name — not set on model"
+        );
     }
 
     if is_direct_model {
@@ -224,7 +255,10 @@ fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
             "    let full_name = format!(\"{{}}/{noun_plural}/{{}}\", {parent}, name);"
         );
         let _ = writeln!(out);
-        let _ = writeln!(out, "    // Make API call (direct model: setters on request builder)");
+        let _ = writeln!(
+            out,
+            "    // Make API call (direct model: setters on request builder)"
+        );
         let _ = writeln!(out, "    let result = self.{client_accessor}().await?");
         let _ = writeln!(out, "        .{create_method}()");
         let _ = writeln!(out, "        .set_name(&full_name)");
@@ -254,7 +288,10 @@ fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
         if full_name_on_model {
             let parent = build_parent_expr(m);
             let noun_plural = resource_noun_plural(m);
-            let _ = writeln!(out, "    let full_name = format!(\"{{}}/{noun_plural}/{{}}\", {parent}, name);");
+            let _ = writeln!(
+                out,
+                "    let full_name = format!(\"{{}}/{noun_plural}/{{}}\", {parent}, name);"
+            );
         }
 
         // Set fields on the model
@@ -264,7 +301,10 @@ fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
             }
             // skip_name_on_create: don't set model.name — GCP auto-assigns it
             if name == "name" && skip_name {
-                let _ = writeln!(out, "    // Do NOT set model.name on create — GCP auto-assigns it.");
+                let _ = writeln!(
+                    out,
+                    "    // Do NOT set model.name on create — GCP auto-assigns it."
+                );
                 continue;
             }
             // full_name_on_model: set full resource path instead of short name
@@ -304,16 +344,26 @@ fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
                 let _ = writeln!(out, "        .{id_setter}(&name)");
             }
 
-            let body_setter = m.resource.resource_body_setter.as_deref().unwrap_or("set_body");
+            let body_setter = m
+                .resource
+                .resource_body_setter
+                .as_deref()
+                .unwrap_or("set_body");
             let _ = writeln!(out, "        .{body_setter}(model)");
         } else {
             // Compute style: set_project + set_zone/region + set_body
             match m.resource.scope {
                 Scope::Zonal => {
-                    let _ = writeln!(out, "    let zone = config.str_or(\"/sizing/zone\", &format!(\"{{}}-a\", self.region)).to_string();");
+                    let _ = writeln!(
+                        out,
+                        "    let zone = config.str_or(\"/sizing/zone\", &format!(\"{{}}-a\", self.region)).to_string();"
+                    );
                 }
                 Scope::Regional => {
-                    let _ = writeln!(out, "    let region = config.str_or(\"/network/region\", &self.region).to_string();");
+                    let _ = writeln!(
+                        out,
+                        "    let region = config.str_or(\"/network/region\", &self.region).to_string();"
+                    );
                 }
                 _ => {}
             }
@@ -361,12 +411,21 @@ fn write_gcp_create_body(out: &mut String, m: &ResourceManifest) {
     let read_fn = crud_fn_name("read", &m.resource.type_path);
     if skip_name {
         // Server-assigned resources may have eventual consistency — retry read-back
-        let _ = writeln!(out, "    // Retry read-back: some APIs (e.g. IAM) have eventual consistency");
+        let _ = writeln!(
+            out,
+            "    // Retry read-back: some APIs (e.g. IAM) have eventual consistency"
+        );
         let _ = writeln!(out, "    for attempt in 0..3u32 {{");
         let _ = writeln!(out, "        match self.{read_fn}(&provider_id).await {{");
         let _ = writeln!(out, "            Ok(result) => return Ok(result),");
-        let _ = writeln!(out, "            Err(ProviderError::NotFound(_)) if attempt < 2 => {{");
-        let _ = writeln!(out, "                tokio::time::sleep(std::time::Duration::from_millis(500 * (attempt as u64 + 1))).await;");
+        let _ = writeln!(
+            out,
+            "            Err(ProviderError::NotFound(_)) if attempt < 2 => {{"
+        );
+        let _ = writeln!(
+            out,
+            "                tokio::time::sleep(std::time::Duration::from_millis(500 * (attempt as u64 + 1))).await;"
+        );
         let _ = writeln!(out, "            }}");
         let _ = writeln!(out, "            Err(e) => return Err(e),");
         let _ = writeln!(out, "        }}");
@@ -392,17 +451,35 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
     let client_field = m.resource.aws_client_field.as_deref().unwrap_or("client");
     let create_method = snake_case(&m.crud.create);
     let model_name = &m.resource.sdk_model;
-    let id_source = m.resource.aws_id_source.clone().unwrap_or(AwsIdSource::ConfigName);
-    let tag_style = m.resource.aws_tag_style.clone().unwrap_or(AwsTagStyle::None);
+    let id_source = m
+        .resource
+        .aws_id_source
+        .clone()
+        .unwrap_or(AwsIdSource::ConfigName);
+    let tag_style = m
+        .resource
+        .aws_tag_style
+        .clone()
+        .unwrap_or(AwsTagStyle::None);
 
     // Tags
     match &tag_style {
         AwsTagStyle::TagSpecification => {
-            let rt = m.resource.aws_tag_resource_type.as_deref().unwrap_or(model_name);
+            let rt = m
+                .resource
+                .aws_tag_resource_type
+                .as_deref()
+                .unwrap_or(model_name);
             let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
-            let _ = writeln!(out, "    let tag_spec = Self::build_tags(config, {sdk_crate_mod}::types::ResourceType::{rt});");
+            let _ = writeln!(
+                out,
+                "    let tag_spec = Self::build_tags(config, {sdk_crate_mod}::types::ResourceType::{rt});"
+            );
         }
-        AwsTagStyle::SetTags | AwsTagStyle::TypedTags | AwsTagStyle::InlineKv | AwsTagStyle::KmsTags => {
+        AwsTagStyle::SetTags
+        | AwsTagStyle::TypedTags
+        | AwsTagStyle::InlineKv
+        | AwsTagStyle::KmsTags => {
             let _ = writeln!(out, "    let tags = super::extract_tags(config);");
         }
         AwsTagStyle::PostCreate | AwsTagStyle::None => {}
@@ -415,11 +492,20 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
         !f.output_only && !f.skip && !f.required && !f.skip_create && f.aws_builder_group.is_none()
     });
     let has_string_array_fields = m.fields.iter().any(|(_, f)| {
-        !f.output_only && !f.skip && !f.skip_create && f.field_type == "StringArray" && f.aws_builder_group.is_none()
+        !f.output_only
+            && !f.skip
+            && !f.skip_create
+            && f.field_type == "StringArray"
+            && f.aws_builder_group.is_none()
     });
     let has_create_tags = !matches!(tag_style, AwsTagStyle::PostCreate | AwsTagStyle::None);
     let has_create_extras = !m.resource.aws_create_extra_setters.is_empty();
-    let needs_mut = has_optional_create_fields || has_create_tags || has_string_array_fields || has_builder_groups || m.resource.aws_caller_reference || has_create_extras;
+    let needs_mut = has_optional_create_fields
+        || has_create_tags
+        || has_string_array_fields
+        || has_builder_groups
+        || m.resource.aws_caller_reference
+        || has_create_extras;
     let let_binding = if needs_mut { "let mut req" } else { "let req" };
 
     // Build request — required fields go inline on the builder chain
@@ -427,7 +513,12 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
     let _ = writeln!(out, "        .{create_method}()");
 
     for (name, field) in &m.fields {
-        if field.output_only || field.skip || !field.required || field.skip_create || field.aws_builder_group.is_some() {
+        if field.output_only
+            || field.skip
+            || !field.required
+            || field.skip_create
+            || field.aws_builder_group.is_some()
+        {
             continue;
         }
         let sdk_param = field.sdk_field.as_deref().unwrap_or(name);
@@ -437,10 +528,15 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
         if field.aws_enum {
             // SDK expects an enum type — pass the string value which converts via From<&str>
             let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
-            let enum_type = field.aws_enum_type.as_deref()
+            let enum_type = field
+                .aws_enum_type
+                .as_deref()
                 .map(String::from)
                 .unwrap_or_else(|| capitalize(sdk_param));
-            let _ = writeln!(out, "        .{setter}({sdk_crate_mod}::types::{enum_type}::from({var}.as_str()))");
+            let _ = writeln!(
+                out,
+                "        .{setter}({sdk_crate_mod}::types::{enum_type}::from({var}.as_str()))"
+            );
         } else {
             match field.field_type.as_str() {
                 "String" => {
@@ -465,7 +561,12 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
 
     // Set optional fields — distinguished by whether they have defaults
     for (name, field) in &m.fields {
-        if field.output_only || field.skip || field.required || field.skip_create || field.aws_builder_group.is_some() {
+        if field.output_only
+            || field.skip
+            || field.required
+            || field.skip_create
+            || field.aws_builder_group.is_some()
+        {
             continue;
         }
         let sdk_param = field.sdk_field.as_deref().unwrap_or(name);
@@ -477,34 +578,56 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
         // Fields with aws_attr_key use .attributes(key, value) instead of typed setters
         // Add .into() only when aws_attr_name_type is set (SDK uses a typed enum like QueueAttributeName)
         if let Some(ref attr_key) = field.aws_attr_key {
-            let into_suffix = if m.resource.aws_attr_name_type.is_some() { ".into()" } else { "" };
+            let into_suffix = if m.resource.aws_attr_name_type.is_some() {
+                ".into()"
+            } else {
+                ""
+            };
             match field.field_type.as_str() {
                 "Bool" => {
                     if has_default {
                         let _ = writeln!(out, "    if {var} {{");
-                        let _ = writeln!(out, "        req = req.attributes(\"{attr_key}\"{into_suffix}, \"true\");");
+                        let _ = writeln!(
+                            out,
+                            "        req = req.attributes(\"{attr_key}\"{into_suffix}, \"true\");"
+                        );
                         let _ = writeln!(out, "    }}");
                     } else {
                         let _ = writeln!(out, "    if let Some(true) = {var} {{");
-                        let _ = writeln!(out, "        req = req.attributes(\"{attr_key}\"{into_suffix}, \"true\");");
+                        let _ = writeln!(
+                            out,
+                            "        req = req.attributes(\"{attr_key}\"{into_suffix}, \"true\");"
+                        );
                         let _ = writeln!(out, "    }}");
                     }
                 }
                 "String" => {
                     if has_default {
-                        let _ = writeln!(out, "    req = req.attributes(\"{attr_key}\"{into_suffix}, &{var});");
+                        let _ = writeln!(
+                            out,
+                            "    req = req.attributes(\"{attr_key}\"{into_suffix}, &{var});"
+                        );
                     } else {
                         let _ = writeln!(out, "    if let Some(ref v) = {var} {{");
-                        let _ = writeln!(out, "        req = req.attributes(\"{attr_key}\"{into_suffix}, v);");
+                        let _ = writeln!(
+                            out,
+                            "        req = req.attributes(\"{attr_key}\"{into_suffix}, v);"
+                        );
                         let _ = writeln!(out, "    }}");
                     }
                 }
                 "Integer" | "Integer_u32" | "Integer_u64" => {
                     if has_default {
-                        let _ = writeln!(out, "    req = req.attributes(\"{attr_key}\"{into_suffix}, {var}.to_string());");
+                        let _ = writeln!(
+                            out,
+                            "    req = req.attributes(\"{attr_key}\"{into_suffix}, {var}.to_string());"
+                        );
                     } else {
                         let _ = writeln!(out, "    if let Some(v) = {var} {{");
-                        let _ = writeln!(out, "        req = req.attributes(\"{attr_key}\"{into_suffix}, v.to_string());");
+                        let _ = writeln!(
+                            out,
+                            "        req = req.attributes(\"{attr_key}\"{into_suffix}, v.to_string());"
+                        );
                         let _ = writeln!(out, "    }}");
                     }
                 }
@@ -516,14 +639,22 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
         if field.aws_enum {
             // SDK enum type — convert from string via From<&str>
             let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
-            let enum_type = field.aws_enum_type.as_deref()
+            let enum_type = field
+                .aws_enum_type
+                .as_deref()
                 .map(String::from)
                 .unwrap_or_else(|| capitalize(sdk_param));
             if has_default {
-                let _ = writeln!(out, "    req = req.{setter}({sdk_crate_mod}::types::{enum_type}::from({var}.as_str()));");
+                let _ = writeln!(
+                    out,
+                    "    req = req.{setter}({sdk_crate_mod}::types::{enum_type}::from({var}.as_str()));"
+                );
             } else {
                 let _ = writeln!(out, "    if let Some(ref v) = {var} {{");
-                let _ = writeln!(out, "        req = req.{setter}({sdk_crate_mod}::types::{enum_type}::from(v.as_str()));");
+                let _ = writeln!(
+                    out,
+                    "        req = req.{setter}({sdk_crate_mod}::types::{enum_type}::from(v.as_str()));"
+                );
                 let _ = writeln!(out, "    }}");
             }
             continue;
@@ -531,21 +662,29 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
 
         // Builder wrapper: field value is wrapped in a nested builder type
         // e.g., scan_on_push → .image_scanning_configuration(ImageScanningConfiguration::builder().scan_on_push(v).build())
-        if let (Some(wrapper), Some(wrapper_type)) = (&field.aws_builder_wrapper, &field.aws_builder_type) {
+        if let (Some(wrapper), Some(wrapper_type)) =
+            (&field.aws_builder_wrapper, &field.aws_builder_type)
+        {
             let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
             let wrapper_setter = snake_case(wrapper);
             match field.field_type.as_str() {
                 "Bool" => {
                     if has_default {
                         let _ = writeln!(out, "    req = req.{wrapper_setter}(");
-                        let _ = writeln!(out, "        {sdk_crate_mod}::types::{wrapper_type}::builder()");
+                        let _ = writeln!(
+                            out,
+                            "        {sdk_crate_mod}::types::{wrapper_type}::builder()"
+                        );
                         let _ = writeln!(out, "            .{setter}({var})");
                         let _ = writeln!(out, "            .build()");
                         let _ = writeln!(out, "    );");
                     } else {
                         let _ = writeln!(out, "    if let Some(v) = {var} {{");
                         let _ = writeln!(out, "        req = req.{wrapper_setter}(");
-                        let _ = writeln!(out, "            {sdk_crate_mod}::types::{wrapper_type}::builder()");
+                        let _ = writeln!(
+                            out,
+                            "            {sdk_crate_mod}::types::{wrapper_type}::builder()"
+                        );
                         let _ = writeln!(out, "                .{setter}(v)");
                         let _ = writeln!(out, "                .build()");
                         let _ = writeln!(out, "        );");
@@ -555,14 +694,20 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
                 "String" => {
                     if has_default {
                         let _ = writeln!(out, "    req = req.{wrapper_setter}(");
-                        let _ = writeln!(out, "        {sdk_crate_mod}::types::{wrapper_type}::builder()");
+                        let _ = writeln!(
+                            out,
+                            "        {sdk_crate_mod}::types::{wrapper_type}::builder()"
+                        );
                         let _ = writeln!(out, "            .{setter}(&{var})");
                         let _ = writeln!(out, "            .build()");
                         let _ = writeln!(out, "    );");
                     } else {
                         let _ = writeln!(out, "    if let Some(ref v) = {var} {{");
                         let _ = writeln!(out, "        req = req.{wrapper_setter}(");
-                        let _ = writeln!(out, "            {sdk_crate_mod}::types::{wrapper_type}::builder()");
+                        let _ = writeln!(
+                            out,
+                            "            {sdk_crate_mod}::types::{wrapper_type}::builder()"
+                        );
                         let _ = writeln!(out, "                .{setter}(v)");
                         let _ = writeln!(out, "                .build()");
                         let _ = writeln!(out, "        );");
@@ -572,14 +717,20 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
                 "Integer" | "Integer_u32" | "Integer_u64" => {
                     if has_default {
                         let _ = writeln!(out, "    req = req.{wrapper_setter}(");
-                        let _ = writeln!(out, "        {sdk_crate_mod}::types::{wrapper_type}::builder()");
+                        let _ = writeln!(
+                            out,
+                            "        {sdk_crate_mod}::types::{wrapper_type}::builder()"
+                        );
                         let _ = writeln!(out, "            .{setter}({var} as i32)");
                         let _ = writeln!(out, "            .build()");
                         let _ = writeln!(out, "    );");
                     } else {
                         let _ = writeln!(out, "    if let Some(v) = {var} {{");
                         let _ = writeln!(out, "        req = req.{wrapper_setter}(");
-                        let _ = writeln!(out, "            {sdk_crate_mod}::types::{wrapper_type}::builder()");
+                        let _ = writeln!(
+                            out,
+                            "            {sdk_crate_mod}::types::{wrapper_type}::builder()"
+                        );
                         let _ = writeln!(out, "                .{setter}(v as i32)");
                         let _ = writeln!(out, "                .build()");
                         let _ = writeln!(out, "        );");
@@ -587,7 +738,10 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
                     }
                 }
                 _ => {
-                    let _ = writeln!(out, "    // TODO: builder wrapper for {name} ({wrapper_type})");
+                    let _ = writeln!(
+                        out,
+                        "    // TODO: builder wrapper for {name} ({wrapper_type})"
+                    );
                 }
             }
             continue;
@@ -644,7 +798,12 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
 
     // Set StringArray fields (both required and optional) — these use a for loop
     for (name, field) in &m.fields {
-        if field.output_only || field.skip || field.skip_create || field.field_type != "StringArray" || field.aws_builder_group.is_some() {
+        if field.output_only
+            || field.skip
+            || field.skip_create
+            || field.field_type != "StringArray"
+            || field.aws_builder_group.is_some()
+        {
             continue;
         }
         let sdk_param = field.sdk_field.as_deref().unwrap_or(name);
@@ -672,7 +831,10 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
 
     // Auto-generate caller_reference if needed
     if m.resource.aws_caller_reference {
-        let _ = writeln!(out, "    let caller_ref = format!(\"smelt-{{}}\", chrono::Utc::now().timestamp());");
+        let _ = writeln!(
+            out,
+            "    let caller_ref = format!(\"smelt-{{}}\", chrono::Utc::now().timestamp());"
+        );
         let _ = writeln!(out, "    req = req.caller_reference(&caller_ref);");
     }
 
@@ -700,7 +862,10 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
                 let _ = writeln!(out, "                .key(k)");
                 let _ = writeln!(out, "                .value(v)");
                 let _ = writeln!(out, "                .build()");
-                let _ = writeln!(out, "                .map_err(|e| ProviderError::InvalidConfig(format!(\"failed to build Tag: {{e}}\")))?");
+                let _ = writeln!(
+                    out,
+                    "                .map_err(|e| ProviderError::InvalidConfig(format!(\"failed to build Tag: {{e}}\")))?"
+                );
                 let _ = writeln!(out, "        );");
             }
             let _ = writeln!(out, "    }}");
@@ -718,7 +883,10 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
             let _ = writeln!(out, "                .tag_key(k)");
             let _ = writeln!(out, "                .tag_value(v)");
             let _ = writeln!(out, "                .build()");
-            let _ = writeln!(out, "                .map_err(|e| ProviderError::InvalidConfig(format!(\"failed to build Tag: {{e}}\")))?");
+            let _ = writeln!(
+                out,
+                "                .map_err(|e| ProviderError::InvalidConfig(format!(\"failed to build Tag: {{e}}\")))?"
+            );
             let _ = writeln!(out, "        );");
             let _ = writeln!(out, "    }}");
         }
@@ -786,11 +954,17 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
                 let _ = writeln!(out, "    let container = result");
                 let _ = writeln!(out, "        .{list_acc}()");
                 let _ = writeln!(out, "        .first()");
-                let _ = writeln!(out, "        .ok_or_else(|| ProviderError::ApiError(\"{create_method} returned no {list_acc}\".into()))?;");
+                let _ = writeln!(
+                    out,
+                    "        .ok_or_else(|| ProviderError::ApiError(\"{create_method} returned no {list_acc}\".into()))?;"
+                );
                 let _ = writeln!(out, "    let provider_id = container");
                 let _ = writeln!(out, "        .{accessor}()");
                 if !non_opt {
-                    let _ = writeln!(out, "        .ok_or_else(|| ProviderError::ApiError(\"{create_method} returned no {field}\".into()))?;");
+                    let _ = writeln!(
+                        out,
+                        "        .ok_or_else(|| ProviderError::ApiError(\"{create_method} returned no {field}\".into()))?;"
+                    );
                 } else {
                     let _ = writeln!(out, "    ;");
                 }
@@ -803,12 +977,18 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
                 if m.resource.aws_response_accessor_non_optional {
                     let _ = writeln!(out, "    ;");
                 } else {
-                    let _ = writeln!(out, "        .ok_or_else(|| ProviderError::ApiError(\"{create_method} returned no {container}\".into()))?;");
+                    let _ = writeln!(
+                        out,
+                        "        .ok_or_else(|| ProviderError::ApiError(\"{create_method} returned no {container}\".into()))?;"
+                    );
                 }
                 let _ = writeln!(out, "    let provider_id = container");
                 let _ = writeln!(out, "        .{accessor}()");
                 if !non_opt {
-                    let _ = writeln!(out, "        .ok_or_else(|| ProviderError::ApiError(\"{create_method} returned no {field}\".into()))?;");
+                    let _ = writeln!(
+                        out,
+                        "        .ok_or_else(|| ProviderError::ApiError(\"{create_method} returned no {field}\".into()))?;"
+                    );
                 } else {
                     let _ = writeln!(out, "    ;");
                 }
@@ -816,7 +996,10 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
                 let _ = writeln!(out, "    let provider_id = result");
                 let _ = writeln!(out, "        .{accessor}()");
                 if !non_opt {
-                    let _ = writeln!(out, "        .ok_or_else(|| ProviderError::ApiError(\"{create_method} returned no {field}\".into()))?;");
+                    let _ = writeln!(
+                        out,
+                        "        .ok_or_else(|| ProviderError::ApiError(\"{create_method} returned no {field}\".into()))?;"
+                    );
                 } else {
                     let _ = writeln!(out, "    ;");
                 }
@@ -825,7 +1008,10 @@ fn write_aws_create_body(out: &mut String, m: &ResourceManifest) {
 
             // Trim prefix from provider_id if needed (e.g., "/hostedzone/")
             if let Some(ref prefix) = m.resource.aws_id_trim_prefix {
-                let _ = writeln!(out, "    let provider_id = provider_id.trim_start_matches(\"{prefix}\");");
+                let _ = writeln!(
+                    out,
+                    "    let provider_id = provider_id.trim_start_matches(\"{prefix}\");"
+                );
             }
 
             // Post-create actions (fields that need separate API calls)
@@ -866,7 +1052,9 @@ fn write_aws_post_create_actions(out: &mut String, m: &ResourceManifest, id_var:
         // Emit conditional post-create call
         match field.field_type.as_str() {
             "Integer" | "Integer_u32" | "Integer_u64" => {
-                let default_val = field.default.as_ref()
+                let default_val = field
+                    .default
+                    .as_ref()
                     .and_then(|v| v.as_integer())
                     .unwrap_or(0);
                 let _ = writeln!(out, "    if {var} != {default_val} {{");
@@ -923,12 +1111,18 @@ fn write_aws_post_create_actions(out: &mut String, m: &ResourceManifest, id_var:
 /// Emit code to parse a composite provider_id (e.g., "cluster:nodegroup") into parts.
 fn write_composite_id_parsing(out: &mut String, parts: &[CompositeIdPart]) {
     let n = parts.len();
-    let _ = writeln!(out, "    let id_parts: Vec<&str> = provider_id.split(':').collect();");
+    let _ = writeln!(
+        out,
+        "    let id_parts: Vec<&str> = provider_id.split(':').collect();"
+    );
     let _ = writeln!(out, "    if id_parts.len() != {n} {{");
     let _ = writeln!(out, "        return Err(ProviderError::InvalidConfig(");
     let part_names: Vec<&str> = parts.iter().map(|p| p.setter.as_str()).collect();
     let format_str = part_names.join(":");
-    let _ = writeln!(out, "            format!(\"provider_id must be {format_str}, got: {{provider_id}}\")");
+    let _ = writeln!(
+        out,
+        "            format!(\"provider_id must be {format_str}, got: {{provider_id}}\")"
+    );
     let _ = writeln!(out, "        ));");
     let _ = writeln!(out, "    }}");
     for (i, part) in parts.iter().enumerate() {
@@ -960,7 +1154,10 @@ fn write_composite_id_assembly(out: &mut String, m: &ResourceManifest) {
     }
     let format_str = format_parts.join(":");
     let args_str = args.join(", ");
-    let _ = writeln!(out, "    let provider_id = format!(\"{format_str}\", {args_str});");
+    let _ = writeln!(
+        out,
+        "    let provider_id = format!(\"{format_str}\", {args_str});"
+    );
 }
 
 /// Find the variable name for a composite ID part in the create path.
@@ -985,13 +1182,20 @@ fn find_composite_field_var(m: &ResourceManifest, field_name: &str) -> String {
 // ── Builder group helpers ─────────────────────────────────────────────────────
 
 /// Find the builder group definition for a given group name.
-fn find_builder_group<'a>(m: &'a ResourceManifest, group_name: &str) -> Option<&'a AwsBuilderGroup> {
-    m.resource.aws_builder_groups.iter().find(|g| g.group == group_name)
+fn find_builder_group<'a>(
+    m: &'a ResourceManifest,
+    group_name: &str,
+) -> Option<&'a AwsBuilderGroup> {
+    m.resource
+        .aws_builder_groups
+        .iter()
+        .find(|g| g.group == group_name)
 }
 
 /// Collect fields belonging to a specific builder group, preserving BTreeMap order.
 fn group_fields<'a>(m: &'a ResourceManifest, group_name: &str) -> Vec<(&'a str, &'a FieldDef)> {
-    m.fields.iter()
+    m.fields
+        .iter()
         .filter(|(_, f)| f.aws_builder_group.as_deref() == Some(group_name))
         .map(|(name, f)| (name.as_str(), f))
         .collect()
@@ -999,7 +1203,9 @@ fn group_fields<'a>(m: &'a ResourceManifest, group_name: &str) -> Vec<(&'a str, 
 
 /// Get all unique builder group names referenced by fields.
 fn all_builder_group_names(m: &ResourceManifest) -> Vec<String> {
-    let mut names: Vec<String> = m.fields.values()
+    let mut names: Vec<String> = m
+        .fields
+        .values()
         .filter_map(|f| f.aws_builder_group.clone())
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
@@ -1024,7 +1230,10 @@ fn write_builder_group_create(out: &mut String, m: &ResourceManifest, group_name
     let setter = snake_case(&group.setter);
     let type_name = &group.type_name;
 
-    let _ = writeln!(out, "    let mut {builder_var}_builder = {sdk_crate_mod}::types::{type_name}::builder();");
+    let _ = writeln!(
+        out,
+        "    let mut {builder_var}_builder = {sdk_crate_mod}::types::{type_name}::builder();"
+    );
 
     for (name, field) in &fields {
         let sdk_param = field.sdk_field.as_deref().unwrap_or(name);
@@ -1036,56 +1245,96 @@ fn write_builder_group_create(out: &mut String, m: &ResourceManifest, group_name
             "StringArray" => {
                 if field.required {
                     // Required StringArray: use set_* with Some(vec)
-                    let _ = writeln!(out, "    {builder_var}_builder = {builder_var}_builder.set_{field_setter}(Some({var}));");
+                    let _ = writeln!(
+                        out,
+                        "    {builder_var}_builder = {builder_var}_builder.set_{field_setter}(Some({var}));"
+                    );
                 } else if has_default {
-                    let _ = writeln!(out, "    {builder_var}_builder = {builder_var}_builder.set_{field_setter}(Some({var}));");
+                    let _ = writeln!(
+                        out,
+                        "    {builder_var}_builder = {builder_var}_builder.set_{field_setter}(Some({var}));"
+                    );
                 } else {
-                    let _ = writeln!(out, "    {builder_var}_builder = {builder_var}_builder.set_{field_setter}({var});");
+                    let _ = writeln!(
+                        out,
+                        "    {builder_var}_builder = {builder_var}_builder.set_{field_setter}({var});"
+                    );
                 }
             }
             "String" => {
                 if field.required || has_default {
-                    let _ = writeln!(out, "    {builder_var}_builder = {builder_var}_builder.{field_setter}(&{var});");
+                    let _ = writeln!(
+                        out,
+                        "    {builder_var}_builder = {builder_var}_builder.{field_setter}(&{var});"
+                    );
                 } else {
                     let _ = writeln!(out, "    if let Some(ref v) = {var} {{");
-                    let _ = writeln!(out, "        {builder_var}_builder = {builder_var}_builder.{field_setter}(v);");
+                    let _ = writeln!(
+                        out,
+                        "        {builder_var}_builder = {builder_var}_builder.{field_setter}(v);"
+                    );
                     let _ = writeln!(out, "    }}");
                 }
             }
             "Integer" | "Integer_u32" | "Integer_u64" => {
                 if field.required || has_default {
-                    let _ = writeln!(out, "    {builder_var}_builder = {builder_var}_builder.{field_setter}({var} as i32);");
+                    let _ = writeln!(
+                        out,
+                        "    {builder_var}_builder = {builder_var}_builder.{field_setter}({var} as i32);"
+                    );
                 } else {
                     let _ = writeln!(out, "    if let Some(v) = {var} {{");
-                    let _ = writeln!(out, "        {builder_var}_builder = {builder_var}_builder.{field_setter}(v as i32);");
+                    let _ = writeln!(
+                        out,
+                        "        {builder_var}_builder = {builder_var}_builder.{field_setter}(v as i32);"
+                    );
                     let _ = writeln!(out, "    }}");
                 }
             }
             "Float" => {
                 if field.required || has_default {
-                    let _ = writeln!(out, "    {builder_var}_builder = {builder_var}_builder.{field_setter}({var});");
+                    let _ = writeln!(
+                        out,
+                        "    {builder_var}_builder = {builder_var}_builder.{field_setter}({var});"
+                    );
                 } else {
                     let _ = writeln!(out, "    if let Some(v) = {var} {{");
-                    let _ = writeln!(out, "        {builder_var}_builder = {builder_var}_builder.{field_setter}(v);");
+                    let _ = writeln!(
+                        out,
+                        "        {builder_var}_builder = {builder_var}_builder.{field_setter}(v);"
+                    );
                     let _ = writeln!(out, "    }}");
                 }
             }
             "Bool" => {
                 if field.required || has_default {
-                    let _ = writeln!(out, "    {builder_var}_builder = {builder_var}_builder.{field_setter}({var});");
+                    let _ = writeln!(
+                        out,
+                        "    {builder_var}_builder = {builder_var}_builder.{field_setter}({var});"
+                    );
                 } else {
                     let _ = writeln!(out, "    if let Some(v) = {var} {{");
-                    let _ = writeln!(out, "        {builder_var}_builder = {builder_var}_builder.{field_setter}(v);");
+                    let _ = writeln!(
+                        out,
+                        "        {builder_var}_builder = {builder_var}_builder.{field_setter}(v);"
+                    );
                     let _ = writeln!(out, "    }}");
                 }
             }
             _ => {
-                let _ = writeln!(out, "    // TODO: builder group field {name} (type: {})", field.field_type);
+                let _ = writeln!(
+                    out,
+                    "    // TODO: builder group field {name} (type: {})",
+                    field.field_type
+                );
             }
         }
     }
 
-    let _ = writeln!(out, "    let {builder_var} = {builder_var}_builder.build();");
+    let _ = writeln!(
+        out,
+        "    let {builder_var} = {builder_var}_builder.build();"
+    );
     let _ = writeln!(out, "    req = req.{setter}({builder_var});");
     let _ = writeln!(out);
 }
@@ -1097,8 +1346,11 @@ fn write_builder_group_update(out: &mut String, m: &ResourceManifest, group_name
         None => return,
     };
     // Only include fields that are updatable (not required unless marked updatable)
-    let fields: Vec<_> = group_fields(m, group_name).into_iter()
-        .filter(|(_, f)| !f.output_only && !f.skip && !f.skip_update && (!f.required || f.updatable))
+    let fields: Vec<_> = group_fields(m, group_name)
+        .into_iter()
+        .filter(|(_, f)| {
+            !f.output_only && !f.skip && !f.skip_update && (!f.required || f.updatable)
+        })
         .collect();
     if fields.is_empty() {
         return;
@@ -1109,7 +1361,10 @@ fn write_builder_group_update(out: &mut String, m: &ResourceManifest, group_name
     let setter = snake_case(&group.setter);
     let type_name = &group.type_name;
 
-    let _ = writeln!(out, "    let mut {builder_var}_builder = {sdk_crate_mod}::types::{type_name}::builder();");
+    let _ = writeln!(
+        out,
+        "    let mut {builder_var}_builder = {sdk_crate_mod}::types::{type_name}::builder();"
+    );
 
     for (name, field) in &fields {
         let sdk_param = field.sdk_field.as_deref().unwrap_or(name);
@@ -1119,27 +1374,42 @@ fn write_builder_group_update(out: &mut String, m: &ResourceManifest, group_name
         match field.field_type.as_str() {
             "StringArray" => {
                 let _ = writeln!(out, "    if let Some(ref arr) = {var} {{");
-                let _ = writeln!(out, "        {builder_var}_builder = {builder_var}_builder.set_{field_setter}(Some(arr.clone()));");
+                let _ = writeln!(
+                    out,
+                    "        {builder_var}_builder = {builder_var}_builder.set_{field_setter}(Some(arr.clone()));"
+                );
                 let _ = writeln!(out, "    }}");
             }
             "String" => {
                 let _ = writeln!(out, "    if let Some(v) = {var} {{");
-                let _ = writeln!(out, "        {builder_var}_builder = {builder_var}_builder.{field_setter}(v);");
+                let _ = writeln!(
+                    out,
+                    "        {builder_var}_builder = {builder_var}_builder.{field_setter}(v);"
+                );
                 let _ = writeln!(out, "    }}");
             }
             "Integer" | "Integer_u32" | "Integer_u64" => {
                 let _ = writeln!(out, "    if let Some(v) = {var} {{");
-                let _ = writeln!(out, "        {builder_var}_builder = {builder_var}_builder.{field_setter}(v as i32);");
+                let _ = writeln!(
+                    out,
+                    "        {builder_var}_builder = {builder_var}_builder.{field_setter}(v as i32);"
+                );
                 let _ = writeln!(out, "    }}");
             }
             "Float" => {
                 let _ = writeln!(out, "    if let Some(v) = {var} {{");
-                let _ = writeln!(out, "        {builder_var}_builder = {builder_var}_builder.{field_setter}(v);");
+                let _ = writeln!(
+                    out,
+                    "        {builder_var}_builder = {builder_var}_builder.{field_setter}(v);"
+                );
                 let _ = writeln!(out, "    }}");
             }
             "Bool" => {
                 let _ = writeln!(out, "    if let Some(v) = {var} {{");
-                let _ = writeln!(out, "        {builder_var}_builder = {builder_var}_builder.{field_setter}(v);");
+                let _ = writeln!(
+                    out,
+                    "        {builder_var}_builder = {builder_var}_builder.{field_setter}(v);"
+                );
                 let _ = writeln!(out, "    }}");
             }
             _ => {
@@ -1148,7 +1418,10 @@ fn write_builder_group_update(out: &mut String, m: &ResourceManifest, group_name
         }
     }
 
-    let _ = writeln!(out, "    req = req.{setter}({builder_var}_builder.build());");
+    let _ = writeln!(
+        out,
+        "    req = req.{setter}({builder_var}_builder.build());"
+    );
     let _ = writeln!(out);
 }
 
@@ -1178,7 +1451,11 @@ fn write_read_fn(out: &mut String, m: &ResourceManifest) {
 
 fn write_gcp_read_body(out: &mut String, m: &ResourceManifest) {
     let model_var = safe_ident(&snake_case(&m.resource.sdk_model));
-    let client_accessor = m.resource.client_accessor.clone().unwrap_or_else(|| snake_case(&m.resource.sdk_client));
+    let client_accessor = m
+        .resource
+        .client_accessor
+        .clone()
+        .unwrap_or_else(|| snake_case(&m.resource.sdk_client));
     let read_method = &m.crud.read;
     let model_name = &m.resource.sdk_model;
     let uses_resource_name = m.resource.api_style == ApiStyle::ResourceName
@@ -1190,7 +1467,11 @@ fn write_gcp_read_body(out: &mut String, m: &ResourceManifest) {
 
     if uses_resource_name {
         // Resource-name / direct model style: set_name (or override) with the full resource path
-        let name_setter = m.resource.resource_name_param.as_deref().unwrap_or("set_name");
+        let name_setter = m
+            .resource
+            .resource_name_param
+            .as_deref()
+            .unwrap_or("set_name");
         let _ = writeln!(out, "        .{name_setter}(provider_id)");
     } else {
         // Compute style: set_project + scope + resource name
@@ -1204,7 +1485,10 @@ fn write_gcp_read_body(out: &mut String, m: &ResourceManifest) {
             }
             _ => {}
         }
-        let resource_setter = m.resource.resource_id_param.clone()
+        let resource_setter = m
+            .resource
+            .resource_id_param
+            .clone()
             .unwrap_or_else(|| format!("set_{}", snake_case(&m.resource.sdk_model)));
         let _ = writeln!(out, "        .{resource_setter}(&name)");
     }
@@ -1260,7 +1544,11 @@ fn write_aws_read_body(out: &mut String, m: &ResourceManifest) {
 
     let client_field = m.resource.aws_client_field.as_deref().unwrap_or("client");
     let read_method = snake_case(&m.crud.read);
-    let read_style = m.resource.aws_read_style.clone().unwrap_or(AwsReadStyle::GetSingle);
+    let read_style = m
+        .resource
+        .aws_read_style
+        .clone()
+        .unwrap_or(AwsReadStyle::GetSingle);
     let id_param = m.resource.aws_id_param.as_deref().unwrap_or("name");
     let id_setter = snake_case(id_param);
     let model_name = &m.resource.sdk_model;
@@ -1275,23 +1563,34 @@ fn write_aws_read_body(out: &mut String, m: &ResourceManifest) {
     // If not, skip emitting the `resource` binding to avoid unused-variable warnings.
     let is_attrs = matches!(read_style, AwsReadStyle::GetAttributes);
     let needs_resource_binding = m.fields.iter().any(|(name, field)| {
-        if field.output_only || field.skip_read { return false; }
+        if field.output_only || field.skip_read {
+            return false;
+        }
         // ConfigName: "name" field uses provider_id, not resource
-        if name == "name" && matches!(m.resource.aws_id_source, Some(AwsIdSource::ConfigName)) { return false; }
+        if name == "name" && matches!(m.resource.aws_id_source, Some(AwsIdSource::ConfigName)) {
+            return false;
+        }
         // GetAttributes fields use attrs, not resource
-        if is_attrs { return false; }
+        if is_attrs {
+            return false;
+        }
         true
     });
 
     // Make API call — use aws_read_id_param if set (e.g., log_group_name_prefix)
-    let read_id_setter = m.resource.aws_read_id_param.as_deref()
+    let read_id_setter = m
+        .resource
+        .aws_read_id_param
+        .as_deref()
         .map(|p| snake_case(p))
         .unwrap_or_else(|| id_setter.clone());
     // HeadCheck and GetSingle-without-accessor only reference `result` via `let resource = &result;`,
     // which is skipped when !needs_resource_binding — so prefix `result` with `_` when unused.
     let result_is_used = match read_style {
         AwsReadStyle::DescribeList | AwsReadStyle::GetAttributes => true,
-        AwsReadStyle::GetSingle => m.resource.aws_response_accessor.is_some() || needs_resource_binding,
+        AwsReadStyle::GetSingle => {
+            m.resource.aws_response_accessor.is_some() || needs_resource_binding
+        }
         AwsReadStyle::HeadCheck => needs_resource_binding,
     };
     let result_var = if result_is_used { "result" } else { "_result" };
@@ -1303,9 +1602,14 @@ fn write_aws_read_body(out: &mut String, m: &ResourceManifest) {
         let _ = writeln!(out, "        .{read_id_setter}(provider_id)");
     }
     // For GetAttributes style, request all attributes
-    if let (AwsReadStyle::GetAttributes, Some(attr_type)) = (&read_style, &m.resource.aws_attr_name_type) {
+    if let (AwsReadStyle::GetAttributes, Some(attr_type)) =
+        (&read_style, &m.resource.aws_attr_name_type)
+    {
         let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
-        let _ = writeln!(out, "        .attribute_names({sdk_crate_mod}::types::{attr_type}::All)");
+        let _ = writeln!(
+            out,
+            "        .attribute_names({sdk_crate_mod}::types::{attr_type}::All)"
+        );
     }
     let _ = writeln!(out, "        .send()");
     let _ = writeln!(out, "        .await");
@@ -1319,18 +1623,27 @@ fn write_aws_read_body(out: &mut String, m: &ResourceManifest) {
     match read_style {
         AwsReadStyle::DescribeList => {
             let default_list = format!("{}s", snake_case(model_name));
-            let list_accessor = m.resource.aws_list_accessor.as_deref()
+            let list_accessor = m
+                .resource
+                .aws_list_accessor
+                .as_deref()
                 .unwrap_or(&default_list);
             let _ = writeln!(out, "    let resource = result");
             let _ = writeln!(out, "        .{list_accessor}()");
             let _ = writeln!(out, "        .first()");
-            let _ = writeln!(out, "        .ok_or_else(|| ProviderError::NotFound(format!(\"{model_name} {{provider_id}}\")))?;");
+            let _ = writeln!(
+                out,
+                "        .ok_or_else(|| ProviderError::NotFound(format!(\"{model_name} {{provider_id}}\")))?;"
+            );
         }
         AwsReadStyle::GetSingle => {
             if let Some(ref accessor) = m.resource.aws_response_accessor {
                 let _ = writeln!(out, "    let resource = result");
                 let _ = writeln!(out, "        .{accessor}()");
-                let _ = writeln!(out, "        .ok_or_else(|| ProviderError::NotFound(format!(\"{model_name} {{provider_id}}\")))?;");
+                let _ = writeln!(
+                    out,
+                    "        .ok_or_else(|| ProviderError::NotFound(format!(\"{model_name} {{provider_id}}\")))?;"
+                );
             } else if needs_resource_binding {
                 let _ = writeln!(out, "    let resource = &result;");
             }
@@ -1348,20 +1661,87 @@ fn write_aws_read_body(out: &mut String, m: &ResourceManifest) {
 
     // For GetAttributes, extract the attribute map
     if is_attrs {
-        let _ = writeln!(out, "    let attrs = result.attributes().cloned().unwrap_or_default();");
+        let _ = writeln!(
+            out,
+            "    let attrs = result.attributes().cloned().unwrap_or_default();"
+        );
         let _ = writeln!(out);
     }
 
-    // Build state JSON
+    // Build state JSON — split fields into "inline" (always present) and "conditional"
+    // (only included when non-empty). Conditional fields are optional strings/enums
+    // without defaults that would otherwise produce phantom empty-string diffs.
     let sections = group_fields_by_section(&m.fields);
-    let _ = writeln!(out, "    let state = serde_json::json!({{");
+
+    // Helper: determine if a field should be conditionally included on read.
+    // Returns true for optional String/enum fields without defaults — these produce
+    // phantom empty strings via unwrap_or("") when the AWS response doesn't have them.
+    let is_conditional = |field: &FieldDef, field_name: &str| -> bool {
+        if field.required || field.output_only || field.skip_read {
+            return false;
+        }
+        if field.default.is_some() {
+            return false;
+        }
+        if field.read_expression.is_some() {
+            return false;
+        }
+        if field.sdk_non_optional {
+            return false;
+        }
+        if field_name == "name" {
+            return false;
+        }
+        // Only String and enum fields produce phantom empty strings
+        matches!(field.field_type.as_str(), "String") || field.aws_enum
+    };
+
+    // Collect conditional fields for post-json!() insertion
+    struct ConditionalField {
+        section: String,
+        field_name: String,
+        check_expr: String,
+        value_expr: String,
+    }
+    let mut conditional_fields: Vec<ConditionalField> = Vec::new();
+
+    // Count inline fields per section (to skip empty sections in json!())
+    let mut section_has_inline: std::collections::HashMap<&str, bool> =
+        std::collections::HashMap::new();
     for (section_name, fields) in &sections {
+        let has_inline = fields
+            .iter()
+            .any(|(name, f)| !f.output_only && !f.skip_read && !is_conditional(f, name));
+        section_has_inline.insert(section_name, has_inline);
+    }
+
+    // Check if any conditional fields exist — only use `mut` when needed
+    let has_conditional = sections
+        .iter()
+        .any(|(_, fields)| fields.iter().any(|(name, f)| is_conditional(f, name)));
+    let state_binding = if has_conditional {
+        "let mut state"
+    } else {
+        "let state"
+    };
+    let _ = writeln!(out, "    {state_binding} = serde_json::json!({{");
+    for (section_name, fields) in &sections {
+        if !section_has_inline[section_name.as_str()] {
+            // All fields in this section are conditional — skip it in json!()
+            continue;
+        }
         let _ = writeln!(out, "        \"{section_name}\": {{");
         for (field_name, field) in fields {
             if field.output_only || field.skip_read {
                 continue;
             }
-            let sdk_field = field.sdk_read_field.as_deref()
+            if is_conditional(field, field_name) {
+                // Will be handled in the post-json!() pass
+                continue;
+            }
+            let sdk_field = field
+                .sdk_read_field
+                .as_deref()
                 .or(field.sdk_field.as_deref())
                 .unwrap_or(field_name);
             let accessor = snake_case(sdk_field);
@@ -1370,16 +1750,22 @@ fn write_aws_read_body(out: &mut String, m: &ResourceManifest) {
             // don't try to read it from the response object.
             let expr = if let Some(ref custom_expr) = field.read_expression {
                 custom_expr.clone()
-            } else if field_name == &"name" && matches!(m.resource.aws_id_source, Some(AwsIdSource::ConfigName)) {
+            } else if field_name == &"name"
+                && matches!(m.resource.aws_id_source, Some(AwsIdSource::ConfigName))
+            {
                 "provider_id".to_string()
             } else if is_attrs {
                 // GetAttributes: look up from attribute HashMap
                 // For "name" field with ResponseField id_source, extract from provider_id
-                if field_name == &"name" && matches!(m.resource.aws_id_source, Some(AwsIdSource::ResponseField)) {
+                if field_name == &"name"
+                    && matches!(m.resource.aws_id_source, Some(AwsIdSource::ResponseField))
+                {
                     // Name is typically extracted from the ARN/URL-based provider_id
                     "provider_id.rsplit(':').next().unwrap_or(\"\")".to_string()
                 } else {
-                    let attr_key = field.aws_attr_key.as_deref()
+                    let attr_key = field
+                        .aws_attr_key
+                        .as_deref()
                         .map(String::from)
                         .unwrap_or_else(|| capitalize(&accessor));
                     // Build the key expression — use SDK enum variant if attr_name_type is set
@@ -1390,52 +1776,71 @@ fn write_aws_read_body(out: &mut String, m: &ResourceManifest) {
                         format!("\"{attr_key}\"")
                     };
                     match field.field_type.as_str() {
-                        "String" => format!("attrs.get({key_expr}).map(|v| v.as_str()).unwrap_or(\"\")"),
-                        "Bool" => format!("attrs.get({key_expr}).map(|v| v == \"true\").unwrap_or(false)"),
-                        "Integer" | "Integer_u32" | "Integer_u64" => format!("attrs.get({key_expr}).and_then(|v| v.parse::<i64>().ok()).unwrap_or(0)"),
+                        "String" => {
+                            format!("attrs.get({key_expr}).map(|v| v.as_str()).unwrap_or(\"\")")
+                        }
+                        "Bool" => {
+                            format!("attrs.get({key_expr}).map(|v| v == \"true\").unwrap_or(false)")
+                        }
+                        "Integer" | "Integer_u32" | "Integer_u64" => format!(
+                            "attrs.get({key_expr}).and_then(|v| v.parse::<i64>().ok()).unwrap_or(0)"
+                        ),
                         _ => format!("attrs.get({key_expr}).map(|v| v.as_str()).unwrap_or(\"\")"),
                     }
                 }
             } else if let Some(ref group_name) = field.aws_builder_group {
-                // Builder group field: access through the group's read accessor
-                // e.g., resource.scaling_config().and_then(|c| c.desired_size()).unwrap_or(2)
                 let group_accessor = find_builder_group(m, group_name)
                     .map(|g| snake_case(g.read_accessor.as_deref().unwrap_or(&g.setter)))
                     .unwrap_or_else(|| snake_case(group_name));
                 match field.field_type.as_str() {
-                    "Bool" => format!("resource.{group_accessor}().map(|c| c.{accessor}()).unwrap_or(false)"),
-                    "String" => format!("resource.{group_accessor}().and_then(|c| c.{accessor}()).unwrap_or(\"\")"),
-                    "Integer" | "Integer_u32" | "Integer_u64" => format!("resource.{group_accessor}().and_then(|c| c.{accessor}()).unwrap_or(0)"),
-                    "Float" => format!("resource.{group_accessor}().and_then(|c| c.{accessor}()).unwrap_or(0.0)"),
-                    "StringArray" => format!("resource.{group_accessor}().map(|c| c.{accessor}()).unwrap_or_default()"),
+                    "Bool" => format!(
+                        "resource.{group_accessor}().map(|c| c.{accessor}()).unwrap_or(false)"
+                    ),
+                    "String" => format!(
+                        "resource.{group_accessor}().and_then(|c| c.{accessor}()).unwrap_or(\"\")"
+                    ),
+                    "Integer" | "Integer_u32" | "Integer_u64" => format!(
+                        "resource.{group_accessor}().and_then(|c| c.{accessor}()).unwrap_or(0)"
+                    ),
+                    "Float" => format!(
+                        "resource.{group_accessor}().and_then(|c| c.{accessor}()).unwrap_or(0.0)"
+                    ),
+                    "StringArray" => format!(
+                        "resource.{group_accessor}().map(|c| c.{accessor}()).unwrap_or_default()"
+                    ),
                     _ => format!("resource.{group_accessor}().map(|c| c.{accessor}())"),
                 }
-            } else if let (Some(wrapper), Some(_wrapper_type)) = (&field.aws_builder_wrapper, &field.aws_builder_type) {
-                // Builder-wrapped field: access through nested container
-                // e.g., resource.image_scanning_configuration().map(|c| c.scan_on_push()).unwrap_or(false)
+            } else if let (Some(wrapper), Some(_wrapper_type)) =
+                (&field.aws_builder_wrapper, &field.aws_builder_type)
+            {
                 let wrapper_accessor = snake_case(wrapper);
                 match field.field_type.as_str() {
-                    "Bool" => format!("resource.{wrapper_accessor}().map(|c| c.{accessor}()).unwrap_or(false)"),
-                    "String" => format!("resource.{wrapper_accessor}().and_then(|c| c.{accessor}()).unwrap_or(\"\")"),
-                    "Integer" | "Integer_u32" | "Integer_u64" => format!("resource.{wrapper_accessor}().and_then(|c| c.{accessor}()).unwrap_or(0)"),
+                    "Bool" => format!(
+                        "resource.{wrapper_accessor}().map(|c| c.{accessor}()).unwrap_or(false)"
+                    ),
+                    "String" => format!(
+                        "resource.{wrapper_accessor}().and_then(|c| c.{accessor}()).unwrap_or(\"\")"
+                    ),
+                    "Integer" | "Integer_u32" | "Integer_u64" => format!(
+                        "resource.{wrapper_accessor}().and_then(|c| c.{accessor}()).unwrap_or(0)"
+                    ),
                     _ => format!("resource.{wrapper_accessor}().map(|c| c.{accessor}())"),
                 }
             } else if field.aws_enum {
-                // SDK enum type — convert to string via .as_str()
                 if field.sdk_non_optional {
                     format!("resource.{accessor}().as_str()")
                 } else {
                     format!("resource.{accessor}().map(|r| r.as_str()).unwrap_or(\"\")")
                 }
             } else if field.sdk_non_optional {
-                // Non-optional SDK field — accessor returns T directly
                 format!("resource.{accessor}()")
             } else {
-                // Standard typed accessor pattern (returns Option<T>)
                 match field.field_type.as_str() {
                     "String" => format!("resource.{accessor}().unwrap_or(\"\")"),
                     "Bool" => format!("resource.{accessor}().unwrap_or(false)"),
-                    "Integer" | "Integer_u32" | "Integer_u64" => format!("resource.{accessor}().unwrap_or(0)"),
+                    "Integer" | "Integer_u32" | "Integer_u64" => {
+                        format!("resource.{accessor}().unwrap_or(0)")
+                    }
                     "Float" => format!("resource.{accessor}().unwrap_or(0.0)"),
                     "StringArray" => format!("resource.{accessor}()"),
                     _ => format!("resource.{accessor}()"),
@@ -1446,6 +1851,110 @@ fn write_aws_read_body(out: &mut String, m: &ResourceManifest) {
         let _ = writeln!(out, "        }},");
     }
     let _ = writeln!(out, "    }});");
+
+    // Collect conditional fields for post-json!() insertion
+    for (section_name, fields) in &sections {
+        for (field_name, field) in fields {
+            if !is_conditional(field, field_name) {
+                continue;
+            }
+            let sdk_field = field
+                .sdk_read_field
+                .as_deref()
+                .or(field.sdk_field.as_deref())
+                .unwrap_or(field_name);
+            let accessor = snake_case(sdk_field);
+
+            let (check_expr, value_expr) = if let Some(ref group_name) = field.aws_builder_group {
+                let group_accessor = find_builder_group(m, group_name)
+                    .map(|g| snake_case(g.read_accessor.as_deref().unwrap_or(&g.setter)))
+                    .unwrap_or_else(|| snake_case(group_name));
+                (
+                    format!(
+                        "resource.{group_accessor}().and_then(|c| c.{accessor}()).filter(|s| !s.is_empty())"
+                    ),
+                    "val".into(),
+                )
+            } else if let (Some(wrapper), _) = (&field.aws_builder_wrapper, &field.aws_builder_type)
+            {
+                let wrapper_accessor = snake_case(wrapper);
+                (
+                    format!(
+                        "resource.{wrapper_accessor}().and_then(|c| c.{accessor}()).filter(|s| !s.is_empty())"
+                    ),
+                    "val".into(),
+                )
+            } else if field.aws_enum {
+                (
+                    format!("resource.{accessor}().map(|r| r.as_str())"),
+                    "val".into(),
+                )
+            } else if is_attrs {
+                let attr_key = field
+                    .aws_attr_key
+                    .as_deref()
+                    .map(String::from)
+                    .unwrap_or_else(|| capitalize(&accessor));
+                let key_expr = if let Some(ref attr_name_type) = m.resource.aws_attr_name_type {
+                    let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
+                    format!("&{sdk_crate_mod}::types::{attr_name_type}::{attr_key}")
+                } else {
+                    format!("\"{attr_key}\"")
+                };
+                (
+                    format!("attrs.get({key_expr}).filter(|v| !v.is_empty())"),
+                    "val.as_str()".into(),
+                )
+            } else {
+                (
+                    format!("resource.{accessor}().filter(|s| !s.is_empty())"),
+                    "val".into(),
+                )
+            };
+
+            conditional_fields.push(ConditionalField {
+                section: section_name.clone(),
+                field_name: field_name.to_string(),
+                check_expr,
+                value_expr,
+            });
+        }
+    }
+
+    // Generate conditional insertions
+    if !conditional_fields.is_empty() {
+        for cf in &conditional_fields {
+            let section_exists = section_has_inline
+                .get(cf.section.as_str())
+                .copied()
+                .unwrap_or(false);
+            if section_exists {
+                let _ = writeln!(out, "    if let Some(val) = {} {{", cf.check_expr);
+                let _ = writeln!(
+                    out,
+                    "        state[\"{}\"][\"{}\"] = serde_json::json!({});",
+                    cf.section, cf.field_name, cf.value_expr
+                );
+                let _ = writeln!(out, "    }}");
+            } else {
+                // Section doesn't exist in json!() yet — need to create it
+                let _ = writeln!(out, "    if let Some(val) = {} {{", cf.check_expr);
+                let _ = writeln!(out, "        if state.get(\"{}\").is_none() {{", cf.section);
+                let _ = writeln!(
+                    out,
+                    "            state[\"{}\"] = serde_json::json!({{}});",
+                    cf.section
+                );
+                let _ = writeln!(out, "        }}");
+                let _ = writeln!(
+                    out,
+                    "        state[\"{}\"][\"{}\"] = serde_json::json!({});",
+                    cf.section, cf.field_name, cf.value_expr
+                );
+                let _ = writeln!(out, "    }}");
+            }
+        }
+    }
     let _ = writeln!(out);
 
     // Build outputs
@@ -1473,17 +1982,25 @@ fn write_update_fn(out: &mut String, m: &ResourceManifest) {
 
     let has_update = m.crud.update.is_some();
     // Replace-only resources: update method exists but is never dispatched from mod.rs
-    let is_replace_only = !has_update || (m.resource.provider != "gcp" && !m.resource.aws_updatable);
+    let is_replace_only =
+        !has_update || (m.resource.provider != "gcp" && !m.resource.aws_updatable);
     if is_replace_only {
         let _ = writeln!(out, "#[allow(dead_code)]");
     }
     let pid_prefix = if has_update { "" } else { "_" };
     // AWS update: config is unused when no fields are updatable (all required + not marked updatable)
-    let has_any_update_fields = m.fields.iter().any(|(_, f)| {
-        !f.output_only && !f.skip && (!f.required || f.updatable)
-    });
+    let has_any_update_fields = m
+        .fields
+        .iter()
+        .any(|(_, f)| !f.output_only && !f.skip && (!f.required || f.updatable));
     let has_update_code = m.resource.aws_update_code.is_some();
-    let cfg_prefix = if has_update && (m.resource.provider == "gcp" || has_any_update_fields || has_update_code) { "" } else { "_" };
+    let cfg_prefix = if has_update
+        && (m.resource.provider == "gcp" || has_any_update_fields || has_update_code)
+    {
+        ""
+    } else {
+        "_"
+    };
     let _ = writeln!(out, "pub(super) async fn {fn_name}(");
     let _ = writeln!(out, "    &self,");
     let _ = writeln!(out, "    {pid_prefix}provider_id: &str,");
@@ -1512,13 +2029,23 @@ fn write_update_fn(out: &mut String, m: &ResourceManifest) {
 fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
     let update_method = m.crud.update.as_deref().unwrap_or("patch");
     let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
-    let client_accessor = m.resource.client_accessor.clone().unwrap_or_else(|| snake_case(&m.resource.sdk_client));
+    let client_accessor = m
+        .resource
+        .client_accessor
+        .clone()
+        .unwrap_or_else(|| snake_case(&m.resource.sdk_client));
     let model_name = &m.resource.sdk_model;
     let model = &m.resource.sdk_model;
     // Re-extract fields from config for update
     let _ = writeln!(out, "    // Extract fields from config");
     for (name, field) in &m.fields {
-        if field.output_only || field.skip || name == "labels" || name == "name" || name == "zone" || name == "region" {
+        if field.output_only
+            || field.skip
+            || name == "labels"
+            || name == "name"
+            || name == "zone"
+            || name == "region"
+        {
             continue;
         }
         write_field_extraction(out, name, field, &sdk_crate_mod);
@@ -1531,7 +2058,10 @@ fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
             let _ = writeln!(out, "        .and_then(|v| v.as_object())");
             let _ = writeln!(out, "        .map(|m| {{");
             let _ = writeln!(out, "            m.iter()");
-            let _ = writeln!(out, "                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))");
+            let _ = writeln!(
+                out,
+                "                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))"
+            );
             let _ = writeln!(out, "                .collect()");
             let _ = writeln!(out, "        }})");
             let _ = writeln!(out, "        .unwrap_or_default();");
@@ -1559,7 +2089,13 @@ fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
 
         // Set updatable fields
         for (name, field) in &m.fields {
-            if field.output_only || field.skip || name == "labels" || name == "name" || name == "zone" || name == "region" {
+            if field.output_only
+                || field.skip
+                || name == "labels"
+                || name == "name"
+                || name == "zone"
+                || name == "region"
+            {
                 continue;
             }
             let sdk_field = field.sdk_field.as_deref().unwrap_or(name);
@@ -1577,10 +2113,17 @@ fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
 
         if uses_resource_name {
             // Resource-name style: set the model body (which contains the name)
-            let body_setter = m.resource.resource_body_setter.as_deref().unwrap_or("set_body");
+            let body_setter = m
+                .resource
+                .resource_body_setter
+                .as_deref()
+                .unwrap_or("set_body");
             let _ = writeln!(out, "        .{body_setter}(model)");
             if m.resource.has_update_mask {
-                let _ = writeln!(out, "        .set_update_mask(google_cloud_wkt::FieldMask::default())");
+                let _ = writeln!(
+                    out,
+                    "        .set_update_mask(google_cloud_wkt::FieldMask::default())"
+                );
             }
         } else {
             // Compute style: set_project + scope + resource name + body
@@ -1594,7 +2137,10 @@ fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
                 }
                 _ => {}
             }
-            let resource_setter = m.resource.resource_id_param.clone()
+            let resource_setter = m
+                .resource
+                .resource_id_param
+                .clone()
                 .unwrap_or_else(|| format!("set_{}", snake_case(&m.resource.sdk_model)));
             let _ = writeln!(out, "        .{resource_setter}(&name)");
             let _ = writeln!(out, "        .set_body(model)");
@@ -1683,8 +2229,15 @@ fn write_aws_update_body(out: &mut String, m: &ResourceManifest) {
 
     // Check if we need `mut` for the update builder
     let has_updatable_fields = m.fields.iter().any(|(_, f)| is_update_field(f));
-    let has_update_builder_groups = m.fields.iter().any(|(_, f)| is_update_field(f) && f.aws_builder_group.is_some());
-    let update_let = if has_updatable_fields || has_update_builder_groups { "let mut req" } else { "let req" };
+    let has_update_builder_groups = m
+        .fields
+        .iter()
+        .any(|(_, f)| is_update_field(f) && f.aws_builder_group.is_some());
+    let update_let = if has_updatable_fields || has_update_builder_groups {
+        "let mut req"
+    } else {
+        "let req"
+    };
     let _ = writeln!(out, "    {update_let} = self.{client_field}");
     let _ = writeln!(out, "        .{update_method}()");
     if has_composite {
@@ -1707,21 +2260,34 @@ fn write_aws_update_body(out: &mut String, m: &ResourceManifest) {
         // Fields with aws_attr_key use .attributes(key, value) instead of typed setters
         // Add .into() only when aws_attr_name_type is set (SDK uses a typed enum like QueueAttributeName)
         if let Some(ref attr_key) = field.aws_attr_key {
-            let into_suffix = if m.resource.aws_attr_name_type.is_some() { ".into()" } else { "" };
+            let into_suffix = if m.resource.aws_attr_name_type.is_some() {
+                ".into()"
+            } else {
+                ""
+            };
             match field.field_type.as_str() {
                 "Bool" => {
                     let _ = writeln!(out, "    if let Some(true) = {var} {{");
-                    let _ = writeln!(out, "        req = req.attributes(\"{attr_key}\"{into_suffix}, \"true\");");
+                    let _ = writeln!(
+                        out,
+                        "        req = req.attributes(\"{attr_key}\"{into_suffix}, \"true\");"
+                    );
                     let _ = writeln!(out, "    }}");
                 }
                 "String" => {
                     let _ = writeln!(out, "    if let Some(v) = {var} {{");
-                    let _ = writeln!(out, "        req = req.attributes(\"{attr_key}\"{into_suffix}, v);");
+                    let _ = writeln!(
+                        out,
+                        "        req = req.attributes(\"{attr_key}\"{into_suffix}, v);"
+                    );
                     let _ = writeln!(out, "    }}");
                 }
                 "Integer" | "Integer_u32" | "Integer_u64" => {
                     let _ = writeln!(out, "    if let Some(v) = {var} {{");
-                    let _ = writeln!(out, "        req = req.attributes(\"{attr_key}\"{into_suffix}, v.to_string());");
+                    let _ = writeln!(
+                        out,
+                        "        req = req.attributes(\"{attr_key}\"{into_suffix}, v.to_string());"
+                    );
                     let _ = writeln!(out, "    }}");
                 }
                 _ => {}
@@ -1732,11 +2298,16 @@ fn write_aws_update_body(out: &mut String, m: &ResourceManifest) {
         if field.aws_enum {
             // SDK enum type — convert from string via From<&str>
             let sdk_crate_mod = sdk_crate_to_mod(&m.resource.sdk_crate);
-            let enum_type = field.aws_enum_type.as_deref()
+            let enum_type = field
+                .aws_enum_type
+                .as_deref()
                 .map(String::from)
                 .unwrap_or_else(|| capitalize(sdk_param));
             let _ = writeln!(out, "    if let Some(v) = {var} {{");
-            let _ = writeln!(out, "        req = req.{setter}({sdk_crate_mod}::types::{enum_type}::from(v));");
+            let _ = writeln!(
+                out,
+                "        req = req.{setter}({sdk_crate_mod}::types::{enum_type}::from(v));"
+            );
             let _ = writeln!(out, "    }}");
             continue;
         }
@@ -1814,7 +2385,10 @@ fn write_delete_fn(out: &mut String, m: &ResourceManifest) {
     let _ = writeln!(out, ") -> Result<(), ProviderError> {{");
 
     if m.crud.delete.is_none() {
-        let _ = writeln!(out, "    Err(ProviderError::ApiError(\"delete not supported for this resource type\".into()))");
+        let _ = writeln!(
+            out,
+            "    Err(ProviderError::ApiError(\"delete not supported for this resource type\".into()))"
+        );
         let _ = writeln!(out, "}}");
         let _ = writeln!(out);
         return;
@@ -1822,7 +2396,11 @@ fn write_delete_fn(out: &mut String, m: &ResourceManifest) {
 
     if m.resource.provider == "gcp" {
         write_provider_id_parsing(out, m);
-        let client_accessor = m.resource.client_accessor.clone().unwrap_or_else(|| snake_case(&m.resource.sdk_client));
+        let client_accessor = m
+            .resource
+            .client_accessor
+            .clone()
+            .unwrap_or_else(|| snake_case(&m.resource.sdk_client));
         let model_name = &m.resource.sdk_model;
         let delete_method = m.crud.delete.as_deref().unwrap();
         let uses_resource_name = m.resource.api_style == ApiStyle::ResourceName
@@ -1832,7 +2410,11 @@ fn write_delete_fn(out: &mut String, m: &ResourceManifest) {
         let _ = writeln!(out, "        .{delete_method}()");
 
         if uses_resource_name {
-            let name_setter = m.resource.resource_name_param.as_deref().unwrap_or("set_name");
+            let name_setter = m
+                .resource
+                .resource_name_param
+                .as_deref()
+                .unwrap_or("set_name");
             let _ = writeln!(out, "        .{name_setter}(provider_id)");
         } else {
             let _ = writeln!(out, "        .set_project(&self.project_id)");
@@ -1845,7 +2427,10 @@ fn write_delete_fn(out: &mut String, m: &ResourceManifest) {
                 }
                 _ => {}
             }
-            let resource_setter = m.resource.resource_id_param.clone()
+            let resource_setter = m
+                .resource
+                .resource_id_param
+                .clone()
                 .unwrap_or_else(|| format!("set_{}", snake_case(&m.resource.sdk_model)));
             let _ = writeln!(out, "        .{resource_setter}(&name)");
         }
@@ -1897,7 +2482,10 @@ fn write_delete_fn(out: &mut String, m: &ResourceManifest) {
         if has_composite {
             write_composite_id_setters(out, &m.resource.aws_composite_id);
         } else {
-            let delete_id_setter = m.resource.aws_delete_id_param.as_deref()
+            let delete_id_setter = m
+                .resource
+                .aws_delete_id_param
+                .as_deref()
                 .map(|p| snake_case(p))
                 .unwrap_or_else(|| snake_case(id_param));
             let _ = writeln!(out, "        .{delete_id_setter}(provider_id)");
@@ -1998,19 +2586,15 @@ fn field_type_expr(type_str: &str, variants: &[String]) -> String {
         "Bool" => "crate::provider::FieldType::Bool".into(),
         "Integer" | "Integer_u32" | "Integer_u64" => "crate::provider::FieldType::Integer".into(),
         "Float" => "crate::provider::FieldType::Float".into(),
-        "StringArray" => "crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String))".into(),
+        "StringArray" => {
+            "crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String))".into()
+        }
         s if s.starts_with("Enum(") => {
             if variants.is_empty() {
                 "crate::provider::FieldType::String /* TODO: Enum variants */".into()
             } else {
-                let vs: Vec<String> = variants
-                    .iter()
-                    .map(|v| format!("\"{v}\".into()"))
-                    .collect();
-                format!(
-                    "crate::provider::FieldType::Enum(vec![{}])",
-                    vs.join(", ")
-                )
+                let vs: Vec<String> = variants.iter().map(|v| format!("\"{v}\".into()")).collect();
+                format!("crate::provider::FieldType::Enum(vec![{}])", vs.join(", "))
             }
         }
         s if s.starts_with("Array(") => {
@@ -2022,7 +2606,9 @@ fn field_type_expr(type_str: &str, variants: &[String]) -> String {
         }
         "Ref" => "crate::provider::FieldType::Ref(\"*\".into())".into(),
         "Record" => "crate::provider::FieldType::Record(vec![])".into(),
-        s if s.starts_with("Oneof(") || s.starts_with("Nested(") => "crate::provider::FieldType::Record(vec![])".into(),
+        s if s.starts_with("Oneof(") || s.starts_with("Nested(") => {
+            "crate::provider::FieldType::Record(vec![])".into()
+        }
         "Duration" | "Timestamp" | "Bytes" => "crate::provider::FieldType::String".into(),
         _ => format!("crate::provider::FieldType::String /* {type_str} */"),
     }
@@ -2093,10 +2679,7 @@ fn write_field_extraction(out: &mut String, name: &str, field: &FieldDef, sdk_cr
         }
         "Bool" => {
             if field.required {
-                let _ = writeln!(
-                    out,
-                    "    let {var} = config.require_bool(\"{path}\")?;"
-                );
+                let _ = writeln!(out, "    let {var} = config.require_bool(\"{path}\")?;");
             } else if let Some(ref default) = field.default {
                 let _ = writeln!(
                     out,
@@ -2104,18 +2687,12 @@ fn write_field_extraction(out: &mut String, name: &str, field: &FieldDef, sdk_cr
                     toml_to_json_literal(default)
                 );
             } else {
-                let _ = writeln!(
-                    out,
-                    "    let {var} = config.optional_bool(\"{path}\");"
-                );
+                let _ = writeln!(out, "    let {var} = config.optional_bool(\"{path}\");");
             }
         }
         "Integer" | "Integer_u32" | "Integer_u64" => {
             if field.required {
-                let _ = writeln!(
-                    out,
-                    "    let {var} = config.require_i64(\"{path}\")?;"
-                );
+                let _ = writeln!(out, "    let {var} = config.require_i64(\"{path}\")?;");
             } else if let Some(ref default) = field.default {
                 let _ = writeln!(
                     out,
@@ -2123,18 +2700,12 @@ fn write_field_extraction(out: &mut String, name: &str, field: &FieldDef, sdk_cr
                     toml_to_json_literal(default)
                 );
             } else {
-                let _ = writeln!(
-                    out,
-                    "    let {var} = config.optional_i64(\"{path}\");"
-                );
+                let _ = writeln!(out, "    let {var} = config.optional_i64(\"{path}\");");
             }
         }
         "Float" => {
             if field.required {
-                let _ = writeln!(
-                    out,
-                    "    let {var} = config.require_f64(\"{path}\")?;"
-                );
+                let _ = writeln!(out, "    let {var} = config.require_f64(\"{path}\")?;");
             } else if let Some(ref default) = field.default {
                 let _ = writeln!(
                     out,
@@ -2142,10 +2713,7 @@ fn write_field_extraction(out: &mut String, name: &str, field: &FieldDef, sdk_cr
                     toml_to_json_literal(default)
                 );
             } else {
-                let _ = writeln!(
-                    out,
-                    "    let {var} = config.optional_f64(\"{path}\");"
-                );
+                let _ = writeln!(out, "    let {var} = config.optional_f64(\"{path}\");");
             }
         }
         "StringArray" => {
@@ -2199,7 +2767,13 @@ fn write_field_extraction(out: &mut String, name: &str, field: &FieldDef, sdk_cr
     }
 }
 
-fn write_model_setter(out: &mut String, name: &str, setter: &str, field: &FieldDef, sdk_crate_mod: &str) {
+fn write_model_setter(
+    out: &mut String,
+    name: &str,
+    setter: &str,
+    field: &FieldDef,
+    sdk_crate_mod: &str,
+) {
     let var = safe_ident(name);
     match field.field_type.as_str() {
         "String" => {
@@ -2228,10 +2802,16 @@ fn write_model_setter(out: &mut String, name: &str, setter: &str, field: &FieldD
                 _ => "i32", // default: most SDK fields use i32
             };
             if field.required {
-                let _ = writeln!(out, "    model = model.{setter}({cast_type}::try_from({var}).map_err(|_| ProviderError::InvalidConfig(format!(\"{name}: value {{}} out of range for {cast_type}\", {var})))?);");
+                let _ = writeln!(
+                    out,
+                    "    model = model.{setter}({cast_type}::try_from({var}).map_err(|_| ProviderError::InvalidConfig(format!(\"{name}: value {{}} out of range for {cast_type}\", {var})))?);"
+                );
             } else {
                 let _ = writeln!(out, "    if let Some(v) = {var} {{");
-                let _ = writeln!(out, "        model = model.{setter}({cast_type}::try_from(v).map_err(|_| ProviderError::InvalidConfig(format!(\"{name}: value {{v}} out of range for {cast_type}\")))?);");
+                let _ = writeln!(
+                    out,
+                    "        model = model.{setter}({cast_type}::try_from(v).map_err(|_| ProviderError::InvalidConfig(format!(\"{name}: value {{v}} out of range for {cast_type}\")))?);"
+                );
                 let _ = writeln!(out, "    }}");
             }
         }
@@ -2266,24 +2846,42 @@ fn write_model_setter(out: &mut String, name: &str, setter: &str, field: &FieldD
                 let full_path = type_path.replace("crate::", &format!("{sdk_crate_mod}::"));
                 if field.required {
                     // required field: var was extracted as String
-                    let _ = writeln!(out, "    model = model.{setter}({full_path}::from({var}.as_str()));");
+                    let _ = writeln!(
+                        out,
+                        "    model = model.{setter}({full_path}::from({var}.as_str()));"
+                    );
                 } else {
                     // optional field: var was extracted as Option<String>
                     let _ = writeln!(out, "    if let Some(ref s) = {var} {{");
-                    let _ = writeln!(out, "        model = model.{setter}({full_path}::from(s.as_str()));");
+                    let _ = writeln!(
+                        out,
+                        "        model = model.{setter}({full_path}::from(s.as_str()));"
+                    );
                     let _ = writeln!(out, "    }}");
                 }
             } else {
-                let _ = writeln!(out, "    // TODO: set {name} on model via .{setter}() — enum type path unknown");
+                let _ = writeln!(
+                    out,
+                    "    // TODO: set {name} on model via .{setter}() — enum type path unknown"
+                );
             }
         }
         s if s.starts_with("Oneof(") => {
             // Proto oneof: check each variant's config path and call the variant-specific setter
             if field.oneof_variants.is_empty() {
-                let _ = writeln!(out, "    // TODO: set {name} on model via .{setter}() — no oneof variants parsed");
+                let _ = writeln!(
+                    out,
+                    "    // TODO: set {name} on model via .{setter}() — no oneof variants parsed"
+                );
                 return;
             }
-            write_oneof_setters(out, name, &field.section, &field.oneof_variants, sdk_crate_mod);
+            write_oneof_setters(
+                out,
+                name,
+                &field.section,
+                &field.oneof_variants,
+                sdk_crate_mod,
+            );
         }
         _ => {
             // Nested, Array, Record, Duration, Timestamp — already extracted as Option<T>
@@ -2292,7 +2890,10 @@ fn write_model_setter(out: &mut String, name: &str, setter: &str, field: &FieldD
                 let _ = writeln!(out, "        model = model.{setter}(v);");
                 let _ = writeln!(out, "    }}");
             } else {
-                let _ = writeln!(out, "    // TODO: set {name} on model via .{setter}() — type path unknown");
+                let _ = writeln!(
+                    out,
+                    "    // TODO: set {name} on model via .{setter}() — type path unknown"
+                );
             }
         }
     }
@@ -2308,14 +2909,21 @@ fn write_request_setter(out: &mut String, name: &str, setter: &str, field: &Fiel
                 let _ = writeln!(out, "        .{setter}({var}.clone())");
             } else {
                 // Optional strings: wrap in set_or_clear with Option
-                let _ = writeln!(out, "        .set_or_clear_{setter}({var})", setter = setter.strip_prefix("set_").unwrap_or(setter));
+                let _ = writeln!(
+                    out,
+                    "        .set_or_clear_{setter}({var})",
+                    setter = setter.strip_prefix("set_").unwrap_or(setter)
+                );
             }
         }
         "Bool" => {
             if field.required {
                 let _ = writeln!(out, "        .{setter}({var})");
             } else {
-                let _ = writeln!(out, "        // TODO: set optional bool {name} via .{setter}()");
+                let _ = writeln!(
+                    out,
+                    "        // TODO: set optional bool {name} via .{setter}()"
+                );
             }
         }
         "Integer" | "Integer_u32" | "Integer_u64" => {
@@ -2327,7 +2935,10 @@ fn write_request_setter(out: &mut String, name: &str, setter: &str, field: &Fiel
             if field.required {
                 let _ = writeln!(out, "        .{setter}({var} as {cast_type})");
             } else {
-                let _ = writeln!(out, "        // TODO: set optional {cast_type} {name} via .{setter}()");
+                let _ = writeln!(
+                    out,
+                    "        // TODO: set optional {cast_type} {name} via .{setter}()"
+                );
             }
         }
         _ => {
@@ -2367,45 +2978,91 @@ fn write_oneof_setters(
         match &variant.inner_type {
             OneofInnerType::String => {
                 first = false;
-                let _ = writeln!(out, "    {if_keyword} let Some(v) = config.optional_str(\"/{section}/{var_snake}\") {{");
+                let _ = writeln!(
+                    out,
+                    "    {if_keyword} let Some(v) = config.optional_str(\"/{section}/{var_snake}\") {{"
+                );
                 let _ = writeln!(out, "        model = model.{setter}(v);");
             }
             OneofInnerType::Timestamp => {
                 first = false;
-                let _ = writeln!(out, "    {if_keyword} let Some(v) = config.optional_str(\"/{section}/{var_snake}\") {{");
-                let _ = writeln!(out, "        model = model.{setter}(google_cloud_wkt::Timestamp::try_from(v)");
-                let _ = writeln!(out, "            .map_err(|e| ProviderError::InvalidConfig(format!(\"{var_snake}: {{e}}\")))?);");
+                let _ = writeln!(
+                    out,
+                    "    {if_keyword} let Some(v) = config.optional_str(\"/{section}/{var_snake}\") {{"
+                );
+                let _ = writeln!(
+                    out,
+                    "        model = model.{setter}(google_cloud_wkt::Timestamp::try_from(v)"
+                );
+                let _ = writeln!(
+                    out,
+                    "            .map_err(|e| ProviderError::InvalidConfig(format!(\"{var_snake}: {{e}}\")))?);"
+                );
             }
             OneofInnerType::Duration => {
                 first = false;
-                let _ = writeln!(out, "    {if_keyword} let Some(v) = config.optional_str(\"/{section}/{var_snake}\") {{");
-                let _ = writeln!(out, "        model = model.{setter}(google_cloud_wkt::Duration::try_from(v)");
-                let _ = writeln!(out, "            .map_err(|e| ProviderError::InvalidConfig(format!(\"{var_snake}: {{e}}\")))?);");
+                let _ = writeln!(
+                    out,
+                    "    {if_keyword} let Some(v) = config.optional_str(\"/{section}/{var_snake}\") {{"
+                );
+                let _ = writeln!(
+                    out,
+                    "        model = model.{setter}(google_cloud_wkt::Duration::try_from(v)"
+                );
+                let _ = writeln!(
+                    out,
+                    "            .map_err(|e| ProviderError::InvalidConfig(format!(\"{var_snake}: {{e}}\")))?);"
+                );
             }
             OneofInnerType::Integer(int_type) => {
                 first = false;
-                let _ = writeln!(out, "    {if_keyword} let Some(v) = config.pointer(\"/{section}/{var_snake}\").and_then(|v| v.as_i64()) {{");
-                let _ = writeln!(out, "        model = model.{setter}({int_type}::try_from(v)");
-                let _ = writeln!(out, "            .map_err(|_| ProviderError::InvalidConfig(format!(\"{var_snake}: value {{v}} out of range for {int_type}\")))?);");
+                let _ = writeln!(
+                    out,
+                    "    {if_keyword} let Some(v) = config.pointer(\"/{section}/{var_snake}\").and_then(|v| v.as_i64()) {{"
+                );
+                let _ = writeln!(
+                    out,
+                    "        model = model.{setter}({int_type}::try_from(v)"
+                );
+                let _ = writeln!(
+                    out,
+                    "            .map_err(|_| ProviderError::InvalidConfig(format!(\"{var_snake}: value {{v}} out of range for {int_type}\")))?);"
+                );
             }
             OneofInnerType::Float => {
                 first = false;
-                let _ = writeln!(out, "    {if_keyword} let Some(v) = config.pointer(\"/{section}/{var_snake}\").and_then(|v| v.as_f64()) {{");
+                let _ = writeln!(
+                    out,
+                    "    {if_keyword} let Some(v) = config.pointer(\"/{section}/{var_snake}\").and_then(|v| v.as_f64()) {{"
+                );
                 let _ = writeln!(out, "        model = model.{setter}(v);");
             }
             OneofInnerType::Bool => {
                 first = false;
-                let _ = writeln!(out, "    {if_keyword} let Some(v) = config.pointer(\"/{section}/{var_snake}\").and_then(|v| v.as_bool()) {{");
+                let _ = writeln!(
+                    out,
+                    "    {if_keyword} let Some(v) = config.pointer(\"/{section}/{var_snake}\").and_then(|v| v.as_bool()) {{"
+                );
                 let _ = writeln!(out, "        model = model.{setter}(v);");
             }
-            OneofInnerType::SameCrateStruct(type_path) | OneofInnerType::CrossCrateStruct(type_path) => {
+            OneofInnerType::SameCrateStruct(type_path)
+            | OneofInnerType::CrossCrateStruct(type_path) => {
                 first = false;
                 // Both same-crate and cross-crate structs have custom serde in GCP SDKs.
                 // Replace crate:: with the sdk crate module path.
                 let full_path = type_path.replace("crate::", &format!("{sdk_crate_mod}::"));
-                let _ = writeln!(out, "    {if_keyword} let Some(v) = config.pointer(\"/{section}/{var_snake}\") {{");
-                let _ = writeln!(out, "        let parsed: {full_path} = serde_json::from_value(v.clone())");
-                let _ = writeln!(out, "            .map_err(|e| ProviderError::InvalidConfig(format!(\"{var_snake}: {{e}}\")))?;");
+                let _ = writeln!(
+                    out,
+                    "    {if_keyword} let Some(v) = config.pointer(\"/{section}/{var_snake}\") {{"
+                );
+                let _ = writeln!(
+                    out,
+                    "        let parsed: {full_path} = serde_json::from_value(v.clone())"
+                );
+                let _ = writeln!(
+                    out,
+                    "            .map_err(|e| ProviderError::InvalidConfig(format!(\"{var_snake}: {{e}}\")))?;"
+                );
                 let _ = writeln!(out, "        model = model.{setter}(parsed);");
             }
         }
@@ -2441,10 +3098,7 @@ fn write_provider_id_parsing(out: &mut String, m: &ResourceManifest) {
                 );
             }
             _ => {
-                let _ = writeln!(
-                    out,
-                    "    let name = provider_id.to_string();"
-                );
+                let _ = writeln!(out, "    let name = provider_id.to_string();");
             }
         }
     }
@@ -2485,10 +3139,7 @@ fn write_provider_id_construction(out: &mut String, m: &ResourceManifest) {
     } else {
         match m.resource.scope {
             Scope::Zonal => {
-                let _ = writeln!(
-                    out,
-                    "    let provider_id = format!(\"{{zone}}/{{name}}\");"
-                );
+                let _ = writeln!(out, "    let provider_id = format!(\"{{zone}}/{{name}}\");");
             }
             Scope::Regional => {
                 let _ = writeln!(
@@ -2523,9 +3174,7 @@ fn build_parent_expr(m: &ResourceManifest) -> String {
             .parent_binding_section
             .as_deref()
             .unwrap_or("identity");
-        format!(
-            "config.require_str(\"/{section}/{binding}\")?.to_string()"
-        )
+        format!("config.require_str(\"/{section}/{binding}\")?.to_string()")
     } else if let Some(ref parent_fmt) = m.resource.parent_format {
         let has_location = parent_fmt.contains("{location}");
         if has_location {
@@ -2543,7 +3192,10 @@ fn write_state_json(out: &mut String, m: &ResourceManifest, model_var: &str) {
 
     // Filter labels from state
     if m.fields.contains_key("labels") {
-        let _ = writeln!(out, "    let user_labels: serde_json::Map<String, serde_json::Value> = {model_var}.labels");
+        let _ = writeln!(
+            out,
+            "    let user_labels: serde_json::Map<String, serde_json::Value> = {model_var}.labels"
+        );
         let _ = writeln!(out, "        .iter()");
         if !m.resource.raw_labels {
             let _ = writeln!(
@@ -2600,7 +3252,9 @@ fn field_read_accessor(model_var: &str, field_name: &str, field: &FieldDef) -> S
         match field.field_type.as_str() {
             "String" => format!("{model_var}.{sdk_field}.as_deref().unwrap_or(\"\")"),
             "Bool" => format!("{model_var}.{sdk_field}.unwrap_or(false)"),
-            "Integer" | "Integer_u32" | "Integer_u64" => format!("{model_var}.{sdk_field}.unwrap_or(0)"),
+            "Integer" | "Integer_u32" | "Integer_u64" => {
+                format!("{model_var}.{sdk_field}.unwrap_or(0)")
+            }
             "Float" => format!("{model_var}.{sdk_field}.unwrap_or(0.0)"),
             _ => {
                 // Enum, Nested, Vec, HashMap, Duration, Timestamp — serialize via serde.
@@ -2617,7 +3271,9 @@ fn field_read_accessor(model_var: &str, field_name: &str, field: &FieldDef) -> S
         // Field is bare T in the SDK (not wrapped in Option)
         match field.field_type.as_str() {
             "String" => format!("{model_var}.{sdk_field}.as_str()"),
-            "Bool" | "Integer" | "Integer_u32" | "Integer_u64" | "Float" => format!("{model_var}.{sdk_field}"),
+            "Bool" | "Integer" | "Integer_u32" | "Integer_u64" | "Float" => {
+                format!("{model_var}.{sdk_field}")
+            }
             _ => {
                 if field.sdk_type_path.is_some() {
                     format!("&{model_var}.{sdk_field}")

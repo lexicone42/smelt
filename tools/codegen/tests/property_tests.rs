@@ -8,9 +8,9 @@
 //! 5. toml_to_json_literal produces valid Rust string literals
 
 use proptest::prelude::*;
-use smelt_codegen::manifest::*;
 use smelt_codegen::generate::generate_provider_code;
 use smelt_codegen::introspect::OneofVariant;
+use smelt_codegen::manifest::*;
 use std::collections::BTreeMap;
 
 // ── Strategies ─────────────────────────────────────────────────────────────
@@ -74,134 +74,142 @@ fn arb_field_def() -> impl Strategy<Value = FieldDef> {
     (
         arb_section(),
         arb_field_type(),
-        any::<bool>(),       // required
-        any::<bool>(),       // sensitive
-        any::<bool>(),       // output_only
-        any::<bool>(),       // optional
+        any::<bool>(), // required
+        any::<bool>(), // sensitive
+        any::<bool>(), // output_only
+        any::<bool>(), // optional
     )
-        .prop_map(|(section, field_type, required, sensitive, output_only, optional)| {
-            let variants = if field_type.starts_with("Enum(") {
-                vec!["VARIANT_A".into(), "VARIANT_B".into(), "VARIANT_C".into()]
-            } else {
-                Vec::new()
-            };
-            FieldDef {
-                section,
-                sdk_field: None,
-                field_type,
-                required,
-                default: None,
-                sensitive,
-                description: Some("Test field".into()),
-                variants,
-                output_only,
-                deprecated: false,
-                skip: false,
-                optional,
-                sdk_type_path: None,
-                oneof_variants: Vec::new(),
-                aws_attr_key: None,
-                aws_enum: false,
-                aws_enum_type: None,
-                sdk_read_field: None,
-                skip_create: false,
-                aws_post_create_method: None,
-                sdk_non_optional: false,
-                aws_builder_wrapper: None,
-                aws_builder_type: None,
-                skip_read: false,
-                skip_update: false,
-                read_expression: None,
-                updatable: false,
-                aws_builder_group: None,
-            }
-        })
+        .prop_map(
+            |(section, field_type, required, sensitive, output_only, optional)| {
+                let variants = if field_type.starts_with("Enum(") {
+                    vec!["VARIANT_A".into(), "VARIANT_B".into(), "VARIANT_C".into()]
+                } else {
+                    Vec::new()
+                };
+                FieldDef {
+                    section,
+                    sdk_field: None,
+                    field_type,
+                    required,
+                    default: None,
+                    sensitive,
+                    description: Some("Test field".into()),
+                    variants,
+                    output_only,
+                    deprecated: false,
+                    skip: false,
+                    optional,
+                    sdk_type_path: None,
+                    oneof_variants: Vec::new(),
+                    aws_attr_key: None,
+                    aws_enum: false,
+                    aws_enum_type: None,
+                    sdk_read_field: None,
+                    skip_create: false,
+                    aws_post_create_method: None,
+                    sdk_non_optional: false,
+                    aws_builder_wrapper: None,
+                    aws_builder_type: None,
+                    skip_read: false,
+                    skip_update: false,
+                    read_expression: None,
+                    updatable: false,
+                    aws_builder_group: None,
+                }
+            },
+        )
 }
 
 fn arb_manifest() -> impl Strategy<Value = ResourceManifest> {
     (
-        arb_identifier(),    // type_path prefix (service name)
-        arb_pascal_case(),   // struct name
+        arb_identifier(),  // type_path prefix (service name)
+        arb_pascal_case(), // struct name
         arb_scope(),
         arb_api_style(),
         prop::collection::btree_map(arb_identifier(), arb_field_def(), 1..8),
-        any::<bool>(),       // lro_create
-        any::<bool>(),       // lro_update
-        any::<bool>(),       // lro_delete
+        any::<bool>(), // lro_create
+        any::<bool>(), // lro_update
+        any::<bool>(), // lro_delete
     )
-        .prop_map(|(service, model, scope, api_style, mut fields, lro_create, lro_update, lro_delete)| {
-            // Ensure a "name" field always exists (required for codegen)
-            fields.insert("name".into(), FieldDef {
-                section: "identity".into(),
-                sdk_field: None,
-                field_type: "String".into(),
-                required: true,
-                default: None,
-                sensitive: false,
-                description: Some("Resource name".into()),
-                variants: Vec::new(),
-                output_only: false,
-                deprecated: false,
-                skip: false,
-                optional: true,
-                sdk_type_path: None,
-                oneof_variants: Vec::new(),
-                aws_attr_key: None,
-                aws_enum: false,
-                aws_enum_type: None,
-                sdk_read_field: None,
-                skip_create: false,
-                aws_post_create_method: None,
-                sdk_non_optional: false,
-                aws_builder_wrapper: None,
-                aws_builder_type: None,
-                skip_read: false,
-                skip_update: false,
-                read_expression: None,
-                updatable: false,
-                aws_builder_group: None,
-            });
+        .prop_map(
+            |(service, model, scope, api_style, mut fields, lro_create, lro_update, lro_delete)| {
+                // Ensure a "name" field always exists (required for codegen)
+                fields.insert(
+                    "name".into(),
+                    FieldDef {
+                        section: "identity".into(),
+                        sdk_field: None,
+                        field_type: "String".into(),
+                        required: true,
+                        default: None,
+                        sensitive: false,
+                        description: Some("Resource name".into()),
+                        variants: Vec::new(),
+                        output_only: false,
+                        deprecated: false,
+                        skip: false,
+                        optional: true,
+                        sdk_type_path: None,
+                        oneof_variants: Vec::new(),
+                        aws_attr_key: None,
+                        aws_enum: false,
+                        aws_enum_type: None,
+                        sdk_read_field: None,
+                        skip_create: false,
+                        aws_post_create_method: None,
+                        sdk_non_optional: false,
+                        aws_builder_wrapper: None,
+                        aws_builder_type: None,
+                        skip_read: false,
+                        skip_update: false,
+                        read_expression: None,
+                        updatable: false,
+                        aws_builder_group: None,
+                    },
+                );
 
-            let type_path = format!("{service}.{model}");
-            let client_name = format!("{model}s");
-            let parent_format = match api_style {
-                ApiStyle::ResourceName | ApiStyle::DirectModel => match scope {
-                    Scope::Regional | Scope::Zonal =>
-                        Some("projects/{project}/locations/{location}".into()),
-                    Scope::Global => Some("projects/{project}".into()),
-                },
-                ApiStyle::Compute => None,
-            };
+                let type_path = format!("{service}.{model}");
+                let client_name = format!("{model}s");
+                let parent_format = match api_style {
+                    ApiStyle::ResourceName | ApiStyle::DirectModel => match scope {
+                        Scope::Regional | Scope::Zonal => {
+                            Some("projects/{project}/locations/{location}".into())
+                        }
+                        Scope::Global => Some("projects/{project}".into()),
+                    },
+                    ApiStyle::Compute => None,
+                };
 
-            ResourceManifest {
-                resource: ResourceMeta {
-                    type_path,
-                    description: format!("{model} resource"),
-                    provider: "gcp".into(),
-                    sdk_crate: format!("google-cloud-{service}-v1"),
-                    sdk_model: model,
-                    sdk_client: client_name,
-                    provider_id_format: "{name}".into(),
-                    scope,
-                    api_style,
-                    parent_format,
-                    has_update_mask: true,
-                    lro_create,
-                    lro_update,
-                    lro_delete,
-                    ..Default::default()
-                },
-                crud: CrudMethods {
-                    create: "insert".into(),
-                    read: "get".into(),
-                    update: Some("patch".into()),
-                    delete: Some("delete".into()),
-                },
-                fields,
-                replacement_fields: vec!["name".into()],
-                output_fields: Vec::new(),
-            }
-        })
+                ResourceManifest {
+                    resource: ResourceMeta {
+                        type_path,
+                        description: format!("{model} resource"),
+                        provider: "gcp".into(),
+                        sdk_crate: format!("google-cloud-{service}-v1"),
+                        sdk_model: model,
+                        sdk_client: client_name,
+                        provider_id_format: "{name}".into(),
+                        scope,
+                        api_style,
+                        parent_format,
+                        has_update_mask: true,
+                        lro_create,
+                        lro_update,
+                        lro_delete,
+                        ..Default::default()
+                    },
+                    crud: CrudMethods {
+                        create: "insert".into(),
+                        read: "get".into(),
+                        update: Some("patch".into()),
+                        delete: Some("delete".into()),
+                    },
+                    fields,
+                    replacement_fields: vec!["name".into()],
+                    output_fields: Vec::new(),
+                }
+            },
+        )
 }
 
 // ── Property Tests ─────────────────────────────────────────────────────────
@@ -384,66 +392,72 @@ default = 'path\to\file'
 #[test]
 fn integer_codegen_uses_try_from() {
     let mut fields = BTreeMap::new();
-    fields.insert("name".into(), FieldDef {
-        section: "identity".into(),
-        sdk_field: None,
-        field_type: "String".into(),
-        required: true,
-        default: None,
-        sensitive: false,
-        description: None,
-        variants: Vec::new(),
-        output_only: false,
-        deprecated: false,
-        skip: false,
-        optional: true,
-        sdk_type_path: None,
-        oneof_variants: Vec::new(),
-        aws_attr_key: None,
-        aws_enum: false,
-        aws_enum_type: None,
-        sdk_read_field: None,
-        skip_create: false,
-        aws_post_create_method: None,
-        sdk_non_optional: false,
-        aws_builder_wrapper: None,
-        aws_builder_type: None,
-        skip_read: false,
-        skip_update: false,
-        read_expression: None,
-        updatable: false,
-        aws_builder_group: None,
-    });
-    fields.insert("count".into(), FieldDef {
-        section: "config".into(),
-        sdk_field: None,
-        field_type: "Integer".into(),
-        required: false,
-        default: None,
-        sensitive: false,
-        description: None,
-        variants: Vec::new(),
-        output_only: false,
-        deprecated: false,
-        skip: false,
-        optional: true,
-        sdk_type_path: None,
-        oneof_variants: Vec::new(),
-        aws_attr_key: None,
-        aws_enum: false,
-        aws_enum_type: None,
-        sdk_read_field: None,
-        skip_create: false,
-        aws_post_create_method: None,
-        sdk_non_optional: false,
-        aws_builder_wrapper: None,
-        aws_builder_type: None,
-        skip_read: false,
-        skip_update: false,
-        read_expression: None,
-        updatable: false,
-        aws_builder_group: None,
-    });
+    fields.insert(
+        "name".into(),
+        FieldDef {
+            section: "identity".into(),
+            sdk_field: None,
+            field_type: "String".into(),
+            required: true,
+            default: None,
+            sensitive: false,
+            description: None,
+            variants: Vec::new(),
+            output_only: false,
+            deprecated: false,
+            skip: false,
+            optional: true,
+            sdk_type_path: None,
+            oneof_variants: Vec::new(),
+            aws_attr_key: None,
+            aws_enum: false,
+            aws_enum_type: None,
+            sdk_read_field: None,
+            skip_create: false,
+            aws_post_create_method: None,
+            sdk_non_optional: false,
+            aws_builder_wrapper: None,
+            aws_builder_type: None,
+            skip_read: false,
+            skip_update: false,
+            read_expression: None,
+            updatable: false,
+            aws_builder_group: None,
+        },
+    );
+    fields.insert(
+        "count".into(),
+        FieldDef {
+            section: "config".into(),
+            sdk_field: None,
+            field_type: "Integer".into(),
+            required: false,
+            default: None,
+            sensitive: false,
+            description: None,
+            variants: Vec::new(),
+            output_only: false,
+            deprecated: false,
+            skip: false,
+            optional: true,
+            sdk_type_path: None,
+            oneof_variants: Vec::new(),
+            aws_attr_key: None,
+            aws_enum: false,
+            aws_enum_type: None,
+            sdk_read_field: None,
+            skip_create: false,
+            aws_post_create_method: None,
+            sdk_non_optional: false,
+            aws_builder_wrapper: None,
+            aws_builder_type: None,
+            skip_read: false,
+            skip_update: false,
+            read_expression: None,
+            updatable: false,
+            aws_builder_group: None,
+        },
+    );
 
     let manifest = ResourceManifest {
         resource: ResourceMeta {
@@ -484,79 +498,85 @@ fn integer_codegen_uses_try_from() {
 #[test]
 fn oneof_uses_field_section_not_config() {
     let mut fields = BTreeMap::new();
-    fields.insert("name".into(), FieldDef {
-        section: "identity".into(),
-        sdk_field: None,
-        field_type: "String".into(),
-        required: true,
-        default: None,
-        sensitive: false,
-        description: None,
-        variants: Vec::new(),
-        output_only: false,
-        deprecated: false,
-        skip: false,
-        optional: true,
-        sdk_type_path: None,
-        oneof_variants: Vec::new(),
-        aws_attr_key: None,
-        aws_enum: false,
-        aws_enum_type: None,
-        sdk_read_field: None,
-        skip_create: false,
-        aws_post_create_method: None,
-        sdk_non_optional: false,
-        aws_builder_wrapper: None,
-        aws_builder_type: None,
-        skip_read: false,
-        skip_update: false,
-        read_expression: None,
-        updatable: false,
-        aws_builder_group: None,
-    });
-    fields.insert("expiration".into(), FieldDef {
-        section: "security".into(),
-        sdk_field: None,
-        field_type: "Oneof(Expiration)".into(),
-        required: false,
-        default: None,
-        sensitive: false,
-        description: None,
-        variants: Vec::new(),
-        output_only: false,
-        deprecated: false,
-        skip: false,
-        optional: true,
-        sdk_type_path: None,
-        oneof_variants: vec![
-            OneofVariant {
-                name: "ExpireTime".into(),
-                setter: "set_expire_time".into(),
-                inner_type: smelt_codegen::introspect::OneofInnerType::Timestamp,
-                boxed: true,
-            },
-            OneofVariant {
-                name: "Ttl".into(),
-                setter: "set_ttl".into(),
-                inner_type: smelt_codegen::introspect::OneofInnerType::Duration,
-                boxed: true,
-            },
-        ],
-        aws_attr_key: None,
-        aws_enum: false,
-        aws_enum_type: None,
-        sdk_read_field: None,
-        skip_create: false,
-        aws_post_create_method: None,
-        sdk_non_optional: false,
-        aws_builder_wrapper: None,
-        aws_builder_type: None,
-        skip_read: false,
-        skip_update: false,
-        read_expression: None,
-        updatable: false,
-        aws_builder_group: None,
-    });
+    fields.insert(
+        "name".into(),
+        FieldDef {
+            section: "identity".into(),
+            sdk_field: None,
+            field_type: "String".into(),
+            required: true,
+            default: None,
+            sensitive: false,
+            description: None,
+            variants: Vec::new(),
+            output_only: false,
+            deprecated: false,
+            skip: false,
+            optional: true,
+            sdk_type_path: None,
+            oneof_variants: Vec::new(),
+            aws_attr_key: None,
+            aws_enum: false,
+            aws_enum_type: None,
+            sdk_read_field: None,
+            skip_create: false,
+            aws_post_create_method: None,
+            sdk_non_optional: false,
+            aws_builder_wrapper: None,
+            aws_builder_type: None,
+            skip_read: false,
+            skip_update: false,
+            read_expression: None,
+            updatable: false,
+            aws_builder_group: None,
+        },
+    );
+    fields.insert(
+        "expiration".into(),
+        FieldDef {
+            section: "security".into(),
+            sdk_field: None,
+            field_type: "Oneof(Expiration)".into(),
+            required: false,
+            default: None,
+            sensitive: false,
+            description: None,
+            variants: Vec::new(),
+            output_only: false,
+            deprecated: false,
+            skip: false,
+            optional: true,
+            sdk_type_path: None,
+            oneof_variants: vec![
+                OneofVariant {
+                    name: "ExpireTime".into(),
+                    setter: "set_expire_time".into(),
+                    inner_type: smelt_codegen::introspect::OneofInnerType::Timestamp,
+                    boxed: true,
+                },
+                OneofVariant {
+                    name: "Ttl".into(),
+                    setter: "set_ttl".into(),
+                    inner_type: smelt_codegen::introspect::OneofInnerType::Duration,
+                    boxed: true,
+                },
+            ],
+            aws_attr_key: None,
+            aws_enum: false,
+            aws_enum_type: None,
+            sdk_read_field: None,
+            skip_create: false,
+            aws_post_create_method: None,
+            sdk_non_optional: false,
+            aws_builder_wrapper: None,
+            aws_builder_type: None,
+            skip_read: false,
+            skip_update: false,
+            read_expression: None,
+            updatable: false,
+            aws_builder_group: None,
+        },
+    );
 
     let manifest = ResourceManifest {
         resource: ResourceMeta {

@@ -17,14 +17,16 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "name".into(),
-                            description: "Name tag for the VPC".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "name".into(),
+                                description: "Name tag for the VPC".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "network".into(),
@@ -70,7 +72,10 @@ impl AwsProvider {
 
         let tag_spec = Self::build_tags(config, aws_sdk_ec2::types::ResourceType::Vpc);
 
-        let mut req = self.ec2_client.create_vpc().cidr_block(&cidr_block);
+        let mut req = self.ec2_client
+            .create_vpc()
+            .cidr_block(&cidr_block)
+        ;
 
         req = req.tag_specifications(tag_spec);
 
@@ -86,6 +91,7 @@ impl AwsProvider {
             .vpc_id()
             .ok_or_else(|| ProviderError::ApiError("create_vpc returned no vpc_id".into()))?;
 
+
         if config.bool_or("/network/dns_hostnames", false) {
             self.ec2_client
                 .modify_vpc_attribute()
@@ -97,9 +103,7 @@ impl AwsProvider {
                 )
                 .send()
                 .await
-                .map_err(|e| {
-                    ProviderError::ApiError(format!("ModifyVpcAttribute (DNS hostnames): {e}"))
-                })?;
+                .map_err(|e| ProviderError::ApiError(format!("ModifyVpcAttribute (DNS hostnames): {e}")))?;
         }
         if let Some(dns_support) = config.optional_bool("/network/dns_support") {
             self.ec2_client
@@ -112,9 +116,7 @@ impl AwsProvider {
                 )
                 .send()
                 .await
-                .map_err(|e| {
-                    ProviderError::ApiError(format!("ModifyVpcAttribute (DNS support): {e}"))
-                })?;
+                .map_err(|e| ProviderError::ApiError(format!("ModifyVpcAttribute (DNS support): {e}")))?;
         }
 
         self.read_ec2_vpc(provider_id).await
@@ -124,8 +126,7 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .ec2_client
+        let result = self.ec2_client
             .describe_vpcs()
             .vpc_ids(provider_id)
             .send()
@@ -148,10 +149,7 @@ impl AwsProvider {
 
         let mut outputs = HashMap::new();
         outputs.insert("vpc_id".into(), serde_json::json!(provider_id));
-        outputs.insert(
-            "state".into(),
-            serde_json::json!(resource.state().map(|s| s.as_str()).unwrap_or("")),
-        );
+        outputs.insert("state".into(), serde_json::json!(resource.state().map(|s| s.as_str()).unwrap_or("")));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -182,7 +180,10 @@ impl AwsProvider {
         self.read_ec2_vpc(provider_id).await
     }
 
-    pub(super) async fn delete_ec2_vpc(&self, provider_id: &str) -> Result<(), ProviderError> {
+    pub(super) async fn delete_ec2_vpc(
+        &self,
+        provider_id: &str,
+    ) -> Result<(), ProviderError> {
         self.ec2_client
             .delete_vpc()
             .vpc_id(provider_id)
@@ -191,6 +192,7 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_vpc: {e}")))?;
         Ok(())
     }
+
 
     pub(super) fn ec2_subnet_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
@@ -201,14 +203,16 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "name".into(),
-                            description: "Name tag for the subnet".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "name".into(),
+                                description: "Name tag for the subnet".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "network".into(),
@@ -258,20 +262,18 @@ impl AwsProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        let availability_zone = config
-            .require_str("/network/availability_zone")?
-            .to_string();
+        let availability_zone = config.require_str("/network/availability_zone")?.to_string();
         let cidr_block = config.require_str("/network/cidr_block")?.to_string();
         let vpc_id = config.require_str("/network/vpc_id")?.to_string();
 
         let tag_spec = Self::build_tags(config, aws_sdk_ec2::types::ResourceType::Subnet);
 
-        let mut req = self
-            .ec2_client
+        let mut req = self.ec2_client
             .create_subnet()
             .availability_zone(&availability_zone)
             .cidr_block(&cidr_block)
-            .vpc_id(&vpc_id);
+            .vpc_id(&vpc_id)
+        ;
 
         req = req.tag_specifications(tag_spec);
 
@@ -286,6 +288,7 @@ impl AwsProvider {
         let provider_id = container
             .subnet_id()
             .ok_or_else(|| ProviderError::ApiError("create_subnet returned no subnet_id".into()))?;
+
 
         if config.bool_or("/network/public_ip_on_launch", false) {
             self.ec2_client
@@ -308,8 +311,7 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .ec2_client
+        let result = self.ec2_client
             .describe_subnets()
             .subnet_ids(provider_id)
             .send()
@@ -335,10 +337,7 @@ impl AwsProvider {
 
         let mut outputs = HashMap::new();
         outputs.insert("subnet_id".into(), serde_json::json!(provider_id));
-        outputs.insert(
-            "available_ips".into(),
-            serde_json::json!(resource.available_ip_address_count()),
-        );
+        outputs.insert("available_ips".into(), serde_json::json!(resource.available_ip_address_count()));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -353,12 +352,13 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement(
-            "resource does not support in-place update".into(),
-        ))
+        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
     }
 
-    pub(super) async fn delete_ec2_subnet(&self, provider_id: &str) -> Result<(), ProviderError> {
+    pub(super) async fn delete_ec2_subnet(
+        &self,
+        provider_id: &str,
+    ) -> Result<(), ProviderError> {
         self.ec2_client
             .delete_subnet()
             .subnet_id(provider_id)
@@ -367,6 +367,7 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_subnet: {e}")))?;
         Ok(())
     }
+
 
     pub(super) fn ec2_security_group_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
@@ -558,9 +559,7 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement(
-            "resource does not support in-place update".into(),
-        ))
+        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
     }
 
     pub(super) async fn delete_ec2_security_group(
@@ -576,6 +575,7 @@ impl AwsProvider {
         Ok(())
     }
 
+
     pub(super) fn ec2_internet_gateway_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
             type_path: "ec2.InternetGateway".into(),
@@ -585,26 +585,30 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "name".into(),
-                            description: "Name tag for the internet gateway".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "name".into(),
+                                description: "Name tag for the internet gateway".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "network".into(),
                         description: "Network configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "vpc_id".into(),
-                            description: "VPC ID to attach the gateway to".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: false,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "vpc_id".into(),
+                                description: "VPC ID to attach the gateway to".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                 ],
             },
@@ -619,7 +623,9 @@ impl AwsProvider {
 
         let tag_spec = Self::build_tags(config, aws_sdk_ec2::types::ResourceType::InternetGateway);
 
-        let mut req = self.ec2_client.create_internet_gateway();
+        let mut req = self.ec2_client
+            .create_internet_gateway()
+        ;
 
         req = req.tag_specifications(tag_spec);
 
@@ -628,14 +634,13 @@ impl AwsProvider {
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_internet_gateway: {e}")))?;
 
-        let container = result.internet_gateway().ok_or_else(|| {
-            ProviderError::ApiError("create_internet_gateway returned no internet_gateway".into())
-        })?;
-        let provider_id = container.internet_gateway_id().ok_or_else(|| {
-            ProviderError::ApiError(
-                "create_internet_gateway returned no internet_gateway_id".into(),
-            )
-        })?;
+        let container = result
+            .internet_gateway()
+            .ok_or_else(|| ProviderError::ApiError("create_internet_gateway returned no internet_gateway".into()))?;
+        let provider_id = container
+            .internet_gateway_id()
+            .ok_or_else(|| ProviderError::ApiError("create_internet_gateway returned no internet_gateway_id".into()))?;
+
 
         if let Ok(vpc_id) = config.require_str("/network/vpc_id") {
             self.ec2_client
@@ -654,8 +659,7 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .ec2_client
+        let result = self.ec2_client
             .describe_internet_gateways()
             .internet_gateway_ids(provider_id)
             .send()
@@ -693,17 +697,14 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement(
-            "resource does not support in-place update".into(),
-        ))
+        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
     }
 
     pub(super) async fn delete_ec2_internet_gateway(
         &self,
         provider_id: &str,
     ) -> Result<(), ProviderError> {
-        let igw_result = self
-            .ec2_client
+        let igw_result = self.ec2_client
             .describe_internet_gateways()
             .internet_gateway_ids(provider_id)
             .send()
@@ -718,9 +719,7 @@ impl AwsProvider {
                         .vpc_id(vpc_id)
                         .send()
                         .await
-                        .map_err(|e| {
-                            ProviderError::ApiError(format!("DetachInternetGateway: {e}"))
-                        })?;
+                        .map_err(|e| ProviderError::ApiError(format!("DetachInternetGateway: {e}")))?;
                 }
             }
         }
@@ -734,6 +733,7 @@ impl AwsProvider {
         Ok(())
     }
 
+
     pub(super) fn ec2_route_table_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
             type_path: "ec2.RouteTable".into(),
@@ -743,14 +743,16 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "name".into(),
-                            description: "Route table name".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "name".into(),
+                                description: "Route table name".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "network".into(),
@@ -758,9 +760,7 @@ impl AwsProvider {
                         fields: vec![
                             crate::provider::FieldSchema {
                                 name: "routes".into(),
-                                description:
-                                    "Route entries (destination_cidr, gateway_id or nat_gateway_id)"
-                                        .into(),
+                                description: "Route entries (destination_cidr, gateway_id or nat_gateway_id)".into(),
                                 field_type: crate::provider::FieldType::Record(vec![]),
                                 required: false,
                                 default: None,
@@ -969,6 +969,7 @@ impl AwsProvider {
         Ok(())
     }
 
+
     pub(super) fn ec2_nat_gateway_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
             type_path: "ec2.NatGateway".into(),
@@ -978,14 +979,16 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "name".into(),
-                            description: "Name tag for the NAT gateway".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "name".into(),
+                                description: "Name tag for the NAT gateway".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "network".into(),
@@ -1032,11 +1035,11 @@ impl AwsProvider {
 
         let tag_spec = Self::build_tags(config, aws_sdk_ec2::types::ResourceType::Natgateway);
 
-        let mut req = self
-            .ec2_client
+        let mut req = self.ec2_client
             .create_nat_gateway()
             .allocation_id(&allocation_id)
-            .subnet_id(&subnet_id);
+            .subnet_id(&subnet_id)
+        ;
 
         req = req.tag_specifications(tag_spec);
 
@@ -1045,12 +1048,12 @@ impl AwsProvider {
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_nat_gateway: {e}")))?;
 
-        let container = result.nat_gateway().ok_or_else(|| {
-            ProviderError::ApiError("create_nat_gateway returned no nat_gateway".into())
-        })?;
-        let provider_id = container.nat_gateway_id().ok_or_else(|| {
-            ProviderError::ApiError("create_nat_gateway returned no nat_gateway_id".into())
-        })?;
+        let container = result
+            .nat_gateway()
+            .ok_or_else(|| ProviderError::ApiError("create_nat_gateway returned no nat_gateway".into()))?;
+        let provider_id = container
+            .nat_gateway_id()
+            .ok_or_else(|| ProviderError::ApiError("create_nat_gateway returned no nat_gateway_id".into()))?;
 
         self.read_ec2_nat_gateway(provider_id).await
     }
@@ -1059,8 +1062,7 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .ec2_client
+        let result = self.ec2_client
             .describe_nat_gateways()
             .nat_gateway_ids(provider_id)
             .send()
@@ -1072,28 +1074,21 @@ impl AwsProvider {
             .first()
             .ok_or_else(|| ProviderError::NotFound(format!("NatGateway {provider_id}")))?;
 
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "identity": {
                 "name": super::extract_name_tag(resource.tags()),
             },
             "network": {
                 "subnet_id": resource.subnet_id().unwrap_or(""),
-                "vpc_id": resource.vpc_id().unwrap_or(""),
             },
         });
+        if let Some(val) = resource.vpc_id().filter(|s| !s.is_empty()) {
+            state["network"]["vpc_id"] = serde_json::json!(val);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("nat_gateway_id".into(), serde_json::json!(provider_id));
-        outputs.insert(
-            "public_ip".into(),
-            serde_json::json!(
-                resource
-                    .nat_gateway_addresses()
-                    .first()
-                    .and_then(|a| a.public_ip())
-                    .unwrap_or("")
-            ),
-        );
+        outputs.insert("public_ip".into(), serde_json::json!(resource.nat_gateway_addresses().first().and_then(|a| a.public_ip()).unwrap_or("")));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -1108,9 +1103,7 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement(
-            "resource does not support in-place update".into(),
-        ))
+        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
     }
 
     pub(super) async fn delete_ec2_nat_gateway(
@@ -1126,23 +1119,28 @@ impl AwsProvider {
         Ok(())
     }
 
+
     pub(super) fn ec2_elastic_ip_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
             type_path: "ec2.ElasticIp".into(),
             description: "ElasticIp resource".into(),
             schema: crate::provider::ResourceSchema {
-                sections: vec![crate::provider::SectionSchema {
-                    name: "identity".into(),
-                    description: "Identity configuration".into(),
-                    fields: vec![crate::provider::FieldSchema {
-                        name: "name".into(),
-                        description: "Name tag for the Elastic IP".into(),
-                        field_type: crate::provider::FieldType::String,
-                        required: true,
-                        default: None,
-                        sensitive: false,
-                    }],
-                }],
+                sections: vec![
+                    crate::provider::SectionSchema {
+                        name: "identity".into(),
+                        description: "Identity configuration".into(),
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "name".into(),
+                                description: "Name tag for the Elastic IP".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
+                    },
+                ],
             },
         }
     }
@@ -1155,7 +1153,9 @@ impl AwsProvider {
 
         let tag_spec = Self::build_tags(config, aws_sdk_ec2::types::ResourceType::ElasticIp);
 
-        let mut req = self.ec2_client.allocate_address();
+        let mut req = self.ec2_client
+            .allocate_address()
+        ;
 
         req = req.domain(aws_sdk_ec2::types::DomainType::Vpc);
         req = req.tag_specifications(tag_spec);
@@ -1165,9 +1165,9 @@ impl AwsProvider {
             .await
             .map_err(|e| ProviderError::ApiError(format!("allocate_address: {e}")))?;
 
-        let provider_id = result.allocation_id().ok_or_else(|| {
-            ProviderError::ApiError("allocate_address returned no allocation_id".into())
-        })?;
+        let provider_id = result
+            .allocation_id()
+            .ok_or_else(|| ProviderError::ApiError("allocate_address returned no allocation_id".into()))?;
 
         self.read_ec2_elastic_ip(provider_id).await
     }
@@ -1176,8 +1176,7 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .ec2_client
+        let result = self.ec2_client
             .describe_addresses()
             .allocation_ids(provider_id)
             .send()
@@ -1197,10 +1196,7 @@ impl AwsProvider {
 
         let mut outputs = HashMap::new();
         outputs.insert("allocation_id".into(), serde_json::json!(provider_id));
-        outputs.insert(
-            "public_ip".into(),
-            serde_json::json!(resource.public_ip().unwrap_or("")),
-        );
+        outputs.insert("public_ip".into(), serde_json::json!(resource.public_ip().unwrap_or("")));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -1215,9 +1211,7 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement(
-            "resource does not support in-place update".into(),
-        ))
+        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
     }
 
     pub(super) async fn delete_ec2_elastic_ip(
@@ -1233,6 +1227,7 @@ impl AwsProvider {
         Ok(())
     }
 
+
     pub(super) fn ec2_key_pair_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
             type_path: "ec2.KeyPair".into(),
@@ -1242,26 +1237,30 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "name".into(),
-                            description: "Key pair name".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "name".into(),
+                                description: "Key pair name".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "security".into(),
                         description: "Security configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "fingerprint".into(),
-                            description: "Key fingerprint".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: false,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "fingerprint".into(),
+                                description: "Key fingerprint".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                 ],
             },
@@ -1277,7 +1276,10 @@ impl AwsProvider {
 
         let tag_spec = Self::build_tags(config, aws_sdk_ec2::types::ResourceType::KeyPair);
 
-        let mut req = self.ec2_client.create_key_pair().key_name(&name);
+        let mut req = self.ec2_client
+            .create_key_pair()
+            .key_name(&name)
+        ;
 
         req = req.tag_specifications(tag_spec);
 
@@ -1286,9 +1288,9 @@ impl AwsProvider {
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_key_pair: {e}")))?;
 
-        let provider_id = result.key_pair_id().ok_or_else(|| {
-            ProviderError::ApiError("create_key_pair returned no key_pair_id".into())
-        })?;
+        let provider_id = result
+            .key_pair_id()
+            .ok_or_else(|| ProviderError::ApiError("create_key_pair returned no key_pair_id".into()))?;
 
         self.read_ec2_key_pair(provider_id).await
     }
@@ -1297,8 +1299,7 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .ec2_client
+        let result = self.ec2_client
             .describe_key_pairs()
             .key_pair_ids(provider_id)
             .send()
@@ -1314,16 +1315,11 @@ impl AwsProvider {
             "identity": {
                 "name": resource.key_name().unwrap_or(""),
             },
-            "security": {
-            },
         });
 
         let mut outputs = HashMap::new();
         outputs.insert("key_pair_id".into(), serde_json::json!(provider_id));
-        outputs.insert(
-            "key_name".into(),
-            serde_json::json!(resource.key_name().unwrap_or("")),
-        );
+        outputs.insert("key_name".into(), serde_json::json!(resource.key_name().unwrap_or("")));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -1338,12 +1334,13 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement(
-            "resource does not support in-place update".into(),
-        ))
+        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
     }
 
-    pub(super) async fn delete_ec2_key_pair(&self, provider_id: &str) -> Result<(), ProviderError> {
+    pub(super) async fn delete_ec2_key_pair(
+        &self,
+        provider_id: &str,
+    ) -> Result<(), ProviderError> {
         self.ec2_client
             .delete_key_pair()
             .key_pair_id(provider_id)
@@ -1352,6 +1349,7 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_key_pair: {e}")))?;
         Ok(())
     }
+
 
     pub(super) fn ec2_vpc_endpoint_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
@@ -1362,14 +1360,16 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "name".into(),
-                            description: "Name tag for the VPC endpoint".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "name".into(),
+                                description: "Name tag for the VPC endpoint".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "network".into(),
@@ -1377,8 +1377,7 @@ impl AwsProvider {
                         fields: vec![
                             crate::provider::FieldSchema {
                                 name: "service_name".into(),
-                                description: "AWS service name (e.g., com.amazonaws.us-east-1.s3)"
-                                    .into(),
+                                description: "AWS service name (e.g., com.amazonaws.us-east-1.s3)".into(),
                                 field_type: crate::provider::FieldType::String,
                                 required: true,
                                 default: None,
@@ -1413,22 +1412,18 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
         let service_name = config.require_str("/network/service_name")?.to_string();
-        let vpc_endpoint_type = config
-            .str_or("/network/vpc_endpoint_type", "Gateway")
-            .to_string();
+        let vpc_endpoint_type = config.str_or("/network/vpc_endpoint_type", "Gateway").to_string();
         let vpc_id = config.require_str("/network/vpc_id")?.to_string();
 
         let tag_spec = Self::build_tags(config, aws_sdk_ec2::types::ResourceType::VpcEndpoint);
 
-        let mut req = self
-            .ec2_client
+        let mut req = self.ec2_client
             .create_vpc_endpoint()
             .service_name(&service_name)
-            .vpc_id(&vpc_id);
+            .vpc_id(&vpc_id)
+        ;
 
-        req = req.vpc_endpoint_type(aws_sdk_ec2::types::VpcEndpointType::from(
-            vpc_endpoint_type.as_str(),
-        ));
+        req = req.vpc_endpoint_type(aws_sdk_ec2::types::VpcEndpointType::from(vpc_endpoint_type.as_str()));
         req = req.tag_specifications(tag_spec);
 
         let result = req
@@ -1436,12 +1431,12 @@ impl AwsProvider {
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_vpc_endpoint: {e}")))?;
 
-        let container = result.vpc_endpoint().ok_or_else(|| {
-            ProviderError::ApiError("create_vpc_endpoint returned no vpc_endpoint".into())
-        })?;
-        let provider_id = container.vpc_endpoint_id().ok_or_else(|| {
-            ProviderError::ApiError("create_vpc_endpoint returned no vpc_endpoint_id".into())
-        })?;
+        let container = result
+            .vpc_endpoint()
+            .ok_or_else(|| ProviderError::ApiError("create_vpc_endpoint returned no vpc_endpoint".into()))?;
+        let provider_id = container
+            .vpc_endpoint_id()
+            .ok_or_else(|| ProviderError::ApiError("create_vpc_endpoint returned no vpc_endpoint_id".into()))?;
 
         self.read_ec2_vpc_endpoint(provider_id).await
     }
@@ -1450,8 +1445,7 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self
-            .ec2_client
+        let result = self.ec2_client
             .describe_vpc_endpoints()
             .vpc_endpoint_ids(provider_id)
             .send()
@@ -1489,9 +1483,7 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement(
-            "resource does not support in-place update".into(),
-        ))
+        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
     }
 
     pub(super) async fn delete_ec2_vpc_endpoint(
@@ -1507,6 +1499,7 @@ impl AwsProvider {
         Ok(())
     }
 
+
     pub(super) fn ec2_instance_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
             type_path: "ec2.Instance".into(),
@@ -1516,26 +1509,30 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "name".into(),
-                            description: "Instance name".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "name".into(),
+                                description: "Instance name".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "network".into(),
                         description: "Network configuration".into(),
-                        fields: vec![crate::provider::FieldSchema {
-                            name: "subnet_id".into(),
-                            description: "Subnet to launch in".into(),
-                            field_type: crate::provider::FieldType::String,
-                            required: true,
-                            default: None,
-                            sensitive: false,
-                        }],
+                        fields: vec![
+                            crate::provider::FieldSchema {
+                                name: "subnet_id".into(),
+                                description: "Subnet to launch in".into(),
+                                field_type: crate::provider::FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
                     },
                     crate::provider::SectionSchema {
                         name: "security".into(),
@@ -1552,9 +1549,7 @@ impl AwsProvider {
                             crate::provider::FieldSchema {
                                 name: "security_group_ids".into(),
                                 description: "Security group IDs".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(
-                                    crate::provider::FieldType::String,
-                                )),
+                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String)),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -1741,7 +1736,10 @@ impl AwsProvider {
         self.read_ec2_instance(provider_id).await
     }
 
-    pub(super) async fn delete_ec2_instance(&self, provider_id: &str) -> Result<(), ProviderError> {
+    pub(super) async fn delete_ec2_instance(
+        &self,
+        provider_id: &str,
+    ) -> Result<(), ProviderError> {
         self.ec2_client
             .terminate_instances()
             .instance_ids(provider_id)
@@ -1750,4 +1748,6 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("TerminateInstances: {e}")))?;
         Ok(())
     }
+
+
 }
