@@ -181,19 +181,28 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetJob", e))?;
 
-        let state = serde_json::json!({
+        let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);
+        let mut state = serde_json::json!({
             "identity": {
-                "description": job.description.as_str(),
-                "name": job.name.as_str(),
+                "name": short_name,
             },
             "config": {
-                "attempt_deadline": &job.attempt_deadline,
-                "retry_config": &job.retry_config,
                 "schedule": job.schedule.as_str(),
-                "target": serde_json::Value::Null,
                 "time_zone": job.time_zone.as_str(),
             },
         });
+        let desc = job.description.as_str();
+        if !desc.is_empty() {
+            state["identity"]["description"] = serde_json::json!(desc);
+        }
+        // Include http_target if present (Target is a proto oneof, extract HTTP variant)
+        if let Some(google_cloud_scheduler_v1::model::job::Target::HttpTarget(ref ht)) = job.target
+        {
+            state["config"]["http_target"] = serde_json::json!({
+                "uri": ht.uri.as_str(),
+                "httpMethod": format!("{:?}", ht.http_method).to_uppercase(),
+            });
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&job.name));

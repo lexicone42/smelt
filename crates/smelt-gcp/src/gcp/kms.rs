@@ -77,9 +77,10 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetKeyRing", e))?;
 
+        let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);
         let state = serde_json::json!({
             "identity": {
-                "name": key_ring.name.as_str(),
+                "name": short_name,
             },
         });
 

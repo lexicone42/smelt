@@ -213,7 +213,7 @@ impl GcpProvider {
         if let Some(v) = mutation_record {
             model = model.set_mutation_record(v);
         }
-        model = model.set_name(name.clone());
+        // Do NOT set model.name on create — auto-assigned by GCP
         if let Some(v) = notification_channels {
             model = model.set_notification_channels(v);
         }

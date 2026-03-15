@@ -785,3 +785,294 @@ async fn gcp_firewall_crud() {
         }
     }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// KMS KeyRing — free metadata
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_kms_keyring_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("kr");
+
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "kms.KeyRing", &config, &name).await;
+
+    // KMS KeyRings can't be deleted (immutable)
+    println!("\n[NOTE] KMS KeyRings cannot be deleted — left in place.");
+    let _ = created; // suppress unused
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Logging LogMetric — free
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_logging_metric_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("logm");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test metric",
+        },
+        "config": {
+            "filter": "severity >= ERROR",
+        },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "logging.LogMetric", &config, &name).await;
+
+    println!("\n[DELETE] logging.LogMetric...");
+    provider
+        .delete("logging.LogMetric", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Monitoring AlertPolicy — free
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_monitoring_alert_policy_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("alert");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "display_name": "smelt live test alert",
+        },
+        "config": {
+            "combiner": "OR",
+            "conditions": [{
+                "displayName": "CPU > 80%",
+                "conditionThreshold": {
+                    "filter": "metric.type = \"compute.googleapis.com/instance/cpu/utilization\"",
+                    "comparison": "COMPARISON_GT",
+                    "thresholdValue": 0.8,
+                    "duration": "60s",
+                }
+            }],
+        },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "monitoring.AlertPolicy", &config, &name).await;
+
+    println!("\n[DELETE] monitoring.AlertPolicy...");
+    provider
+        .delete("monitoring.AlertPolicy", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Cloud Scheduler Job — free (first 3 jobs)
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_scheduler_job_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("sched");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test scheduler job",
+        },
+        "config": {
+            "schedule": "0 9 * * 1",
+            "time_zone": "America/Los_Angeles",
+            "http_target": {
+                "uri": "https://httpbin.org/post",
+                "httpMethod": "POST",
+            },
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "scheduler.Job", &config, &name).await;
+
+    println!("\n[DELETE] scheduler.Job...");
+    provider
+        .delete("scheduler.Job", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Cloud Tasks Queue — free
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_tasks_queue_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("taskq");
+
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "tasks.Queue", &config, &name).await;
+
+    println!("\n[DELETE] tasks.Queue...");
+    provider
+        .delete("tasks.Queue", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Cloud Run Job — free (config only)
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_cloud_run_job_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("job");
+
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+        "config": {
+            "template": {
+                "template": {
+                    "containers": [{
+                        "image": "us-docker.pkg.dev/cloudrun/container/hello:latest",
+                    }],
+                },
+            },
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "run.Job", &config, &name).await;
+
+    println!("\n[DELETE] run.Job...");
+    provider
+        .delete("run.Job", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// IAM Custom Role — free
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_iam_role_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    // IAM role IDs must be alphanumeric + underscore, no hyphens
+    let name = format!("smelt_test_role_{}", ts % 1_000_000);
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "title": "smelt live test role",
+            "description": "test custom role",
+        },
+        "security": {
+            "included_permissions": ["logging.logEntries.list"],
+            "stage": "GA",
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "iam.Role", &config, &name).await;
+
+    println!("\n[DELETE] iam.Role...");
+    provider
+        .delete("iam.Role", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}

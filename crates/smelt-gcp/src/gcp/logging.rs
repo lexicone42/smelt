@@ -946,21 +946,18 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetLogMetric", e))?;
 
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "identity": {
-                "description": log_metric.description.as_str(),
                 "name": log_metric.name.as_str(),
             },
             "config": {
-                "bucket_name": log_metric.bucket_name.as_str(),
-                "bucket_options": &log_metric.bucket_options,
-                "disabled": log_metric.disabled,
                 "filter": log_metric.filter.as_str(),
-                "label_extractors": &log_metric.label_extractors,
-                "metric_descriptor": &log_metric.metric_descriptor,
-                "value_extractor": log_metric.value_extractor.as_str(),
             },
         });
+        let desc = log_metric.description.as_str();
+        if !desc.is_empty() {
+            state["identity"]["description"] = serde_json::json!(desc);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&log_metric.name));

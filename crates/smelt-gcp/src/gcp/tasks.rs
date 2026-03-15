@@ -152,15 +152,10 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetQueue", e))?;
 
+        let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);
         let state = serde_json::json!({
             "identity": {
-                "name": queue.name.as_str(),
-            },
-            "config": {
-                "app_engine_routing_override": &queue.app_engine_routing_override,
-                "rate_limits": &queue.rate_limits,
-                "retry_config": &queue.retry_config,
-                "stackdriver_logging_config": &queue.stackdriver_logging_config,
+                "name": short_name,
             },
         });
 

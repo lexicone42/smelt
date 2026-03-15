@@ -307,7 +307,7 @@ impl GcpProvider {
         if let Some(v) = included_permissions {
             model = model.set_included_permissions(v);
         }
-        model = model.set_name(name.clone());
+        // Do NOT set model.name on create — name passed via set_role_id on request
         if let Some(ref s) = stage {
             model = model.set_stage(
                 google_cloud_iam_admin_v1::model::role::RoleLaunchStage::from(s.as_str()),
@@ -351,18 +351,24 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetRole", e))?;
 
-        let state = serde_json::json!({
+        let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);
+        let mut state = serde_json::json!({
             "identity": {
-                "description": role.description.as_str(),
-                "name": role.name.as_str(),
+                "name": short_name,
             },
-            "config": {
-                "deleted": role.deleted,
+            "security": {
                 "included_permissions": &role.included_permissions,
-                "stage": &role.stage,
-                "title": role.title.as_str(),
+                "stage": format!("{:?}", role.stage).to_uppercase(),
             },
         });
+        let desc = role.description.as_str();
+        if !desc.is_empty() {
+            state["identity"]["description"] = serde_json::json!(desc);
+        }
+        let title = role.title.as_str();
+        if !title.is_empty() {
+            state["identity"]["title"] = serde_json::json!(title);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&role.name));
