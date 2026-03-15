@@ -894,6 +894,24 @@ impl GcpProvider {
             "projects/{}/locations/{}/clusters/{}",
             self.project_id, self.region, name
         );
+
+        // GKE cluster creation is a long-running operation (~5-10 minutes).
+        // Poll until the cluster reaches RUNNING status before read-back.
+        for attempt in 0..60u32 {
+            match self.read_container_cluster(&provider_id).await {
+                Ok(result) => return Ok(result),
+                Err(ProviderError::NotFound(_)) if attempt < 59 => {
+                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                }
+                Err(e) => {
+                    if attempt < 59 {
+                        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                        continue;
+                    }
+                    return Err(e);
+                }
+            }
+        }
         self.read_container_cluster(&provider_id).await
     }
 

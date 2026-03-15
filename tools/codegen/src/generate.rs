@@ -3211,12 +3211,41 @@ fn write_state_json(out: &mut String, m: &ResourceManifest, model_var: &str) {
         let _ = writeln!(out);
     }
 
-    let _ = writeln!(out, "    let state = serde_json::json!({{");
+    // Same conditional read pattern as AWS: optional string fields without
+    // defaults are conditionally included to avoid phantom empty-string diffs.
+    let is_conditional_gcp = |field: &FieldDef, name: &str| -> bool {
+        if !field.optional { return false; }
+        if field.required || field.output_only { return false; }
+        if field.default.is_some() { return false; }
+        if field.read_expression.is_some() { return false; }
+        if name == "name" || name == "labels" { return false; }
+        matches!(field.field_type.as_str(), "String")
+    };
+
+    // Check if any conditional fields exist
+    let has_conditional = sections.iter().any(|(_, fields)| {
+        fields.iter().any(|(name, f)| !f.output_only && is_conditional_gcp(f, name))
+    });
+
+    // Count inline fields per section
+    let mut section_has_inline: std::collections::HashMap<&str, bool> = std::collections::HashMap::new();
+    for (section_name, fields) in &sections {
+        let has_inline = fields.iter().any(|(name, f)| {
+            !f.output_only && !is_conditional_gcp(f, name)
+        });
+        section_has_inline.insert(section_name, has_inline);
+    }
+
+    let state_binding = if has_conditional { "let mut state" } else { "let state" };
+    let _ = writeln!(out, "    {state_binding} = serde_json::json!({{");
 
     for (section_name, fields) in &sections {
+        if !section_has_inline.get(section_name.as_str()).copied().unwrap_or(false) {
+            continue;
+        }
         let _ = writeln!(out, "        \"{section_name}\": {{");
         for (field_name, field) in fields {
-            if field.output_only {
+            if field.output_only || is_conditional_gcp(field, field_name) {
                 continue;
             }
             let accessor = field_read_accessor(model_var, field_name, field);
@@ -3226,6 +3255,32 @@ fn write_state_json(out: &mut String, m: &ResourceManifest, model_var: &str) {
     }
 
     let _ = writeln!(out, "    }});");
+
+    // Generate conditional insertions for optional string fields
+    for (section_name, fields) in &sections {
+        for (field_name, field) in fields {
+            if !is_conditional_gcp(field, field_name) { continue; }
+            let sdk_field_raw = field.sdk_read_field.as_deref()
+                .or(field.sdk_field.as_deref())
+                .unwrap_or(field_name);
+            let sdk_field = raw_field(sdk_field_raw);
+
+            let section_exists = section_has_inline.get(section_name.as_str()).copied().unwrap_or(false);
+            if section_exists {
+                let _ = writeln!(out, "    if let Some(val) = {model_var}.{sdk_field}.as_deref().filter(|s| !s.is_empty()) {{");
+                let _ = writeln!(out, "        state[\"{section_name}\"][\"{field_name}\"] = serde_json::json!(val);");
+                let _ = writeln!(out, "    }}");
+            } else {
+                let _ = writeln!(out, "    if let Some(val) = {model_var}.{sdk_field}.as_deref().filter(|s| !s.is_empty()) {{");
+                let _ = writeln!(out, "        if state.get(\"{section_name}\").is_none() {{");
+                let _ = writeln!(out, "            state[\"{section_name}\"] = serde_json::json!({{}});");
+                let _ = writeln!(out, "        }}");
+                let _ = writeln!(out, "        state[\"{section_name}\"][\"{field_name}\"] = serde_json::json!(val);");
+                let _ = writeln!(out, "    }}");
+            }
+        }
+    }
+
     let _ = writeln!(out);
 }
 

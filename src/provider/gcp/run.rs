@@ -329,30 +329,31 @@ impl GcpProvider {
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
 
-        let state = serde_json::json!({
+        // Extract short service name from full resource path
+        let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);
+
+        let mut state = serde_json::json!({
             "identity": {
-                "description": service.description.as_str(),
                 "labels": user_labels,
-                "name": service.name.as_str(),
+                "name": short_name,
             },
             "config": {
-                "annotations": &service.annotations,
-                "binary_authorization": &service.binary_authorization,
-                "build_config": &service.build_config,
-                "client": service.client.as_str(),
-                "client_version": service.client_version.as_str(),
-                "custom_audiences": &service.custom_audiences,
-                "default_uri_disabled": service.default_uri_disabled,
-                "iap_enabled": service.iap_enabled,
-                "ingress": &service.ingress,
-                "invoker_iam_disabled": service.invoker_iam_disabled,
-                "launch_stage": &service.launch_stage,
-                "multi_region_settings": &service.multi_region_settings,
-                "scaling": &service.scaling,
                 "template": &service.template,
-                "traffic": &service.traffic,
             },
         });
+        // Conditionally include optional identity fields
+        let desc = service.description.as_str();
+        if !desc.is_empty() {
+            state["identity"]["description"] = serde_json::json!(desc);
+        }
+        // Conditionally include optional config fields
+        // Include ingress if set (proto enums serialize as integers, 0 = default/unset)
+        if service.ingress.value() != Some(0) {
+            state["config"]["ingress"] = serde_json::json!(&service.ingress);
+        }
+        if !service.traffic.is_empty() {
+            state["config"]["traffic"] = serde_json::json!(&service.traffic);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&service.name));
