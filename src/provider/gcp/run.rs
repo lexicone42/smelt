@@ -554,7 +554,7 @@ impl GcpProvider {
         if let Some(v) = launch_stage {
             model = model.set_launch_stage(v);
         }
-        model = model.set_name(name.clone());
+        // Do NOT set model.name — Cloud Run requires it empty on create (name via set_job_id)
         if let Some(v) = template {
             model = model.set_template(v);
         }

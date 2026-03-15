@@ -467,3 +467,41 @@ async fn gcp_cloud_run_service_crud() {
         }
     }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Cloud Storage Bucket — free tier
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_storage_bucket_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("gcs");
+
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+        "config": {
+            "location": "US",
+            "storage_class": "STANDARD",
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "storage.Bucket", &config, &name).await;
+
+    println!("\n[DELETE] storage.Bucket...");
+    provider
+        .delete("storage.Bucket", &created.provider_id)
+        .await
+        .expect("DELETE storage.Bucket failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}

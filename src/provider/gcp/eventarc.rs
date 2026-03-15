@@ -158,7 +158,7 @@ impl GcpProvider {
         if let Some(v) = event_filters {
             model = model.set_event_filters(v);
         }
-        model = model.set_name(name.clone());
+        // Do NOT set model.name on create — name passed via set_trigger_id on request
         if let Some(v) = retry_policy {
             model = model.set_retry_policy(v);
         }
@@ -423,7 +423,7 @@ impl GcpProvider {
         if let Some(v) = crypto_key_name {
             model = model.set_crypto_key_name(v);
         }
-        model = model.set_name(name.clone());
+        // Do NOT set model.name on create — name passed via set_channel_id on request
         if let Some(v) = provider {
             model = model.set_provider(v);
         }

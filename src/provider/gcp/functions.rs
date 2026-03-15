@@ -148,7 +148,7 @@ impl GcpProvider {
         if let Some(v) = kms_key_name {
             model = model.set_kms_key_name(v);
         }
-        model = model.set_name(name.clone());
+        // Do NOT set model.name on create — name passed via set_function_id on request
         if let Some(v) = service_config {
             model = model.set_service_config(v);
         }

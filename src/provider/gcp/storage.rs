@@ -386,7 +386,7 @@ impl GcpProvider {
         if let Some(v) = logging {
             model = model.set_logging(v);
         }
-        model = model.set_name(name.clone());
+        model = model.set_name(format!("projects/_/buckets/{name}"));
         if let Some(v) = object_retention {
             model = model.set_object_retention(v);
         }
@@ -416,19 +416,20 @@ impl GcpProvider {
         }
         model = model.set_labels(labels);
 
-        // Make API call
-        let parent = format!("projects/{}", self.project_id);
+        // Make API call — GCS requires projects/_ as parent (project inferred from auth)
+        // Set project on the bucket model instead
+        model = model.set_project(format!("projects/{}", self.project_id));
         self.storage()
             .await?
             .create_bucket()
-            .set_parent(&parent)
+            .set_parent("projects/_")
             .set_bucket_id(&name)
             .set_bucket(model)
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("Create_bucket Bucket", e))?;
 
-        let provider_id = format!("projects/{}/buckets/{}", self.project_id, name);
+        let provider_id = format!("projects/_/buckets/{}", name);
         self.read_storage_bucket(&provider_id).await
     }
 
@@ -457,41 +458,24 @@ impl GcpProvider {
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
 
-        let state = serde_json::json!({
+        // Extract short bucket name from full resource path
+        let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);
+
+        let mut state = serde_json::json!({
             "identity": {
                 "labels": user_labels,
-                "name": bucket.name.as_str(),
+                "name": short_name,
             },
             "config": {
-                "acl": &bucket.acl,
-                "autoclass": &bucket.autoclass,
-                "billing": &bucket.billing,
-                "cors": &bucket.cors,
-                "custom_placement_config": &bucket.custom_placement_config,
-                "default_event_based_hold": bucket.default_event_based_hold,
-                "default_object_acl": &bucket.default_object_acl,
-                "hierarchical_namespace": &bucket.hierarchical_namespace,
-                "iam_config": &bucket.iam_config,
-                "ip_filter": &bucket.ip_filter,
                 "location": bucket.location.as_str(),
-                "logging": &bucket.logging,
-                "object_retention": &bucket.object_retention,
-                "project": bucket.project.as_str(),
-                "retention_policy": &bucket.retention_policy,
-                "rpo": bucket.rpo.as_str(),
-                "satisfies_pzs": bucket.satisfies_pzs,
-                "soft_delete_policy": &bucket.soft_delete_policy,
                 "storage_class": bucket.storage_class.as_str(),
-                "website": &bucket.website,
-            },
-            "reliability": {
-                "lifecycle": &bucket.lifecycle,
-                "versioning": &bucket.versioning,
-            },
-            "security": {
-                "encryption": &bucket.encryption,
             },
         });
+        // Conditionally include optional config fields
+        let rpo = bucket.rpo.as_str();
+        if !rpo.is_empty() {
+            state["config"]["rpo"] = serde_json::json!(rpo);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&bucket.name));

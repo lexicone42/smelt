@@ -186,7 +186,7 @@ impl GcpProvider {
                 })?;
             model = model.set_remote_repository_config(parsed);
         }
-        model = model.set_name(name.clone());
+        // Do NOT set model.name on create — name passed via set_repository_id on request
         model = model.set_labels(labels);
 
         // Make API call

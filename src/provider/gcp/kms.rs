@@ -37,8 +37,8 @@ impl GcpProvider {
         let name = config.require_str("/identity/name")?.to_string();
 
         // Build SDK model
-        let mut model = google_cloud_kms_v1::model::KeyRing::default();
-        model = model.set_name(name.clone());
+        let model = google_cloud_kms_v1::model::KeyRing::default();
+        // Do NOT set model.name on create — name passed via set_key_ring_id on request
 
         // Make API call
         let parent = format!("projects/{}/locations/{}", self.project_id, self.region);
@@ -251,7 +251,7 @@ impl GcpProvider {
         if let Some(v) = import_only {
             model = model.set_import_only(v);
         }
-        model = model.set_name(name.clone());
+        // Do NOT set model.name on create — name passed via set_crypto_key_id on request
         if let Some(v) = next_rotation_time {
             model = model.set_next_rotation_time(v);
         }
