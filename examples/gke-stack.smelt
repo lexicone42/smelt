@@ -1,0 +1,51 @@
+resource vpc "gke" : gcp.compute.Network {
+  @intent "VPC network for GKE cluster"
+
+  identity {
+    name = "smelt-gke-network"
+  }
+
+  network {
+    auto_create_subnetworks = false
+    routing_mode = "REGIONAL"
+  }
+}
+
+resource subnet "gke-nodes" : gcp.compute.Subnetwork {
+  @intent "Subnet for GKE nodes with secondary ranges for pods and services"
+
+  identity {
+    name = "smelt-gke-nodes"
+  }
+
+  network {
+    ip_cidr_range = "10.0.0.0/20"
+  }
+}
+
+resource sa "gke-nodes" : gcp.iam.ServiceAccount {
+  @intent "Service account for GKE node pool workloads"
+
+  identity {
+    name = "smelt-gke-nodes"
+    display_name = "smelt GKE Node SA"
+  }
+}
+
+resource cluster "primary" : gcp.container.Cluster {
+  @intent "Primary GKE cluster — standard mode, single zone"
+
+  identity {
+    name = "smelt-gke-primary"
+    description = "smelt GKE integration test cluster"
+  }
+}
+
+resource log "gke" : gcp.logging.Metric {
+  @intent "Log-based metric for GKE error tracking"
+
+  identity {
+    name = "smelt-gke-errors"
+    description = "Count of GKE error logs"
+  }
+}
