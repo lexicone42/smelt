@@ -17,30 +17,27 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "name".into(),
-                                description: "File system name (used as creation token)".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "name".into(),
+                            description: "File system name (used as creation token)".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
                     },
                     crate::provider::SectionSchema {
                         name: "security".into(),
                         description: "Security configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "encrypted".into(),
-                                description: "Enable encryption at rest (immutable after creation)".into(),
-                                field_type: crate::provider::FieldType::Bool,
-                                required: false,
-                                default: Some(serde_json::json!(true)),
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "encrypted".into(),
+                            description: "Enable encryption at rest (immutable after creation)"
+                                .into(),
+                            field_type: crate::provider::FieldType::Bool,
+                            required: false,
+                            default: Some(serde_json::json!(true)),
+                            sensitive: false,
+                        }],
                     },
                     crate::provider::SectionSchema {
                         name: "sizing".into(),
@@ -76,26 +73,33 @@ impl AwsProvider {
         // Extract fields from config
         let encrypted = config.bool_or("/security/encrypted", true);
         let name = config.require_str("/identity/name")?.to_string();
-        let performance_mode = config.str_or("/sizing/performance_mode", "generalPurpose").to_string();
-        let throughput_mode = config.str_or("/sizing/throughput_mode", "bursting").to_string();
+        let performance_mode = config
+            .str_or("/sizing/performance_mode", "generalPurpose")
+            .to_string();
+        let throughput_mode = config
+            .str_or("/sizing/throughput_mode", "bursting")
+            .to_string();
 
         let tags = super::extract_tags(config);
 
-        let mut req = self.efs_client
-            .create_file_system()
-            .creation_token(&name)
-        ;
+        let mut req = self.efs_client.create_file_system().creation_token(&name);
 
         req = req.encrypted(encrypted);
-        req = req.performance_mode(aws_sdk_efs::types::PerformanceMode::from(performance_mode.as_str()));
-        req = req.throughput_mode(aws_sdk_efs::types::ThroughputMode::from(throughput_mode.as_str()));
+        req = req.performance_mode(aws_sdk_efs::types::PerformanceMode::from(
+            performance_mode.as_str(),
+        ));
+        req = req.throughput_mode(aws_sdk_efs::types::ThroughputMode::from(
+            throughput_mode.as_str(),
+        ));
         for (k, v) in &tags {
             req = req.tags(
                 aws_sdk_efs::types::Tag::builder()
                     .key(k)
                     .value(v)
                     .build()
-                    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build Tag: {e}")))?
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!("failed to build Tag: {e}"))
+                    })?,
             );
         }
 
@@ -104,9 +108,7 @@ impl AwsProvider {
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_file_system: {e}")))?;
 
-        let provider_id = result
-            .file_system_id()
-        ;
+        let provider_id = result.file_system_id();
 
         self.read_efs_file_system(provider_id).await
     }
@@ -115,7 +117,8 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self.efs_client
+        let result = self
+            .efs_client
             .describe_file_systems()
             .file_system_id(provider_id)
             .send()
@@ -142,7 +145,10 @@ impl AwsProvider {
 
         let mut outputs = HashMap::new();
         outputs.insert("file_system_id".into(), serde_json::json!(provider_id));
-        outputs.insert("file_system_arn".into(), serde_json::json!(resource.file_system_arn().unwrap_or("")));
+        outputs.insert(
+            "file_system_arn".into(),
+            serde_json::json!(resource.file_system_arn().unwrap_or("")),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -157,7 +163,9 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
+        Err(ProviderError::RequiresReplacement(
+            "resource does not support in-place update".into(),
+        ))
     }
 
     pub(super) async fn delete_efs_file_system(
@@ -173,7 +181,6 @@ impl AwsProvider {
         Ok(())
     }
 
-
     pub(super) fn efs_mount_target_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
             type_path: "efs.MountTarget".into(),
@@ -183,16 +190,14 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "name".into(),
-                                description: "Mount target name (smelt tracking)".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "name".into(),
+                            description: "Mount target name (smelt tracking)".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
                     },
                     crate::provider::SectionSchema {
                         name: "network".into(),
@@ -229,22 +234,18 @@ impl AwsProvider {
         let file_system_id = config.require_str("/network/file_system_id")?.to_string();
         let subnet_id = config.require_str("/network/subnet_id")?.to_string();
 
-
-        let req = self.efs_client
+        let req = self
+            .efs_client
             .create_mount_target()
             .file_system_id(&file_system_id)
-            .subnet_id(&subnet_id)
-        ;
-
+            .subnet_id(&subnet_id);
 
         let result = req
             .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_mount_target: {e}")))?;
 
-        let provider_id = result
-            .mount_target_id()
-        ;
+        let provider_id = result.mount_target_id();
 
         self.read_efs_mount_target(provider_id).await
     }
@@ -253,7 +254,8 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self.efs_client
+        let result = self
+            .efs_client
             .describe_mount_targets()
             .mount_target_id(provider_id)
             .send()
@@ -274,7 +276,10 @@ impl AwsProvider {
 
         let mut outputs = HashMap::new();
         outputs.insert("mount_target_id".into(), serde_json::json!(provider_id));
-        outputs.insert("ip_address".into(), serde_json::json!(resource.ip_address().unwrap_or("")));
+        outputs.insert(
+            "ip_address".into(),
+            serde_json::json!(resource.ip_address().unwrap_or("")),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -289,7 +294,9 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
+        Err(ProviderError::RequiresReplacement(
+            "resource does not support in-place update".into(),
+        ))
     }
 
     pub(super) async fn delete_efs_mount_target(
@@ -304,6 +311,4 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_mount_target: {e}")))?;
         Ok(())
     }
-
-
 }

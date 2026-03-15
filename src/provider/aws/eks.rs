@@ -17,16 +17,14 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "name".into(),
-                                description: "Cluster name".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "name".into(),
+                            description: "Cluster name".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
                     },
                     crate::provider::SectionSchema {
                         name: "network".into(),
@@ -51,7 +49,9 @@ impl AwsProvider {
                             crate::provider::FieldSchema {
                                 name: "subnet_ids".into(),
                                 description: "Subnet IDs for the cluster".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String)),
+                                field_type: crate::provider::FieldType::Array(Box::new(
+                                    crate::provider::FieldType::String,
+                                )),
                                 required: true,
                                 default: None,
                                 sensitive: false,
@@ -73,7 +73,9 @@ impl AwsProvider {
                             crate::provider::FieldSchema {
                                 name: "security_group_ids".into(),
                                 description: "Additional security group IDs".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String)),
+                                field_type: crate::provider::FieldType::Array(Box::new(
+                                    crate::provider::FieldType::String,
+                                )),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -83,16 +85,14 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "sizing".into(),
                         description: "Sizing configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "version".into(),
-                                description: "Kubernetes version (e.g. 1.28)".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: false,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "version".into(),
+                            description: "Kubernetes version (e.g. 1.28)".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: false,
+                            default: None,
+                            sensitive: false,
+                        }],
                     },
                 ],
             },
@@ -108,17 +108,30 @@ impl AwsProvider {
         let endpoint_public_access = config.bool_or("/network/endpoint_public_access", true);
         let name = config.require_str("/identity/name")?.to_string();
         let role_arn = config.require_str("/security/role_arn")?.to_string();
-        let security_group_ids: Option<Vec<String>> = config.optional_array("/security/security_group_ids").map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect());
-        let subnet_ids: Vec<String> = config.optional_array("/network/subnet_ids").map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
+        let security_group_ids: Option<Vec<String>> = config
+            .optional_array("/security/security_group_ids")
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            });
+        let subnet_ids: Vec<String> = config
+            .optional_array("/network/subnet_ids")
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
         let version = config.optional_str("/sizing/version").map(String::from);
 
         let tags = super::extract_tags(config);
 
-        let mut req = self.eks_client
+        let mut req = self
+            .eks_client
             .create_cluster()
             .name(&name)
-            .role_arn(&role_arn)
-        ;
+            .role_arn(&role_arn);
 
         if let Some(ref v) = version {
             req = req.version(v);
@@ -132,9 +145,7 @@ impl AwsProvider {
         let vpc_config = vpc_config_builder.build();
         req = req.resources_vpc_config(vpc_config);
 
-
-        req
-            .send()
+        req.send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_cluster: {e}")))?;
 
@@ -145,7 +156,8 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self.eks_client
+        let result = self
+            .eks_client
             .describe_cluster()
             .name(provider_id)
             .send()
@@ -176,10 +188,24 @@ impl AwsProvider {
         }
 
         let mut outputs = HashMap::new();
-        outputs.insert("cluster_arn".into(), serde_json::json!(resource.arn().unwrap_or("")));
+        outputs.insert(
+            "cluster_arn".into(),
+            serde_json::json!(resource.arn().unwrap_or("")),
+        );
         outputs.insert("cluster_name".into(), serde_json::json!(provider_id));
-        outputs.insert("endpoint".into(), serde_json::json!(resource.endpoint().unwrap_or("")));
-        outputs.insert("certificate_authority".into(), serde_json::json!(resource.certificate_authority().and_then(|ca| ca.data()).unwrap_or("")));
+        outputs.insert(
+            "endpoint".into(),
+            serde_json::json!(resource.endpoint().unwrap_or("")),
+        );
+        outputs.insert(
+            "certificate_authority".into(),
+            serde_json::json!(
+                resource
+                    .certificate_authority()
+                    .and_then(|ca| ca.data())
+                    .unwrap_or("")
+            ),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -195,10 +221,7 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let version = config.optional_str("/sizing/version");
 
-        let mut req = self.eks_client
-            .update_cluster_version()
-            .name(provider_id)
-        ;
+        let mut req = self.eks_client.update_cluster_version().name(provider_id);
 
         if let Some(v) = version {
             req = req.version(v);
@@ -211,10 +234,7 @@ impl AwsProvider {
         self.read_eks_cluster(provider_id).await
     }
 
-    pub(super) async fn delete_eks_cluster(
-        &self,
-        provider_id: &str,
-    ) -> Result<(), ProviderError> {
+    pub(super) async fn delete_eks_cluster(&self, provider_id: &str) -> Result<(), ProviderError> {
         self.eks_client
             .delete_cluster()
             .name(provider_id)
@@ -223,7 +243,6 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_cluster: {e}")))?;
         Ok(())
     }
-
 
     pub(super) fn eks_node_group_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
@@ -234,16 +253,14 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "name".into(),
-                                description: "Node group name".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "name".into(),
+                            description: "Node group name".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
                     },
                     crate::provider::SectionSchema {
                         name: "network".into(),
@@ -260,7 +277,9 @@ impl AwsProvider {
                             crate::provider::FieldSchema {
                                 name: "subnet_ids".into(),
                                 description: "Subnet IDs for node placement".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String)),
+                                field_type: crate::provider::FieldType::Array(Box::new(
+                                    crate::provider::FieldType::String,
+                                )),
                                 required: true,
                                 default: None,
                                 sensitive: false,
@@ -270,16 +289,14 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "security".into(),
                         description: "Security configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "node_role_arn".into(),
-                                description: "IAM role ARN for node instances".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "node_role_arn".into(),
+                            description: "IAM role ARN for node instances".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
                     },
                     crate::provider::SectionSchema {
                         name: "sizing".into(),
@@ -304,7 +321,9 @@ impl AwsProvider {
                             crate::provider::FieldSchema {
                                 name: "instance_types".into(),
                                 description: "EC2 instance types for nodes".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String)),
+                                field_type: crate::provider::FieldType::Array(Box::new(
+                                    crate::provider::FieldType::String,
+                                )),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -340,21 +359,33 @@ impl AwsProvider {
         let cluster_name = config.require_str("/network/cluster_name")?.to_string();
         let desired_size = config.i64_or("/sizing/desired_size", 2);
         let disk_size = config.i64_or("/sizing/disk_size", 20);
-        let instance_types: Option<Vec<String>> = config.optional_array("/sizing/instance_types").map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+        let instance_types: Option<Vec<String>> =
+            config.optional_array("/sizing/instance_types").map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            });
         let max_size = config.i64_or("/sizing/max_size", 3);
         let min_size = config.i64_or("/sizing/min_size", 1);
         let name = config.require_str("/identity/name")?.to_string();
         let node_role_arn = config.require_str("/security/node_role_arn")?.to_string();
-        let subnet_ids: Vec<String> = config.optional_array("/network/subnet_ids").map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
+        let subnet_ids: Vec<String> = config
+            .optional_array("/network/subnet_ids")
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
 
         let tags = super::extract_tags(config);
 
-        let mut req = self.eks_client
+        let mut req = self
+            .eks_client
             .create_nodegroup()
             .cluster_name(&cluster_name)
             .nodegroup_name(&name)
-            .node_role(&node_role_arn)
-        ;
+            .node_role(&node_role_arn);
 
         req = req.disk_size(disk_size as i32);
         if let Some(ref arr) = instance_types {
@@ -373,9 +404,7 @@ impl AwsProvider {
         let scaling_config = scaling_config_builder.build();
         req = req.scaling_config(scaling_config);
 
-
-        req
-            .send()
+        req.send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_nodegroup: {e}")))?;
 
@@ -390,14 +419,15 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let id_parts: Vec<&str> = provider_id.split(':').collect();
         if id_parts.len() != 2 {
-            return Err(ProviderError::InvalidConfig(
-                format!("provider_id must be cluster_name:nodegroup_name, got: {provider_id}")
-            ));
+            return Err(ProviderError::InvalidConfig(format!(
+                "provider_id must be cluster_name:nodegroup_name, got: {provider_id}"
+            )));
         }
         let cluster_name = id_parts[0];
         let nodegroup_name = id_parts[1];
 
-        let result = self.eks_client
+        let result = self
+            .eks_client
             .describe_nodegroup()
             .cluster_name(cluster_name)
             .nodegroup_name(nodegroup_name)
@@ -429,8 +459,14 @@ impl AwsProvider {
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert("nodegroup_arn".into(), serde_json::json!(resource.nodegroup_arn().unwrap_or("")));
-        outputs.insert("nodegroup_name".into(), serde_json::json!(resource.nodegroup_name().unwrap_or("")));
+        outputs.insert(
+            "nodegroup_arn".into(),
+            serde_json::json!(resource.nodegroup_arn().unwrap_or("")),
+        );
+        outputs.insert(
+            "nodegroup_name".into(),
+            serde_json::json!(resource.nodegroup_name().unwrap_or("")),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -446,9 +482,9 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let id_parts: Vec<&str> = provider_id.split(':').collect();
         if id_parts.len() != 2 {
-            return Err(ProviderError::InvalidConfig(
-                format!("provider_id must be cluster_name:nodegroup_name, got: {provider_id}")
-            ));
+            return Err(ProviderError::InvalidConfig(format!(
+                "provider_id must be cluster_name:nodegroup_name, got: {provider_id}"
+            )));
         }
         let cluster_name = id_parts[0];
         let nodegroup_name = id_parts[1];
@@ -457,12 +493,11 @@ impl AwsProvider {
         let max_size = config.optional_i64("/sizing/max_size");
         let min_size = config.optional_i64("/sizing/min_size");
 
-        let mut req = self.eks_client
+        let mut req = self
+            .eks_client
             .update_nodegroup_config()
             .cluster_name(cluster_name)
-            .nodegroup_name(nodegroup_name)
-        ;
-
+            .nodegroup_name(nodegroup_name);
 
         let mut scaling_config_builder = aws_sdk_eks::types::NodegroupScalingConfig::builder();
         if let Some(v) = desired_size {
@@ -489,9 +524,9 @@ impl AwsProvider {
     ) -> Result<(), ProviderError> {
         let id_parts: Vec<&str> = provider_id.split(':').collect();
         if id_parts.len() != 2 {
-            return Err(ProviderError::InvalidConfig(
-                format!("provider_id must be cluster_name:nodegroup_name, got: {provider_id}")
-            ));
+            return Err(ProviderError::InvalidConfig(format!(
+                "provider_id must be cluster_name:nodegroup_name, got: {provider_id}"
+            )));
         }
         let cluster_name = id_parts[0];
         let nodegroup_name = id_parts[1];
@@ -505,6 +540,4 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_nodegroup: {e}")))?;
         Ok(())
     }
-
-
 }

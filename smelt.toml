@@ -1,0 +1,15 @@
+[project]
+name = "smelt-project"
+default_environment = "default"
+
+[environments.default]
+layers = []
+protected = false
+
+[environments.default.vars]
+
+[environments.integration]
+layers = []
+protected = false
+
+[environments.integration.vars]

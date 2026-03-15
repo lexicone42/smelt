@@ -59,7 +59,9 @@ impl AwsProvider {
                             crate::provider::FieldSchema {
                                 name: "managed_policy_arns".into(),
                                 description: "Managed policy ARNs to attach".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String)),
+                                field_type: crate::provider::FieldType::Array(Box::new(
+                                    crate::provider::FieldType::String,
+                                )),
                                 required: false,
                                 default: Some(serde_json::json!(null)),
                                 sensitive: false,
@@ -77,13 +79,19 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let name = config.require_str("/identity/name")?.to_string();
 
-        let assume_role_policy = config
-            .pointer("/security/assume_role_policy")
-            .ok_or_else(|| ProviderError::InvalidConfig("security.assume_role_policy is required".into()))?;
+        let assume_role_policy =
+            config
+                .pointer("/security/assume_role_policy")
+                .ok_or_else(|| {
+                    ProviderError::InvalidConfig("security.assume_role_policy is required".into())
+                })?;
 
         let policy_doc = if assume_role_policy.is_string() {
-            assume_role_policy.as_str()
-                .ok_or_else(|| ProviderError::InvalidConfig("assume_role_policy is not a valid string".into()))?
+            assume_role_policy
+                .as_str()
+                .ok_or_else(|| {
+                    ProviderError::InvalidConfig("assume_role_policy is not a valid string".into())
+                })?
                 .to_string()
         } else {
             serde_json::to_string(assume_role_policy)
@@ -92,7 +100,8 @@ impl AwsProvider {
 
         let description = config.optional_str("/identity/description").unwrap_or("");
 
-        let mut req = self.iam_client
+        let mut req = self
+            .iam_client
             .create_role()
             .role_name(&name)
             .assume_role_policy_document(&policy_doc);
@@ -112,11 +121,14 @@ impl AwsProvider {
                     .key(k)
                     .value(v)
                     .build()
-                    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build IAM Tag: {e}")))?,
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!("failed to build IAM Tag: {e}"))
+                    })?,
             );
         }
 
-        req.send().await
+        req.send()
+            .await
             .map_err(|e| ProviderError::ApiError(format!("CreateRole: {e}")))?;
 
         // Attach managed policies if specified
@@ -146,7 +158,8 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self.iam_client
+        let result = self
+            .iam_client
             .get_role()
             .role_name(provider_id)
             .send()
@@ -198,8 +211,13 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         if let Some(policy) = config.pointer("/security/assume_role_policy") {
             let doc = if policy.is_string() {
-                policy.as_str()
-                    .ok_or_else(|| ProviderError::InvalidConfig("assume_role_policy is not a valid string".into()))?
+                policy
+                    .as_str()
+                    .ok_or_else(|| {
+                        ProviderError::InvalidConfig(
+                            "assume_role_policy is not a valid string".into(),
+                        )
+                    })?
                     .to_string()
             } else {
                 serde_json::to_string(policy).unwrap_or_default()
@@ -225,12 +243,10 @@ impl AwsProvider {
         self.read_iam_role(provider_id).await
     }
 
-    pub(super) async fn delete_iam_role(
-        &self,
-        provider_id: &str,
-    ) -> Result<(), ProviderError> {
+    pub(super) async fn delete_iam_role(&self, provider_id: &str) -> Result<(), ProviderError> {
         // Detach all managed policies first
-        let policies = self.iam_client
+        let policies = self
+            .iam_client
             .list_attached_role_policies()
             .role_name(provider_id)
             .send()
@@ -250,7 +266,8 @@ impl AwsProvider {
         }
 
         // Delete inline policies
-        let inline = self.iam_client
+        let inline = self
+            .iam_client
             .list_role_policies()
             .role_name(provider_id)
             .send()
@@ -275,7 +292,6 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("DeleteRole: {e}")))?;
         Ok(())
     }
-
 
     pub(super) fn iam_instance_profile_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
@@ -308,16 +324,14 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "security".into(),
                         description: "Security configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "role_name".into(),
-                                description: "Role to attach".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: false,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "role_name".into(),
+                            description: "Role to attach".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: false,
+                            default: None,
+                            sensitive: false,
+                        }],
                     },
                 ],
             },
@@ -330,7 +344,8 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let name = config.require_str("/identity/name")?.to_string();
 
-        let mut req = self.iam_client
+        let mut req = self
+            .iam_client
             .create_instance_profile()
             .instance_profile_name(&name);
 
@@ -338,7 +353,8 @@ impl AwsProvider {
             req = req.path(path);
         }
 
-        req.send().await
+        req.send()
+            .await
             .map_err(|e| ProviderError::ApiError(format!("create_instance_profile: {e}")))?;
 
         // Add role if specified
@@ -349,7 +365,9 @@ impl AwsProvider {
                 .role_name(role_name)
                 .send()
                 .await
-                .map_err(|e| ProviderError::ApiError(format!("add_role_to_instance_profile: {e}")))?;
+                .map_err(|e| {
+                    ProviderError::ApiError(format!("add_role_to_instance_profile: {e}"))
+                })?;
         }
 
         let provider_id = &name;
@@ -361,7 +379,8 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self.iam_client
+        let result = self
+            .iam_client
             .get_instance_profile()
             .instance_profile_name(provider_id)
             .send()
@@ -380,8 +399,14 @@ impl AwsProvider {
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert("instance_profile_arn".into(), serde_json::json!(resource.arn()));
-        outputs.insert("instance_profile_name".into(), serde_json::json!(resource.instance_profile_name()));
+        outputs.insert(
+            "instance_profile_arn".into(),
+            serde_json::json!(resource.arn()),
+        );
+        outputs.insert(
+            "instance_profile_name".into(),
+            serde_json::json!(resource.instance_profile_name()),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -396,7 +421,9 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
+        Err(ProviderError::RequiresReplacement(
+            "resource does not support in-place update".into(),
+        ))
     }
 
     pub(super) async fn delete_iam_instance_profile(
@@ -404,7 +431,8 @@ impl AwsProvider {
         provider_id: &str,
     ) -> Result<(), ProviderError> {
         // Remove all attached roles before deletion
-        let result = self.iam_client
+        let result = self
+            .iam_client
             .get_instance_profile()
             .instance_profile_name(provider_id)
             .send()
@@ -419,7 +447,9 @@ impl AwsProvider {
                     .role_name(role.role_name())
                     .send()
                     .await
-                    .map_err(|e| ProviderError::ApiError(format!("remove_role_from_instance_profile: {e}")))?;
+                    .map_err(|e| {
+                        ProviderError::ApiError(format!("remove_role_from_instance_profile: {e}"))
+                    })?;
             }
         }
 
@@ -431,7 +461,6 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_instance_profile: {e}")))?;
         Ok(())
     }
-
 
     pub(super) fn iam_policy_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
@@ -464,16 +493,14 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "security".into(),
                         description: "Security configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "policy_document".into(),
-                                description: "IAM policy document (JSON)".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "policy_document".into(),
+                            description: "IAM policy document (JSON)".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
                     },
                 ],
             },
@@ -486,19 +513,24 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let name = config.require_str("/identity/name")?.to_string();
 
-        let policy_doc = config.pointer("/security/policy_document")
-            .ok_or_else(|| ProviderError::InvalidConfig("security.policy_document is required".into()))?;
+        let policy_doc = config.pointer("/security/policy_document").ok_or_else(|| {
+            ProviderError::InvalidConfig("security.policy_document is required".into())
+        })?;
 
         let doc = if policy_doc.is_string() {
-            policy_doc.as_str()
-                .ok_or_else(|| ProviderError::InvalidConfig("policy_document is not a valid string".into()))?
+            policy_doc
+                .as_str()
+                .ok_or_else(|| {
+                    ProviderError::InvalidConfig("policy_document is not a valid string".into())
+                })?
                 .to_string()
         } else {
             serde_json::to_string(policy_doc)
                 .map_err(|e| ProviderError::InvalidConfig(format!("invalid policy JSON: {e}")))?
         };
 
-        let mut req = self.iam_client
+        let mut req = self
+            .iam_client
             .create_policy()
             .policy_name(&name)
             .policy_document(&doc);
@@ -510,12 +542,16 @@ impl AwsProvider {
             req = req.path(path);
         }
 
-        let result = req.send().await
+        let result = req
+            .send()
+            .await
             .map_err(|e| ProviderError::ApiError(format!("CreatePolicy: {e}")))?;
 
-        let policy = result.policy()
+        let policy = result
+            .policy()
             .ok_or_else(|| ProviderError::ApiError("CreatePolicy returned no policy".into()))?;
-        let provider_id = policy.arn()
+        let provider_id = policy
+            .arn()
             .ok_or_else(|| ProviderError::ApiError("Policy has no ARN".into()))?;
 
         self.read_iam_policy(provider_id).await
@@ -525,14 +561,16 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self.iam_client
+        let result = self
+            .iam_client
             .get_policy()
             .policy_arn(provider_id)
             .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("GetPolicy: {e}")))?;
 
-        let policy = result.policy()
+        let policy = result
+            .policy()
             .ok_or_else(|| ProviderError::NotFound(format!("Policy {provider_id}")))?;
 
         let state = serde_json::json!({
@@ -545,7 +583,10 @@ impl AwsProvider {
 
         let mut outputs = HashMap::new();
         outputs.insert("policy_arn".into(), serde_json::json!(provider_id));
-        outputs.insert("policy_id".into(), serde_json::json!(policy.policy_id().unwrap_or("")));
+        outputs.insert(
+            "policy_id".into(),
+            serde_json::json!(policy.policy_id().unwrap_or("")),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -562,7 +603,9 @@ impl AwsProvider {
         if let Some(doc) = config.pointer("/security/policy_document") {
             let doc_str = if doc.is_string() {
                 doc.as_str()
-                    .ok_or_else(|| ProviderError::InvalidConfig("policy_document is not a valid string".into()))?
+                    .ok_or_else(|| {
+                        ProviderError::InvalidConfig("policy_document is not a valid string".into())
+                    })?
                     .to_string()
             } else {
                 serde_json::to_string(doc).unwrap_or_default()
@@ -580,12 +623,10 @@ impl AwsProvider {
         self.read_iam_policy(provider_id).await
     }
 
-    pub(super) async fn delete_iam_policy(
-        &self,
-        provider_id: &str,
-    ) -> Result<(), ProviderError> {
+    pub(super) async fn delete_iam_policy(&self, provider_id: &str) -> Result<(), ProviderError> {
         // Delete non-default policy versions first
-        let versions = self.iam_client
+        let versions = self
+            .iam_client
             .list_policy_versions()
             .policy_arn(provider_id)
             .send()
@@ -614,6 +655,4 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("DeletePolicy: {e}")))?;
         Ok(())
     }
-
-
 }

@@ -13,22 +13,18 @@ impl AwsProvider {
             type_path: "ses.EmailIdentity".into(),
             description: "EmailIdentity resource".into(),
             schema: crate::provider::ResourceSchema {
-                sections: vec![
-                    crate::provider::SectionSchema {
-                        name: "identity".into(),
-                        description: "Identity configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "name".into(),
-                                description: "Email address or domain".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
-                    },
-                ],
+                sections: vec![crate::provider::SectionSchema {
+                    name: "identity".into(),
+                    description: "Identity configuration".into(),
+                    fields: vec![crate::provider::FieldSchema {
+                        name: "name".into(),
+                        description: "Email address or domain".into(),
+                        field_type: crate::provider::FieldType::String,
+                        required: true,
+                        default: None,
+                        sensitive: false,
+                    }],
+                }],
             },
         }
     }
@@ -42,10 +38,10 @@ impl AwsProvider {
 
         let tags = super::extract_tags(config);
 
-        let mut req = self.ses_client
+        let mut req = self
+            .ses_client
             .create_email_identity()
-            .email_identity(&name)
-        ;
+            .email_identity(&name);
 
         for (k, v) in &tags {
             req = req.tags(
@@ -53,12 +49,13 @@ impl AwsProvider {
                     .key(k)
                     .value(v)
                     .build()
-                    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build Tag: {e}")))?
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!("failed to build Tag: {e}"))
+                    })?,
             );
         }
 
-        req
-            .send()
+        req.send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_email_identity: {e}")))?;
 
@@ -69,13 +66,13 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let _result = self.ses_client
+        let _result = self
+            .ses_client
             .get_email_identity()
             .email_identity(provider_id)
             .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("get_email_identity: {e}")))?;
-
 
         let state = serde_json::json!({
             "identity": {
@@ -99,7 +96,9 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
+        Err(ProviderError::RequiresReplacement(
+            "resource does not support in-place update".into(),
+        ))
     }
 
     pub(super) async fn delete_ses_email_identity(
@@ -114,6 +113,4 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_email_identity: {e}")))?;
         Ok(())
     }
-
-
 }

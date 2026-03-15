@@ -632,7 +632,7 @@ async fn cognito_user_pool_crud() {
 async fn ses_email_identity_crud() {
     let provider = AwsProvider::from_env().await;
     let name = format!(
-        "smelt-test-{}.example.com",
+        "smelt-test-{}.internal",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -880,6 +880,493 @@ async fn iam_policy_crud() {
         .await
         .expect("DELETE iam.Policy failed");
     println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EC2 VPC — free, core networking resource
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn ec2_vpc_crud() {
+    let provider = AwsProvider::from_env().await;
+    let name = test_name("vpc");
+
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+        "network": { "cidr_block": "10.99.0.0/16" }
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "ec2.Vpc", &config, &name).await;
+
+    println!("\n[DELETE] ec2.Vpc...");
+    provider
+        .delete("ec2.Vpc", &created.provider_id)
+        .await
+        .expect("DELETE ec2.Vpc failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EC2 Subnet — free, depends on VPC
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn ec2_subnet_crud() {
+    let provider = AwsProvider::from_env().await;
+    let name = test_name("subnet");
+
+    println!("[SETUP] Creating VPC for subnet test...");
+    let vpc = provider
+        .create(
+            "ec2.Vpc",
+            &serde_json::json!({
+                "identity": { "name": &format!("{name}-vpc") },
+                "network": { "cidr_block": "10.98.0.0/16" }
+            }),
+        )
+        .await
+        .expect("VPC create failed");
+    let vpc_id = &vpc.provider_id;
+    println!("  vpc_id = {vpc_id}");
+
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+        "network": {
+            "availability_zone": "us-west-2a",
+            "cidr_block": "10.98.1.0/24",
+            "public_ip_on_launch": false,
+            "vpc_id": vpc_id,
+        }
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "ec2.Subnet", &config, &name).await;
+
+    println!("\n[DELETE] ec2.Subnet...");
+    provider
+        .delete("ec2.Subnet", &created.provider_id)
+        .await
+        .expect("DELETE ec2.Subnet failed");
+    println!("  Deleted subnet.");
+    println!("[DELETE] ec2.Vpc...");
+    provider
+        .delete("ec2.Vpc", vpc_id)
+        .await
+        .expect("DELETE ec2.Vpc failed");
+    println!("  Deleted VPC.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EC2 SecurityGroup — free, depends on VPC
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn ec2_security_group_crud() {
+    let provider = AwsProvider::from_env().await;
+    let name = test_name("sg");
+
+    println!("[SETUP] Creating VPC for security group test...");
+    let vpc = provider
+        .create(
+            "ec2.Vpc",
+            &serde_json::json!({
+                "identity": { "name": &format!("{name}-vpc") },
+                "network": { "cidr_block": "10.97.0.0/16" }
+            }),
+        )
+        .await
+        .expect("VPC create failed");
+    let vpc_id = &vpc.provider_id;
+    println!("  vpc_id = {vpc_id}");
+
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+        "security": {
+            "vpc_id": vpc_id,
+            "ingress": [],
+        }
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "ec2.SecurityGroup", &config, &name).await;
+
+    println!("\n[DELETE] ec2.SecurityGroup...");
+    provider
+        .delete("ec2.SecurityGroup", &created.provider_id)
+        .await
+        .expect("DELETE ec2.SecurityGroup failed");
+    println!("  Deleted SG.");
+    println!("[DELETE] ec2.Vpc...");
+    provider
+        .delete("ec2.Vpc", vpc_id)
+        .await
+        .expect("DELETE ec2.Vpc failed");
+    println!("  Deleted VPC.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EC2 InternetGateway — free, depends on VPC
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn ec2_internet_gateway_crud() {
+    let provider = AwsProvider::from_env().await;
+    let name = test_name("igw");
+
+    println!("[SETUP] Creating VPC for IGW test...");
+    let vpc = provider
+        .create(
+            "ec2.Vpc",
+            &serde_json::json!({
+                "identity": { "name": &format!("{name}-vpc") },
+                "network": { "cidr_block": "10.96.0.0/16" }
+            }),
+        )
+        .await
+        .expect("VPC create failed");
+    let vpc_id = &vpc.provider_id;
+    println!("  vpc_id = {vpc_id}");
+
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+        "network": { "vpc_id": vpc_id }
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "ec2.InternetGateway", &config, &name).await;
+
+    println!("\n[DELETE] ec2.InternetGateway...");
+    provider
+        .delete("ec2.InternetGateway", &created.provider_id)
+        .await
+        .expect("DELETE ec2.InternetGateway failed");
+    println!("  Deleted IGW.");
+    println!("[DELETE] ec2.Vpc...");
+    provider
+        .delete("ec2.Vpc", vpc_id)
+        .await
+        .expect("DELETE ec2.Vpc failed");
+    println!("  Deleted VPC.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EC2 RouteTable — free, depends on VPC
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn ec2_route_table_crud() {
+    let provider = AwsProvider::from_env().await;
+    let name = test_name("rtb");
+
+    println!("[SETUP] Creating VPC for route table test...");
+    let vpc = provider
+        .create(
+            "ec2.Vpc",
+            &serde_json::json!({
+                "identity": { "name": &format!("{name}-vpc") },
+                "network": { "cidr_block": "10.95.0.0/16" }
+            }),
+        )
+        .await
+        .expect("VPC create failed");
+    let vpc_id = &vpc.provider_id;
+    println!("  vpc_id = {vpc_id}");
+
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+        "network": {
+            "vpc_id": vpc_id,
+            "routes": [],
+        }
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "ec2.RouteTable", &config, &name).await;
+
+    println!("\n[DELETE] ec2.RouteTable...");
+    provider
+        .delete("ec2.RouteTable", &created.provider_id)
+        .await
+        .expect("DELETE ec2.RouteTable failed");
+    println!("  Deleted route table.");
+    println!("[DELETE] ec2.Vpc...");
+    provider
+        .delete("ec2.Vpc", vpc_id)
+        .await
+        .expect("DELETE ec2.Vpc failed");
+    println!("  Deleted VPC.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EC2 KeyPair — free, standalone
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn ec2_key_pair_crud() {
+    let provider = AwsProvider::from_env().await;
+    let name = test_name("kp");
+
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "ec2.KeyPair", &config, &name).await;
+
+    println!("\n[DELETE] ec2.KeyPair...");
+    provider
+        .delete("ec2.KeyPair", &created.provider_id)
+        .await
+        .expect("DELETE ec2.KeyPair failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// IAM InstanceProfile — free, depends on IAM Role
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn iam_instance_profile_crud() {
+    let provider = AwsProvider::from_env().await;
+    let name = test_name("ip");
+
+    println!("[SETUP] Creating IAM Role for instance profile test...");
+    let role = provider
+        .create(
+            "iam.Role",
+            &serde_json::json!({
+                "identity": {
+                    "name": &format!("{name}-role"),
+                    "description": "role for instance profile test",
+                },
+                "security": {
+                    "assume_role_policy": {
+                        "Version": "2012-10-17",
+                        "Statement": [{
+                            "Effect": "Allow",
+                            "Principal": { "Service": "ec2.amazonaws.com" },
+                            "Action": "sts:AssumeRole"
+                        }]
+                    }
+                }
+            }),
+        )
+        .await
+        .expect("IAM Role create failed");
+    let role_name = &role.provider_id;
+    println!("  role_name = {role_name}");
+
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+        "security": { "role_name": role_name },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "iam.InstanceProfile", &config, &name).await;
+
+    println!("\n[DELETE] iam.InstanceProfile...");
+    provider
+        .delete("iam.InstanceProfile", &created.provider_id)
+        .await
+        .expect("DELETE iam.InstanceProfile failed");
+    println!("  Deleted instance profile.");
+    // Small delay — IAM eventually-consistent
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    println!("[DELETE] iam.Role...");
+    provider
+        .delete("iam.Role", role_name)
+        .await
+        .expect("DELETE iam.Role failed");
+    println!("  Deleted role.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Route53 HostedZone — $0.50/month, tests DNS zone pattern
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn route53_hosted_zone_crud() {
+    let provider = AwsProvider::from_env().await;
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let name = format!("smelt-test-{ts}.internal");
+
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "route53.HostedZone", &config, &name).await;
+
+    println!("\n[DELETE] route53.HostedZone...");
+    provider
+        .delete("route53.HostedZone", &created.provider_id)
+        .await
+        .expect("DELETE route53.HostedZone failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// KMS Key — $1/month, tests key management pattern
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn kms_key_crud() {
+    let provider = AwsProvider::from_env().await;
+    let name = test_name("kms");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test key",
+        },
+        "security": {
+            "key_usage": "ENCRYPT_DECRYPT",
+            "key_spec": "SYMMETRIC_DEFAULT",
+        }
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "kms.Key", &config, &name).await;
+
+    // KMS keys can't be immediately deleted — schedule deletion (minimum 7 days)
+    println!("\n[DELETE] kms.Key (scheduling deletion)...");
+    provider
+        .delete("kms.Key", &created.provider_id)
+        .await
+        .expect("DELETE kms.Key failed");
+    println!("  Scheduled for deletion.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ELBv2 TargetGroup — free, depends on VPC
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn elbv2_target_group_crud() {
+    let provider = AwsProvider::from_env().await;
+    let name = test_name("tg");
+
+    println!("[SETUP] Creating VPC for target group test...");
+    let vpc = provider
+        .create(
+            "ec2.Vpc",
+            &serde_json::json!({
+                "identity": { "name": &format!("{name}-vpc") },
+                "network": { "cidr_block": "10.94.0.0/16" }
+            }),
+        )
+        .await
+        .expect("VPC create failed");
+    let vpc_id = &vpc.provider_id;
+    println!("  vpc_id = {vpc_id}");
+
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+        "network": {
+            "vpc_id": vpc_id,
+            "port": 80,
+            "protocol": "HTTP",
+            "target_type": "ip",
+        },
+        "reliability": {
+            "health_check_path": "/health",
+        }
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "elbv2.TargetGroup", &config, &name).await;
+
+    println!("\n[DELETE] elbv2.TargetGroup...");
+    provider
+        .delete("elbv2.TargetGroup", &created.provider_id)
+        .await
+        .expect("DELETE elbv2.TargetGroup failed");
+    println!("  Deleted target group.");
+    println!("[DELETE] ec2.Vpc...");
+    provider
+        .delete("ec2.Vpc", vpc_id)
+        .await
+        .expect("DELETE ec2.Vpc failed");
+    println!("  Deleted VPC.");
 
     if !changes.is_empty() {
         println!("\n** DRIFT: {} diff(s)", changes.len());

@@ -1,0 +1,36 @@
+resource vpc "integration" : aws.ec2.Vpc {
+  @intent "Integration test VPC — tests full smelt pipeline"
+
+  identity {
+    name = "smelt-integration-test"
+  }
+
+  network {
+    cidr_block = "10.88.0.0/16"
+  }
+}
+
+resource log "app" : aws.logs.LogGroup {
+  @intent "Application log group"
+
+  identity {
+    name = "/smelt/integration-test/app"
+  }
+
+  reliability {
+    retention_days = 1
+  }
+}
+
+resource queue "events" : aws.sqs.Queue {
+  @intent "Event queue for integration test"
+
+  identity {
+    name = "smelt-integ-events"
+    fifo = false
+  }
+
+  reliability {
+    visibility_timeout = 30
+  }
+}

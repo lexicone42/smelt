@@ -39,16 +39,14 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "network".into(),
                         description: "Network configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "event_bus_name".into(),
-                                description: "Event bus name".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: false,
-                                default: Some(serde_json::json!("default")),
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "event_bus_name".into(),
+                            description: "Event bus name".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: false,
+                            default: Some(serde_json::json!("default")),
+                            sensitive: false,
+                        }],
                     },
                     crate::provider::SectionSchema {
                         name: "sizing".into(),
@@ -90,19 +88,24 @@ impl AwsProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        let description = config.optional_str("/identity/description").map(String::from);
-        let event_bus_name = config.str_or("/network/event_bus_name", "default").to_string();
-        let event_pattern = config.optional_str("/sizing/event_pattern").map(String::from);
+        let description = config
+            .optional_str("/identity/description")
+            .map(String::from);
+        let event_bus_name = config
+            .str_or("/network/event_bus_name", "default")
+            .to_string();
+        let event_pattern = config
+            .optional_str("/sizing/event_pattern")
+            .map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
-        let schedule_expression = config.optional_str("/sizing/schedule_expression").map(String::from);
+        let schedule_expression = config
+            .optional_str("/sizing/schedule_expression")
+            .map(String::from);
         let state = config.str_or("/sizing/state", "ENABLED").to_string();
 
         let tags = super::extract_tags(config);
 
-        let mut req = self.eventbridge_client
-            .put_rule()
-            .name(&name)
-        ;
+        let mut req = self.eventbridge_client.put_rule().name(&name);
 
         if let Some(ref v) = description {
             req = req.description(v);
@@ -121,12 +124,13 @@ impl AwsProvider {
                     .key(k)
                     .value(v)
                     .build()
-                    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build Tag: {e}")))?
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!("failed to build Tag: {e}"))
+                    })?,
             );
         }
 
-        req
-            .send()
+        req.send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("put_rule: {e}")))?;
 
@@ -137,7 +141,8 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self.eventbridge_client
+        let result = self
+            .eventbridge_client
             .describe_rule()
             .name(provider_id)
             .send()
@@ -168,8 +173,14 @@ impl AwsProvider {
         }
 
         let mut outputs = HashMap::new();
-        outputs.insert("rule_arn".into(), serde_json::json!(resource.arn().unwrap_or("")));
-        outputs.insert("rule_name".into(), serde_json::json!(resource.name().unwrap_or("")));
+        outputs.insert(
+            "rule_arn".into(),
+            serde_json::json!(resource.arn().unwrap_or("")),
+        );
+        outputs.insert(
+            "rule_name".into(),
+            serde_json::json!(resource.name().unwrap_or("")),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -189,10 +200,7 @@ impl AwsProvider {
         let schedule_expression = config.optional_str("/sizing/schedule_expression");
         let state = config.optional_str("/sizing/state");
 
-        let mut req = self.eventbridge_client
-            .put_rule()
-            .name(provider_id)
-        ;
+        let mut req = self.eventbridge_client.put_rule().name(provider_id);
 
         if let Some(v) = description {
             req = req.description(v);
@@ -230,36 +238,33 @@ impl AwsProvider {
         Ok(())
     }
 
-
     pub(super) fn eventbridge_event_bus_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
             type_path: "eventbridge.EventBus".into(),
             description: "EventBus resource".into(),
             schema: crate::provider::ResourceSchema {
-                sections: vec![
-                    crate::provider::SectionSchema {
-                        name: "identity".into(),
-                        description: "Identity configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "description".into(),
-                                description: "Event bus description".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: false,
-                                default: None,
-                                sensitive: false,
-                            },
-                            crate::provider::FieldSchema {
-                                name: "name".into(),
-                                description: "Event bus name".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
-                    },
-                ],
+                sections: vec![crate::provider::SectionSchema {
+                    name: "identity".into(),
+                    description: "Identity configuration".into(),
+                    fields: vec![
+                        crate::provider::FieldSchema {
+                            name: "description".into(),
+                            description: "Event bus description".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: false,
+                            default: None,
+                            sensitive: false,
+                        },
+                        crate::provider::FieldSchema {
+                            name: "name".into(),
+                            description: "Event bus name".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        },
+                    ],
+                }],
             },
         }
     }
@@ -269,15 +274,14 @@ impl AwsProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        let description = config.optional_str("/identity/description").map(String::from);
+        let description = config
+            .optional_str("/identity/description")
+            .map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
 
         let tags = super::extract_tags(config);
 
-        let mut req = self.eventbridge_client
-            .create_event_bus()
-            .name(&name)
-        ;
+        let mut req = self.eventbridge_client.create_event_bus().name(&name);
 
         if let Some(ref v) = description {
             req = req.description(v);
@@ -288,12 +292,13 @@ impl AwsProvider {
                     .key(k)
                     .value(v)
                     .build()
-                    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build Tag: {e}")))?
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!("failed to build Tag: {e}"))
+                    })?,
             );
         }
 
-        req
-            .send()
+        req.send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_event_bus: {e}")))?;
 
@@ -304,7 +309,8 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self.eventbridge_client
+        let result = self
+            .eventbridge_client
             .describe_event_bus()
             .name(provider_id)
             .send()
@@ -323,8 +329,14 @@ impl AwsProvider {
         }
 
         let mut outputs = HashMap::new();
-        outputs.insert("event_bus_arn".into(), serde_json::json!(resource.arn().unwrap_or("")));
-        outputs.insert("event_bus_name".into(), serde_json::json!(resource.name().unwrap_or("")));
+        outputs.insert(
+            "event_bus_arn".into(),
+            serde_json::json!(resource.arn().unwrap_or("")),
+        );
+        outputs.insert(
+            "event_bus_name".into(),
+            serde_json::json!(resource.name().unwrap_or("")),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -339,7 +351,9 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
+        Err(ProviderError::RequiresReplacement(
+            "resource does not support in-place update".into(),
+        ))
     }
 
     pub(super) async fn delete_eventbridge_event_bus(
@@ -354,6 +368,4 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_event_bus: {e}")))?;
         Ok(())
     }
-
-
 }

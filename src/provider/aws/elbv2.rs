@@ -17,16 +17,14 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "name".into(),
-                                description: "Load balancer name".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "name".into(),
+                            description: "Load balancer name".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
                     },
                     crate::provider::SectionSchema {
                         name: "network".into(),
@@ -43,7 +41,9 @@ impl AwsProvider {
                             crate::provider::FieldSchema {
                                 name: "subnet_ids".into(),
                                 description: "Subnets to deploy in".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String)),
+                                field_type: crate::provider::FieldType::Array(Box::new(
+                                    crate::provider::FieldType::String,
+                                )),
                                 required: true,
                                 default: None,
                                 sensitive: false,
@@ -61,16 +61,16 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "security".into(),
                         description: "Security configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "security_group_ids".into(),
-                                description: "Security groups (ALB only)".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String)),
-                                required: false,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "security_group_ids".into(),
+                            description: "Security groups (ALB only)".into(),
+                            field_type: crate::provider::FieldType::Array(Box::new(
+                                crate::provider::FieldType::String,
+                            )),
+                            required: false,
+                            default: None,
+                            sensitive: false,
+                        }],
                     },
                 ],
             },
@@ -83,20 +83,36 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
         let name = config.require_str("/identity/name")?.to_string();
-        let scheme = config.str_or("/network/scheme", "internet-facing").to_string();
-        let security_group_ids: Option<Vec<String>> = config.optional_array("/security/security_group_ids").map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect());
-        let subnet_ids: Vec<String> = config.optional_array("/network/subnet_ids").map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
+        let scheme = config
+            .str_or("/network/scheme", "internet-facing")
+            .to_string();
+        let security_group_ids: Option<Vec<String>> = config
+            .optional_array("/security/security_group_ids")
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            });
+        let subnet_ids: Vec<String> = config
+            .optional_array("/network/subnet_ids")
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
         let type_val = config.str_or("/network/type", "application").to_string();
 
         let tags = super::extract_tags(config);
 
-        let mut req = self.elbv2_client
-            .create_load_balancer()
-            .name(&name)
-        ;
+        let mut req = self.elbv2_client.create_load_balancer().name(&name);
 
-        req = req.scheme(aws_sdk_elasticloadbalancingv2::types::LoadBalancerSchemeEnum::from(scheme.as_str()));
-        req = req.r#type(aws_sdk_elasticloadbalancingv2::types::LoadBalancerTypeEnum::from(type_val.as_str()));
+        req = req.scheme(
+            aws_sdk_elasticloadbalancingv2::types::LoadBalancerSchemeEnum::from(scheme.as_str()),
+        );
+        req = req.r#type(
+            aws_sdk_elasticloadbalancingv2::types::LoadBalancerTypeEnum::from(type_val.as_str()),
+        );
         if let Some(ref arr) = security_group_ids {
             for v in arr {
                 req = req.security_groups(v);
@@ -110,7 +126,7 @@ impl AwsProvider {
                 aws_sdk_elasticloadbalancingv2::types::Tag::builder()
                     .key(k)
                     .value(v)
-                    .build()
+                    .build(),
             );
         }
 
@@ -119,13 +135,12 @@ impl AwsProvider {
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_load_balancer: {e}")))?;
 
-        let container = result
-            .load_balancers()
-            .first()
-            .ok_or_else(|| ProviderError::ApiError("create_load_balancer returned no load_balancers".into()))?;
-        let provider_id = container
-            .load_balancer_arn()
-            .ok_or_else(|| ProviderError::ApiError("create_load_balancer returned no load_balancer_arn".into()))?;
+        let container = result.load_balancers().first().ok_or_else(|| {
+            ProviderError::ApiError("create_load_balancer returned no load_balancers".into())
+        })?;
+        let provider_id = container.load_balancer_arn().ok_or_else(|| {
+            ProviderError::ApiError("create_load_balancer returned no load_balancer_arn".into())
+        })?;
 
         self.read_elbv2_load_balancer(provider_id).await
     }
@@ -134,7 +149,8 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self.elbv2_client
+        let result = self
+            .elbv2_client
             .describe_load_balancers()
             .load_balancer_arns(provider_id)
             .send()
@@ -158,7 +174,10 @@ impl AwsProvider {
 
         let mut outputs = HashMap::new();
         outputs.insert("load_balancer_arn".into(), serde_json::json!(provider_id));
-        outputs.insert("dns_name".into(), serde_json::json!(resource.dns_name().unwrap_or("")));
+        outputs.insert(
+            "dns_name".into(),
+            serde_json::json!(resource.dns_name().unwrap_or("")),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -173,7 +192,9 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
+        Err(ProviderError::RequiresReplacement(
+            "resource does not support in-place update".into(),
+        ))
     }
 
     pub(super) async fn delete_elbv2_load_balancer(
@@ -189,7 +210,6 @@ impl AwsProvider {
         Ok(())
     }
 
-
     pub(super) fn elbv2_target_group_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
             type_path: "elbv2.TargetGroup".into(),
@@ -199,16 +219,14 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "name".into(),
-                                description: "Target group name".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "name".into(),
+                            description: "Target group name".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
                     },
                     crate::provider::SectionSchema {
                         name: "network".into(),
@@ -251,16 +269,14 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "reliability".into(),
                         description: "Reliability configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "health_check_path".into(),
-                                description: "Health check path".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: false,
-                                default: Some(serde_json::json!("/")),
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "health_check_path".into(),
+                            description: "Health check path".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: false,
+                            default: Some(serde_json::json!("/")),
+                            sensitive: false,
+                        }],
                     },
                 ],
             },
@@ -272,37 +288,43 @@ impl AwsProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        let health_check_path = config.str_or("/reliability/health_check_path", "/").to_string();
+        let health_check_path = config
+            .str_or("/reliability/health_check_path", "/")
+            .to_string();
         let name = config.require_str("/identity/name")?.to_string();
         let port = config.require_i64("/network/port")?;
         let protocol = config.str_or("/network/protocol", "HTTP").to_string();
-        let target_type = config.str_or("/network/target_type", "instance").to_string();
+        let target_type = config
+            .str_or("/network/target_type", "instance")
+            .to_string();
         let vpc_id = config.require_str("/network/vpc_id")?.to_string();
 
-
-        let mut req = self.elbv2_client
+        let mut req = self
+            .elbv2_client
             .create_target_group()
             .name(&name)
             .port(port as i32)
-            .vpc_id(&vpc_id)
-        ;
+            .vpc_id(&vpc_id);
 
         req = req.health_check_path(&health_check_path);
-        req = req.protocol(aws_sdk_elasticloadbalancingv2::types::ProtocolEnum::from(protocol.as_str()));
-        req = req.target_type(aws_sdk_elasticloadbalancingv2::types::TargetTypeEnum::from(target_type.as_str()));
+        req = req.protocol(aws_sdk_elasticloadbalancingv2::types::ProtocolEnum::from(
+            protocol.as_str(),
+        ));
+        req = req.target_type(aws_sdk_elasticloadbalancingv2::types::TargetTypeEnum::from(
+            target_type.as_str(),
+        ));
 
         let result = req
             .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_target_group: {e}")))?;
 
-        let container = result
-            .target_groups()
-            .first()
-            .ok_or_else(|| ProviderError::ApiError("create_target_group returned no target_groups".into()))?;
-        let provider_id = container
-            .target_group_arn()
-            .ok_or_else(|| ProviderError::ApiError("create_target_group returned no target_group_arn".into()))?;
+        let container = result.target_groups().first().ok_or_else(|| {
+            ProviderError::ApiError("create_target_group returned no target_groups".into())
+        })?;
+        let provider_id = container.target_group_arn().ok_or_else(|| {
+            ProviderError::ApiError("create_target_group returned no target_group_arn".into())
+        })?;
 
         self.read_elbv2_target_group(provider_id).await
     }
@@ -311,7 +333,8 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self.elbv2_client
+        let result = self
+            .elbv2_client
             .describe_target_groups()
             .target_group_arns(provider_id)
             .send()
@@ -355,10 +378,10 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let health_check_path = config.optional_str("/reliability/health_check_path");
 
-        let mut req = self.elbv2_client
+        let mut req = self
+            .elbv2_client
             .modify_target_group()
-            .target_group_arn(provider_id)
-        ;
+            .target_group_arn(provider_id);
 
         if let Some(v) = health_check_path {
             req = req.health_check_path(v);
@@ -384,7 +407,6 @@ impl AwsProvider {
         Ok(())
     }
 
-
     pub(super) fn elbv2_listener_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
             type_path: "elbv2.Listener".into(),
@@ -394,16 +416,14 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "name".into(),
-                                description: "Listener name (smelt tracking)".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "name".into(),
+                            description: "Listener name (smelt tracking)".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
                     },
                     crate::provider::SectionSchema {
                         name: "network".into(),
@@ -445,31 +465,33 @@ impl AwsProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        let load_balancer_arn = config.require_str("/network/load_balancer_arn")?.to_string();
+        let load_balancer_arn = config
+            .require_str("/network/load_balancer_arn")?
+            .to_string();
         let port = config.require_i64("/network/port")?;
         let protocol = config.str_or("/network/protocol", "HTTP").to_string();
 
-
-        let mut req = self.elbv2_client
+        let mut req = self
+            .elbv2_client
             .create_listener()
             .load_balancer_arn(&load_balancer_arn)
-            .port(port as i32)
-        ;
+            .port(port as i32);
 
-        req = req.protocol(aws_sdk_elasticloadbalancingv2::types::ProtocolEnum::from(protocol.as_str()));
+        req = req.protocol(aws_sdk_elasticloadbalancingv2::types::ProtocolEnum::from(
+            protocol.as_str(),
+        ));
 
         let result = req
             .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_listener: {e}")))?;
 
-        let container = result
-            .listeners()
-            .first()
-            .ok_or_else(|| ProviderError::ApiError("create_listener returned no listeners".into()))?;
-        let provider_id = container
-            .listener_arn()
-            .ok_or_else(|| ProviderError::ApiError("create_listener returned no listener_arn".into()))?;
+        let container = result.listeners().first().ok_or_else(|| {
+            ProviderError::ApiError("create_listener returned no listeners".into())
+        })?;
+        let provider_id = container.listener_arn().ok_or_else(|| {
+            ProviderError::ApiError("create_listener returned no listener_arn".into())
+        })?;
 
         self.read_elbv2_listener(provider_id).await
     }
@@ -478,7 +500,8 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self.elbv2_client
+        let result = self
+            .elbv2_client
             .describe_listeners()
             .listener_arns(provider_id)
             .send()
@@ -515,10 +538,10 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         let protocol = config.optional_str("/network/protocol");
 
-        let mut req = self.elbv2_client
+        let mut req = self
+            .elbv2_client
             .modify_listener()
-            .listener_arn(provider_id)
-        ;
+            .listener_arn(provider_id);
 
         if let Some(v) = protocol {
             req = req.protocol(aws_sdk_elasticloadbalancingv2::types::ProtocolEnum::from(v));
@@ -543,6 +566,4 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_listener: {e}")))?;
         Ok(())
     }
-
-
 }

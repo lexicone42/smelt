@@ -13,22 +13,18 @@ impl AwsProvider {
             type_path: "route53.HostedZone".into(),
             description: "HostedZone resource".into(),
             schema: crate::provider::ResourceSchema {
-                sections: vec![
-                    crate::provider::SectionSchema {
-                        name: "identity".into(),
-                        description: "Identity configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "name".into(),
-                                description: "Domain name (e.g., example.com)".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
-                    },
-                ],
+                sections: vec![crate::provider::SectionSchema {
+                    name: "identity".into(),
+                    description: "Identity configuration".into(),
+                    fields: vec![crate::provider::FieldSchema {
+                        name: "name".into(),
+                        description: "Domain name (e.g., example.com)".into(),
+                        field_type: crate::provider::FieldType::String,
+                        required: true,
+                        default: None,
+                        sensitive: false,
+                    }],
+                }],
             },
         }
     }
@@ -40,11 +36,7 @@ impl AwsProvider {
         // Extract fields from config
         let name = config.require_str("/identity/name")?.to_string();
 
-
-        let mut req = self.route53_client
-            .create_hosted_zone()
-            .name(&name)
-        ;
+        let mut req = self.route53_client.create_hosted_zone().name(&name);
 
         let caller_ref = format!("smelt-{}", chrono::Utc::now().timestamp());
         req = req.caller_reference(&caller_ref);
@@ -54,12 +46,10 @@ impl AwsProvider {
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_hosted_zone: {e}")))?;
 
-        let container = result
-            .hosted_zone()
-            .ok_or_else(|| ProviderError::ApiError("create_hosted_zone returned no hosted_zone".into()))?;
-        let provider_id = container
-            .id()
-        ;
+        let container = result.hosted_zone().ok_or_else(|| {
+            ProviderError::ApiError("create_hosted_zone returned no hosted_zone".into())
+        })?;
+        let provider_id = container.id();
 
         let provider_id = provider_id.trim_start_matches("/hostedzone/");
         self.read_route53_hosted_zone(provider_id).await
@@ -69,7 +59,8 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self.route53_client
+        let result = self
+            .route53_client
             .get_hosted_zone()
             .id(provider_id)
             .send()
@@ -103,7 +94,9 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
+        Err(ProviderError::RequiresReplacement(
+            "resource does not support in-place update".into(),
+        ))
     }
 
     pub(super) async fn delete_route53_hosted_zone(
@@ -119,7 +112,6 @@ impl AwsProvider {
         Ok(())
     }
 
-
     pub(super) fn route53_record_set_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
             type_path: "route53.RecordSet".into(),
@@ -129,16 +121,14 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "name".into(),
-                                description: "Record name (FQDN)".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "name".into(),
+                            description: "Record name (FQDN)".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
                     },
                     crate::provider::SectionSchema {
                         name: "network".into(),
@@ -155,7 +145,7 @@ impl AwsProvider {
                             crate::provider::FieldSchema {
                                 name: "record_type".into(),
                                 description: "Record type".into(),
-                                field_type: crate::provider::FieldType::String /* Enum */,
+                                field_type: crate::provider::FieldType::String, /* Enum */
                                 required: true,
                                 default: None,
                                 sensitive: false,
@@ -171,7 +161,9 @@ impl AwsProvider {
                             crate::provider::FieldSchema {
                                 name: "values".into(),
                                 description: "Record values".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String)),
+                                field_type: crate::provider::FieldType::Array(Box::new(
+                                    crate::provider::FieldType::String,
+                                )),
                                 required: false,
                                 default: None,
                                 sensitive: false,
@@ -434,6 +426,4 @@ impl AwsProvider {
             })?;
         Ok(())
     }
-
-
 }

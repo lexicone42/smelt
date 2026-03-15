@@ -39,16 +39,14 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "reliability".into(),
                         description: "Reliability configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "automatic_failover".into(),
-                                description: "Enable automatic failover".into(),
-                                field_type: crate::provider::FieldType::Bool,
-                                required: false,
-                                default: Some(serde_json::json!(false)),
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "automatic_failover".into(),
+                            description: "Enable automatic failover".into(),
+                            field_type: crate::provider::FieldType::Bool,
+                            required: false,
+                            default: Some(serde_json::json!(false)),
+                            sensitive: false,
+                        }],
                     },
                     crate::provider::SectionSchema {
                         name: "sizing".into(),
@@ -99,20 +97,24 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
         let automatic_failover = config.bool_or("/reliability/automatic_failover", false);
-        let description = config.str_or("/identity/description", "smelt managed").to_string();
+        let description = config
+            .str_or("/identity/description", "smelt managed")
+            .to_string();
         let engine = config.str_or("/sizing/engine", "redis").to_string();
-        let engine_version = config.optional_str("/sizing/engine_version").map(String::from);
+        let engine_version = config
+            .optional_str("/sizing/engine_version")
+            .map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
         let node_type = config.require_str("/sizing/node_type")?.to_string();
         let num_cache_clusters = config.i64_or("/sizing/num_cache_clusters", 1);
 
         let tags = super::extract_tags(config);
 
-        let mut req = self.elasticache_client
+        let mut req = self
+            .elasticache_client
             .create_replication_group()
             .replication_group_id(&name)
-            .cache_node_type(&node_type)
-        ;
+            .cache_node_type(&node_type);
 
         req = req.automatic_failover_enabled(automatic_failover);
         req = req.replication_group_description(&description);
@@ -126,12 +128,11 @@ impl AwsProvider {
                 aws_sdk_elasticache::types::Tag::builder()
                     .key(k)
                     .value(v)
-                    .build()
+                    .build(),
             );
         }
 
-        req
-            .send()
+        req.send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_replication_group: {e}")))?;
 
@@ -142,7 +143,8 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self.elasticache_client
+        let result = self
+            .elasticache_client
             .describe_replication_groups()
             .replication_group_id(provider_id)
             .send()
@@ -168,7 +170,10 @@ impl AwsProvider {
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert("replication_group_id".into(), serde_json::json!(provider_id));
+        outputs.insert(
+            "replication_group_id".into(),
+            serde_json::json!(provider_id),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -186,10 +191,10 @@ impl AwsProvider {
         let description = config.optional_str("/identity/description");
         let node_type = config.optional_str("/sizing/node_type");
 
-        let mut req = self.elasticache_client
+        let mut req = self
+            .elasticache_client
             .modify_replication_group()
-            .replication_group_id(provider_id)
-        ;
+            .replication_group_id(provider_id);
 
         if let Some(v) = automatic_failover {
             req = req.automatic_failover_enabled(v);
@@ -222,7 +227,6 @@ impl AwsProvider {
         Ok(())
     }
 
-
     pub(super) fn elasticache_cache_subnet_group_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
             type_path: "elasticache.CacheSubnetGroup".into(),
@@ -254,16 +258,16 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "network".into(),
                         description: "Network configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "subnet_ids".into(),
-                                description: "VPC subnet IDs".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String)),
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "subnet_ids".into(),
+                            description: "VPC subnet IDs".into(),
+                            field_type: crate::provider::FieldType::Array(Box::new(
+                                crate::provider::FieldType::String,
+                            )),
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
                     },
                 ],
             },
@@ -275,23 +279,30 @@ impl AwsProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        let description = config.str_or("/identity/description", "smelt managed").to_string();
+        let description = config
+            .str_or("/identity/description", "smelt managed")
+            .to_string();
         let name = config.require_str("/identity/name")?.to_string();
-        let subnet_ids: Vec<String> = config.optional_array("/network/subnet_ids").map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
+        let subnet_ids: Vec<String> = config
+            .optional_array("/network/subnet_ids")
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
 
-
-        let mut req = self.elasticache_client
+        let mut req = self
+            .elasticache_client
             .create_cache_subnet_group()
-            .cache_subnet_group_name(&name)
-        ;
+            .cache_subnet_group_name(&name);
 
         req = req.cache_subnet_group_description(&description);
         for v in &subnet_ids {
             req = req.subnet_ids(v);
         }
 
-        req
-            .send()
+        req.send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_cache_subnet_group: {e}")))?;
 
@@ -302,7 +313,8 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self.elasticache_client
+        let result = self
+            .elasticache_client
             .describe_cache_subnet_groups()
             .cache_subnet_group_name(provider_id)
             .send()
@@ -325,8 +337,14 @@ impl AwsProvider {
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert("cache_subnet_group_name".into(), serde_json::json!(provider_id));
-        outputs.insert("arn".into(), serde_json::json!(resource.arn().unwrap_or("")));
+        outputs.insert(
+            "cache_subnet_group_name".into(),
+            serde_json::json!(provider_id),
+        );
+        outputs.insert(
+            "arn".into(),
+            serde_json::json!(resource.arn().unwrap_or("")),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -341,12 +359,17 @@ impl AwsProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         let description = config.optional_str("/identity/description");
-        let subnet_ids: Option<Vec<String>> = config.optional_array("/network/subnet_ids").map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+        let subnet_ids: Option<Vec<String>> =
+            config.optional_array("/network/subnet_ids").map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            });
 
-        let mut req = self.elasticache_client
+        let mut req = self
+            .elasticache_client
             .modify_cache_subnet_group()
-            .cache_subnet_group_name(provider_id)
-        ;
+            .cache_subnet_group_name(provider_id);
 
         if let Some(v) = description {
             req = req.cache_subnet_group_description(v);
@@ -376,6 +399,4 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_cache_subnet_group: {e}")))?;
         Ok(())
     }
-
-
 }

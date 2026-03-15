@@ -68,17 +68,20 @@ impl AwsProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        let description = config.optional_str("/identity/description").map(String::from);
-        let kms_key_id = config.optional_str("/security/kms_key_id").map(String::from);
+        let description = config
+            .optional_str("/identity/description")
+            .map(String::from);
+        let kms_key_id = config
+            .optional_str("/security/kms_key_id")
+            .map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
-        let secret_string = config.optional_str("/security/secret_string").map(String::from);
+        let secret_string = config
+            .optional_str("/security/secret_string")
+            .map(String::from);
 
         let tags = super::extract_tags(config);
 
-        let mut req = self.secretsmanager_client
-            .create_secret()
-            .name(&name)
-        ;
+        let mut req = self.secretsmanager_client.create_secret().name(&name);
 
         if let Some(ref v) = description {
             req = req.description(v);
@@ -94,7 +97,7 @@ impl AwsProvider {
                 aws_sdk_secretsmanager::types::Tag::builder()
                     .key(k)
                     .value(v)
-                    .build()
+                    .build(),
             );
         }
 
@@ -114,7 +117,8 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self.secretsmanager_client
+        let result = self
+            .secretsmanager_client
             .describe_secret()
             .secret_id(provider_id)
             .send()
@@ -139,8 +143,14 @@ impl AwsProvider {
         }
 
         let mut outputs = HashMap::new();
-        outputs.insert("secret_arn".into(), serde_json::json!(result.arn().unwrap_or("")));
-        outputs.insert("secret_name".into(), serde_json::json!(result.name().unwrap_or("")));
+        outputs.insert(
+            "secret_arn".into(),
+            serde_json::json!(result.arn().unwrap_or("")),
+        );
+        outputs.insert(
+            "secret_name".into(),
+            serde_json::json!(result.name().unwrap_or("")),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -158,10 +168,10 @@ impl AwsProvider {
         let kms_key_id = config.optional_str("/security/kms_key_id");
         let secret_string = config.optional_str("/security/secret_string");
 
-        let mut req = self.secretsmanager_client
+        let mut req = self
+            .secretsmanager_client
             .update_secret()
-            .secret_id(provider_id)
-        ;
+            .secret_id(provider_id);
 
         if let Some(v) = description {
             req = req.description(v);
@@ -193,6 +203,4 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_secret: {e}")))?;
         Ok(())
     }
-
-
 }

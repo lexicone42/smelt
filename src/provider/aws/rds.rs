@@ -17,16 +17,14 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "name".into(),
-                                description: "DB instance identifier".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "name".into(),
+                            description: "DB instance identifier".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
                     },
                     crate::provider::SectionSchema {
                         name: "network".into(),
@@ -53,16 +51,14 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "reliability".into(),
                         description: "Reliability configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "multi_az".into(),
-                                description: "Multi-AZ deployment".into(),
-                                field_type: crate::provider::FieldType::Bool,
-                                required: false,
-                                default: Some(serde_json::json!(false)),
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "multi_az".into(),
+                            description: "Multi-AZ deployment".into(),
+                            field_type: crate::provider::FieldType::Bool,
+                            required: false,
+                            default: Some(serde_json::json!(false)),
+                            sensitive: false,
+                        }],
                     },
                     crate::provider::SectionSchema {
                         name: "security".into(),
@@ -143,9 +139,13 @@ impl AwsProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
         let allocated_storage = config.i64_or("/sizing/allocated_storage", 20);
-        let db_subnet_group_name = config.optional_str("/network/db_subnet_group_name").map(String::from);
+        let db_subnet_group_name = config
+            .optional_str("/network/db_subnet_group_name")
+            .map(String::from);
         let engine = config.require_str("/sizing/engine")?.to_string();
-        let engine_version = config.optional_str("/sizing/engine_version").map(String::from);
+        let engine_version = config
+            .optional_str("/sizing/engine_version")
+            .map(String::from);
         let instance_class = config.require_str("/sizing/instance_class")?.to_string();
         let master_password = config.require_str("/security/master_password")?.to_string();
         let master_username = config.require_str("/security/master_username")?.to_string();
@@ -156,14 +156,14 @@ impl AwsProvider {
 
         let tags = super::extract_tags(config);
 
-        let mut req = self.rds_client
+        let mut req = self
+            .rds_client
             .create_db_instance()
             .engine(&engine)
             .db_instance_class(&instance_class)
             .master_user_password(&master_password)
             .master_username(&master_username)
-            .db_instance_identifier(&name)
-        ;
+            .db_instance_identifier(&name);
 
         req = req.allocated_storage(allocated_storage as i32);
         if let Some(ref v) = db_subnet_group_name {
@@ -176,16 +176,10 @@ impl AwsProvider {
         req = req.publicly_accessible(publicly_accessible);
         req = req.storage_type(&storage_type);
         for (k, v) in &tags {
-            req = req.tags(
-                aws_sdk_rds::types::Tag::builder()
-                    .key(k)
-                    .value(v)
-                    .build()
-            );
+            req = req.tags(aws_sdk_rds::types::Tag::builder().key(k).value(v).build());
         }
 
-        req
-            .send()
+        req.send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_db_instance: {e}")))?;
 
@@ -196,7 +190,8 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self.rds_client
+        let result = self
+            .rds_client
             .describe_db_instances()
             .db_instance_identifier(provider_id)
             .send()
@@ -234,8 +229,14 @@ impl AwsProvider {
         }
 
         let mut outputs = HashMap::new();
-        outputs.insert("endpoint".into(), serde_json::json!(resource.endpoint().and_then(|e| e.address()).unwrap_or("")));
-        outputs.insert("db_instance_arn".into(), serde_json::json!(resource.db_instance_arn().unwrap_or("")));
+        outputs.insert(
+            "endpoint".into(),
+            serde_json::json!(resource.endpoint().and_then(|e| e.address()).unwrap_or("")),
+        );
+        outputs.insert(
+            "db_instance_arn".into(),
+            serde_json::json!(resource.db_instance_arn().unwrap_or("")),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -250,7 +251,9 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
+        Err(ProviderError::RequiresReplacement(
+            "resource does not support in-place update".into(),
+        ))
     }
 
     pub(super) async fn delete_rds_db_instance(
@@ -266,7 +269,6 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_db_instance: {e}")))?;
         Ok(())
     }
-
 
     pub(super) fn rds_db_subnet_group_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
@@ -299,16 +301,16 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "network".into(),
                         description: "Network configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "subnet_ids".into(),
-                                description: "List of subnet IDs".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String)),
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "subnet_ids".into(),
+                            description: "List of subnet IDs".into(),
+                            field_type: crate::provider::FieldType::Array(Box::new(
+                                crate::provider::FieldType::String,
+                            )),
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
                     },
                 ],
             },
@@ -320,32 +322,35 @@ impl AwsProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        let description = config.str_or("/identity/description", "Managed by smelt").to_string();
+        let description = config
+            .str_or("/identity/description", "Managed by smelt")
+            .to_string();
         let name = config.require_str("/identity/name")?.to_string();
-        let subnet_ids: Vec<String> = config.optional_array("/network/subnet_ids").map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
+        let subnet_ids: Vec<String> = config
+            .optional_array("/network/subnet_ids")
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
 
         let tags = super::extract_tags(config);
 
-        let mut req = self.rds_client
+        let mut req = self
+            .rds_client
             .create_db_subnet_group()
-            .db_subnet_group_name(&name)
-        ;
+            .db_subnet_group_name(&name);
 
         req = req.db_subnet_group_description(&description);
         for v in &subnet_ids {
             req = req.subnet_ids(v);
         }
         for (k, v) in &tags {
-            req = req.tags(
-                aws_sdk_rds::types::Tag::builder()
-                    .key(k)
-                    .value(v)
-                    .build()
-            );
+            req = req.tags(aws_sdk_rds::types::Tag::builder().key(k).value(v).build());
         }
 
-        req
-            .send()
+        req.send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("create_db_subnet_group: {e}")))?;
 
@@ -356,7 +361,8 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self.rds_client
+        let result = self
+            .rds_client
             .describe_db_subnet_groups()
             .db_subnet_group_name(provider_id)
             .send()
@@ -379,8 +385,14 @@ impl AwsProvider {
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert("db_subnet_group_name".into(), serde_json::json!(provider_id));
-        outputs.insert("db_subnet_group_arn".into(), serde_json::json!(resource.db_subnet_group_arn().unwrap_or("")));
+        outputs.insert(
+            "db_subnet_group_name".into(),
+            serde_json::json!(provider_id),
+        );
+        outputs.insert(
+            "db_subnet_group_arn".into(),
+            serde_json::json!(resource.db_subnet_group_arn().unwrap_or("")),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -395,7 +407,9 @@ impl AwsProvider {
         _provider_id: &str,
         _config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement("resource does not support in-place update".into()))
+        Err(ProviderError::RequiresReplacement(
+            "resource does not support in-place update".into(),
+        ))
     }
 
     pub(super) async fn delete_rds_db_subnet_group(
@@ -410,6 +424,4 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_db_subnet_group: {e}")))?;
         Ok(())
     }
-
-
 }

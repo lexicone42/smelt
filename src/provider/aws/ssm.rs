@@ -28,7 +28,9 @@ impl AwsProvider {
                             },
                             crate::provider::FieldSchema {
                                 name: "name".into(),
-                                description: "Parameter name (path-style recommended, e.g., /app/config/key)".into(),
+                                description:
+                                    "Parameter name (path-style recommended, e.g., /app/config/key)"
+                                        .into(),
                                 field_type: crate::provider::FieldType::String,
                                 required: true,
                                 default: None,
@@ -76,18 +78,15 @@ impl AwsProvider {
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
-        let description = config.optional_str("/identity/description").map(String::from);
+        let description = config
+            .optional_str("/identity/description")
+            .map(String::from);
         let name = config.require_str("/identity/name")?.to_string();
         let tier = config.str_or("/sizing/tier", "Standard").to_string();
         let type_val = config.str_or("/sizing/type", "String").to_string();
         let value = config.require_str("/sizing/value")?.to_string();
 
-
-        let mut req = self.ssm_client
-            .put_parameter()
-            .name(&name)
-            .value(&value)
-        ;
+        let mut req = self.ssm_client.put_parameter().name(&name).value(&value);
 
         if let Some(ref v) = description {
             req = req.description(v);
@@ -95,8 +94,7 @@ impl AwsProvider {
         req = req.tier(aws_sdk_ssm::types::ParameterTier::from(tier.as_str()));
         req = req.r#type(aws_sdk_ssm::types::ParameterType::from(type_val.as_str()));
 
-        req
-            .send()
+        req.send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("put_parameter: {e}")))?;
 
@@ -107,7 +105,8 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self.ssm_client
+        let result = self
+            .ssm_client
             .get_parameter()
             .name(provider_id)
             .send()
@@ -129,8 +128,14 @@ impl AwsProvider {
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert("parameter_name".into(), serde_json::json!(resource.name().unwrap_or("")));
-        outputs.insert("parameter_arn".into(), serde_json::json!(resource.arn().unwrap_or("")));
+        outputs.insert(
+            "parameter_name".into(),
+            serde_json::json!(resource.name().unwrap_or("")),
+        );
+        outputs.insert(
+            "parameter_arn".into(),
+            serde_json::json!(resource.arn().unwrap_or("")),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -149,10 +154,7 @@ impl AwsProvider {
         let type_val = config.optional_str("/sizing/type");
         let value = config.optional_str("/sizing/value");
 
-        let mut req = self.ssm_client
-            .put_parameter()
-            .name(provider_id)
-        ;
+        let mut req = self.ssm_client.put_parameter().name(provider_id);
 
         if let Some(v) = description {
             req = req.description(v);
@@ -187,6 +189,4 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("delete_parameter: {e}")))?;
         Ok(())
     }
-
-
 }

@@ -39,30 +39,26 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "reliability".into(),
                         description: "Reliability configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "versioning".into(),
-                                description: "Enable object versioning".into(),
-                                field_type: crate::provider::FieldType::Bool,
-                                required: false,
-                                default: Some(serde_json::json!(false)),
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "versioning".into(),
+                            description: "Enable object versioning".into(),
+                            field_type: crate::provider::FieldType::Bool,
+                            required: false,
+                            default: Some(serde_json::json!(false)),
+                            sensitive: false,
+                        }],
                     },
                     crate::provider::SectionSchema {
                         name: "security".into(),
                         description: "Security configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "encryption".into(),
-                                description: "Server-side encryption (AES256 or aws:kms)".into(),
-                                field_type: crate::provider::FieldType::String /* Enum */,
-                                required: false,
-                                default: Some(serde_json::json!("AES256")),
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "encryption".into(),
+                            description: "Server-side encryption (AES256 or aws:kms)".into(),
+                            field_type: crate::provider::FieldType::String, /* Enum */
+                            required: false,
+                            default: Some(serde_json::json!("AES256")),
+                            sensitive: false,
+                        }],
                     },
                 ],
             },
@@ -118,12 +114,20 @@ impl AwsProvider {
                                     aws_sdk_s3::types::ServerSideEncryptionByDefault::builder()
                                         .sse_algorithm(sse)
                                         .build()
-                                        .map_err(|e| ProviderError::InvalidConfig(format!("failed to build ServerSideEncryptionByDefault: {e}")))?,
+                                        .map_err(|e| {
+                                            ProviderError::InvalidConfig(format!(
+                                                "failed to build ServerSideEncryptionByDefault: {e}"
+                                            ))
+                                        })?,
                                 )
                                 .build(),
                         )
                         .build()
-                        .map_err(|e| ProviderError::InvalidConfig(format!("failed to build ServerSideEncryptionConfiguration: {e}")))?,
+                        .map_err(|e| {
+                            ProviderError::InvalidConfig(format!(
+                                "failed to build ServerSideEncryptionConfiguration: {e}"
+                            ))
+                        })?,
                 )
                 .send()
                 .await
@@ -140,7 +144,9 @@ impl AwsProvider {
                         .key(k)
                         .value(v)
                         .build()
-                        .map_err(|e| ProviderError::InvalidConfig(format!("failed to build S3 Tag: {e}")))
+                        .map_err(|e| {
+                            ProviderError::InvalidConfig(format!("failed to build S3 Tag: {e}"))
+                        })
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             self.s3_client
@@ -150,7 +156,9 @@ impl AwsProvider {
                     aws_sdk_s3::types::Tagging::builder()
                         .set_tag_set(Some(tag_set))
                         .build()
-                        .map_err(|e| ProviderError::InvalidConfig(format!("failed to build Tagging: {e}")))?,
+                        .map_err(|e| {
+                            ProviderError::InvalidConfig(format!("failed to build Tagging: {e}"))
+                        })?,
                 )
                 .send()
                 .await
@@ -175,7 +183,8 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("HeadBucket: {e}")))?;
 
         let mut versioning = false;
-        if let Ok(v) = self.s3_client
+        if let Ok(v) = self
+            .s3_client
             .get_bucket_versioning()
             .bucket(provider_id)
             .send()
@@ -191,7 +200,10 @@ impl AwsProvider {
 
         let mut outputs = HashMap::new();
         outputs.insert("bucket_name".into(), serde_json::json!(provider_id));
-        outputs.insert("bucket_arn".into(), serde_json::json!(format!("arn:aws:s3:::{provider_id}")));
+        outputs.insert(
+            "bucket_arn".into(),
+            serde_json::json!(format!("arn:aws:s3:::{provider_id}")),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -230,10 +242,7 @@ impl AwsProvider {
         self.read_s3_bucket(provider_id).await
     }
 
-    pub(super) async fn delete_s3_bucket(
-        &self,
-        provider_id: &str,
-    ) -> Result<(), ProviderError> {
+    pub(super) async fn delete_s3_bucket(&self, provider_id: &str) -> Result<(), ProviderError> {
         self.s3_client
             .delete_bucket()
             .bucket(provider_id)
@@ -242,6 +251,4 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("DeleteBucket: {e}")))?;
         Ok(())
     }
-
-
 }

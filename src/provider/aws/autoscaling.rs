@@ -17,30 +17,28 @@ impl AwsProvider {
                     crate::provider::SectionSchema {
                         name: "identity".into(),
                         description: "Identity configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "name".into(),
-                                description: "Auto Scaling group name".into(),
-                                field_type: crate::provider::FieldType::String,
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "name".into(),
+                            description: "Auto Scaling group name".into(),
+                            field_type: crate::provider::FieldType::String,
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
                     },
                     crate::provider::SectionSchema {
                         name: "network".into(),
                         description: "Network configuration".into(),
-                        fields: vec![
-                            crate::provider::FieldSchema {
-                                name: "subnet_ids".into(),
-                                description: "Subnet IDs for the Auto Scaling group".into(),
-                                field_type: crate::provider::FieldType::Array(Box::new(crate::provider::FieldType::String)),
-                                required: true,
-                                default: None,
-                                sensitive: false,
-                            },
-                        ],
+                        fields: vec![crate::provider::FieldSchema {
+                            name: "subnet_ids".into(),
+                            description: "Subnet IDs for the Auto Scaling group".into(),
+                            field_type: crate::provider::FieldType::Array(Box::new(
+                                crate::provider::FieldType::String,
+                            )),
+                            required: true,
+                            default: None,
+                            sensitive: false,
+                        }],
                     },
                     crate::provider::SectionSchema {
                         name: "reliability".into(),
@@ -57,7 +55,7 @@ impl AwsProvider {
                             crate::provider::FieldSchema {
                                 name: "health_check_type".into(),
                                 description: "Health check type".into(),
-                                field_type: crate::provider::FieldType::String /* Enum */,
+                                field_type: crate::provider::FieldType::String, /* Enum */
                                 required: false,
                                 default: Some(serde_json::json!("EC2")),
                                 sensitive: false,
@@ -139,10 +137,16 @@ impl AwsProvider {
         let subnet_ids_joined = config
             .pointer("/network/subnet_ids")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|s| s.as_str()).collect::<Vec<_>>().join(","))
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            })
             .unwrap_or_default();
 
-        let mut req = self.autoscaling_client
+        let mut req = self
+            .autoscaling_client
             .create_auto_scaling_group()
             .auto_scaling_group_name(&name)
             .min_size(min_size)
@@ -177,7 +181,8 @@ impl AwsProvider {
             );
         }
 
-        req.send().await
+        req.send()
+            .await
             .map_err(|e| ProviderError::ApiError(format!("CreateAutoScalingGroup: {e}")))?;
 
         let provider_id = &name;
@@ -189,18 +194,21 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self.autoscaling_client
+        let result = self
+            .autoscaling_client
             .describe_auto_scaling_groups()
             .auto_scaling_group_names(provider_id)
             .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("DescribeAutoScalingGroups: {e}")))?;
 
-        let asg = result.auto_scaling_groups()
+        let asg = result
+            .auto_scaling_groups()
             .first()
             .ok_or_else(|| ProviderError::NotFound(format!("AutoScalingGroup {provider_id}")))?;
 
-        let availability_zones: Vec<&str> = asg.availability_zones()
+        let availability_zones: Vec<&str> = asg
+            .availability_zones()
             .iter()
             .map(|s| s.as_str())
             .collect();
@@ -225,8 +233,14 @@ impl AwsProvider {
         });
 
         let mut outputs = HashMap::new();
-        outputs.insert("asg_arn".into(), serde_json::json!(asg.auto_scaling_group_arn().unwrap_or("")));
-        outputs.insert("asg_name".into(), serde_json::json!(asg.auto_scaling_group_name()));
+        outputs.insert(
+            "asg_arn".into(),
+            serde_json::json!(asg.auto_scaling_group_arn().unwrap_or("")),
+        );
+        outputs.insert(
+            "asg_name".into(),
+            serde_json::json!(asg.auto_scaling_group_name()),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -255,7 +269,8 @@ impl AwsProvider {
             .and_then(|v| v.as_i64())
             .unwrap_or(1) as i32;
 
-        let health_check_type = config.optional_str("/reliability/health_check_type")
+        let health_check_type = config
+            .optional_str("/reliability/health_check_type")
             .map(|s| s.to_string());
 
         let health_check_grace_period = config
@@ -291,6 +306,4 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("DeleteAutoScalingGroup: {e}")))?;
         Ok(())
     }
-
-
 }

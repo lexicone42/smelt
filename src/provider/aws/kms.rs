@@ -83,13 +83,15 @@ impl AwsProvider {
         &self,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let description = config.optional_str("/identity/description")
+        let description = config
+            .optional_str("/identity/description")
             .or_else(|| config.optional_str("/identity/name"))
             .unwrap_or("Managed by smelt");
         let key_usage = config.str_or("/security/key_usage", "ENCRYPT_DECRYPT");
         let key_spec = config.str_or("/security/key_spec", "SYMMETRIC_DEFAULT");
 
-        let mut req = self.kms_client
+        let mut req = self
+            .kms_client
             .create_key()
             .description(description)
             .key_usage(aws_sdk_kms::types::KeyUsageType::from(key_usage))
@@ -102,7 +104,9 @@ impl AwsProvider {
                     .tag_key(k)
                     .tag_value(v)
                     .build()
-                    .map_err(|e| ProviderError::InvalidConfig(format!("failed to build KMS Tag: {e}")))?
+                    .map_err(|e| {
+                        ProviderError::InvalidConfig(format!("failed to build KMS Tag: {e}"))
+                    })?,
             );
         }
 
@@ -110,10 +114,13 @@ impl AwsProvider {
             req = req.policy(policy);
         }
 
-        let result = req.send().await
+        let result = req
+            .send()
+            .await
             .map_err(|e| ProviderError::ApiError(format!("create_key: {e}")))?;
 
-        let key = result.key_metadata()
+        let key = result
+            .key_metadata()
             .ok_or_else(|| ProviderError::ApiError("CreateKey returned no metadata".into()))?;
         let provider_id = key.key_id();
 
@@ -140,7 +147,8 @@ impl AwsProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let result = self.kms_client
+        let result = self
+            .kms_client
             .describe_key()
             .key_id(provider_id)
             .send()
@@ -167,7 +175,10 @@ impl AwsProvider {
 
         let mut outputs = HashMap::new();
         outputs.insert("key_id".into(), serde_json::json!(resource.key_id()));
-        outputs.insert("key_arn".into(), serde_json::json!(resource.arn().unwrap_or("")));
+        outputs.insert(
+            "key_arn".into(),
+            serde_json::json!(resource.arn().unwrap_or("")),
+        );
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -212,10 +223,7 @@ impl AwsProvider {
         self.read_kms_key(provider_id).await
     }
 
-    pub(super) async fn delete_kms_key(
-        &self,
-        provider_id: &str,
-    ) -> Result<(), ProviderError> {
+    pub(super) async fn delete_kms_key(&self, provider_id: &str) -> Result<(), ProviderError> {
         self.kms_client
             .schedule_key_deletion()
             .key_id(provider_id)
@@ -225,6 +233,4 @@ impl AwsProvider {
             .map_err(|e| ProviderError::ApiError(format!("schedule_key_deletion: {e}")))?;
         Ok(())
     }
-
-
 }
