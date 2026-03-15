@@ -1138,32 +1138,25 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetFirewall", e))?;
 
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "identity": {
-                "description": firewall.description.as_deref().unwrap_or(""),
                 "name": firewall.name.as_deref().unwrap_or(""),
             },
-            "config": {
-                "destination_ranges": &firewall.destination_ranges,
-                "disabled": firewall.disabled.unwrap_or(false),
-                "log_config": &firewall.log_config,
-                "params": &firewall.params,
-                "source_service_accounts": &firewall.source_service_accounts,
-                "target_service_accounts": &firewall.target_service_accounts,
-            },
             "network": {
-                "network": firewall.network.as_deref().unwrap_or(""),
+                "network": super::normalize_gcp_url(firewall.network.as_deref().unwrap_or("")),
             },
             "security": {
                 "allowed": &firewall.allowed,
-                "denied": &firewall.denied,
                 "direction": &firewall.direction,
-                "priority": firewall.priority.unwrap_or(0),
                 "source_ranges": &firewall.source_ranges,
-                "source_tags": &firewall.source_tags,
-                "target_tags": &firewall.target_tags,
             },
         });
+        if let Some(desc) = firewall.description.as_deref().filter(|s| !s.is_empty()) {
+            state["identity"]["description"] = serde_json::json!(desc);
+        }
+        if !firewall.denied.is_empty() {
+            state["security"]["denied"] = serde_json::json!(&firewall.denied);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert(

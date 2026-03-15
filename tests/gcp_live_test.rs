@@ -505,3 +505,283 @@ async fn gcp_storage_bucket_crud() {
         }
     }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Pub/Sub Topic — free
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_pubsub_topic_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("topic");
+
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "pubsub.Topic", &config, &name).await;
+
+    println!("\n[DELETE] pubsub.Topic...");
+    provider
+        .delete("pubsub.Topic", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Pub/Sub Subscription — free, depends on Topic
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_pubsub_subscription_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("sub");
+
+    // Create topic first
+    println!("[SETUP] Creating Pub/Sub topic...");
+    let topic = provider
+        .create(
+            "pubsub.Topic",
+            &serde_json::json!({
+                "identity": { "name": &format!("{name}-topic") },
+            }),
+        )
+        .await
+        .expect("Topic create failed");
+    println!("  topic = {}", topic.provider_id);
+
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+        "reliability": {
+            "topic": format!("projects/{project}/topics/{name}-topic"),
+            "ack_deadline_seconds": 10,
+        },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "pubsub.Subscription", &config, &name).await;
+
+    println!("\n[DELETE] pubsub.Subscription...");
+    provider
+        .delete("pubsub.Subscription", &created.provider_id)
+        .await
+        .expect("Sub DELETE failed");
+    println!("  Deleted subscription.");
+    println!("[DELETE] pubsub.Topic...");
+    provider
+        .delete("pubsub.Topic", &topic.provider_id)
+        .await
+        .expect("Topic DELETE failed");
+    println!("  Deleted topic.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Secret Manager Secret — free tier
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_secret_manager_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("secret");
+
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+        "reliability": {
+            "replication": {
+                "automatic": {}
+            }
+        }
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "secretmanager.Secret", &config, &name).await;
+
+    println!("\n[DELETE] secretmanager.Secret...");
+    provider
+        .delete("secretmanager.Secret", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Artifact Registry Repository — free tier
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_artifact_registry_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("ar");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test repo",
+        },
+        "config": {
+            "format": "DOCKER",
+        },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "artifactregistry.Repository", &config, &name).await;
+
+    println!("\n[DELETE] artifactregistry.Repository...");
+    provider
+        .delete("artifactregistry.Repository", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Cloud DNS ManagedZone — free for private zones
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_dns_managed_zone_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("dns");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test zone",
+        },
+        "dns": {
+            "dns_name": "smelt-test.internal.",
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "dns.ManagedZone", &config, &name).await;
+
+    println!("\n[DELETE] dns.ManagedZone...");
+    provider
+        .delete("dns.ManagedZone", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Compute Firewall — free, depends on Network
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_firewall_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("fw");
+
+    // Create network first
+    println!("[SETUP] Creating VPC network...");
+    let net = provider
+        .create(
+            "compute.Network",
+            &serde_json::json!({
+                "identity": { "name": &format!("{name}-net") },
+                "network": { "auto_create_subnetworks": false, "routing_mode": "REGIONAL" }
+            }),
+        )
+        .await
+        .expect("Network create failed");
+    println!("  network = {}", net.provider_id);
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test firewall",
+        },
+        "network": {
+            "network": format!("projects/{project}/global/networks/{name}-net"),
+        },
+        "security": {
+            "allowed": [{ "IPProtocol": "tcp", "ports": ["80", "443"] }],
+            "direction": "INGRESS",
+            "source_ranges": ["0.0.0.0/0"],
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "compute.Firewall", &config, &name).await;
+
+    println!("\n[DELETE] compute.Firewall...");
+    provider
+        .delete("compute.Firewall", &created.provider_id)
+        .await
+        .expect("Firewall DELETE failed");
+    println!("  Deleted firewall.");
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    println!("[DELETE] compute.Network...");
+    provider
+        .delete("compute.Network", &net.provider_id)
+        .await
+        .expect("Network DELETE failed");
+    println!("  Deleted network.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}

@@ -138,15 +138,17 @@ impl GcpProvider {
             .map(|d| format!("{}s", d.seconds()))
             .unwrap_or_default();
 
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "identity": {
                 "name": short_name,
-                "labels": user_labels,
             },
-            "reliability": {
-                "message_retention_duration": retention,
-            }
         });
+        if !user_labels.is_empty() {
+            state["identity"]["labels"] = serde_json::Value::Object(user_labels);
+        }
+        if !retention.is_empty() {
+            state["reliability"] = serde_json::json!({ "message_retention_duration": retention });
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(full_name));
@@ -354,33 +356,33 @@ impl GcpProvider {
 
         let topic = &result.topic;
         let ack_deadline = result.ack_deadline_seconds;
-        let retention = result
+        let _retention = result
             .message_retention_duration
             .as_ref()
             .map(|d| format!("{}s", d.seconds()))
             .unwrap_or_else(|| "604800s".to_string());
-        let retain_acked = result.retain_acked_messages;
+        let _retain_acked = result.retain_acked_messages;
         let push_endpoint = result
             .push_config
             .as_ref()
             .map(|pc| pc.push_endpoint.as_str())
             .unwrap_or("");
 
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "identity": {
                 "name": short_name,
-                "labels": user_labels,
             },
             "reliability": {
                 "topic": topic,
                 "ack_deadline_seconds": ack_deadline,
-                "message_retention_duration": retention,
-                "retain_acked_messages": retain_acked,
             },
-            "network": {
-                "push_endpoint": push_endpoint,
-            }
         });
+        if !user_labels.is_empty() {
+            state["identity"]["labels"] = serde_json::Value::Object(user_labels);
+        }
+        if !push_endpoint.is_empty() {
+            state["network"] = serde_json::json!({ "push_endpoint": push_endpoint });
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(full_name));

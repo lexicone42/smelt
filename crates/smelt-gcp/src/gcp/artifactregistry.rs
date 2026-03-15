@@ -234,24 +234,24 @@ impl GcpProvider {
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
 
-        let state = serde_json::json!({
+        // Extract short name from full resource path
+        let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);
+
+        let mut state = serde_json::json!({
             "identity": {
-                "description": repository.description.as_str(),
-                "labels": user_labels,
-                "name": repository.name.as_str(),
+                "name": short_name,
             },
             "config": {
-                "cleanup_policy_dry_run": repository.cleanup_policy_dry_run,
-                "disallow_unspecified_mode": repository.disallow_unspecified_mode,
-                "format": &repository.format,
-                "format_config": serde_json::Value::Null,
-                "mode": &repository.mode,
-                "mode_config": serde_json::Value::Null,
-            },
-            "security": {
-                "kms_key_name": repository.kms_key_name.as_str(),
+                "format": format!("{:?}", repository.format).to_uppercase(),
             },
         });
+        let desc = repository.description.as_str();
+        if !desc.is_empty() {
+            state["identity"]["description"] = serde_json::json!(desc);
+        }
+        if !user_labels.is_empty() {
+            state["identity"]["labels"] = serde_json::Value::Object(user_labels);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&repository.name));

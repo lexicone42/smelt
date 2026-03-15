@@ -246,25 +246,24 @@ impl GcpProvider {
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
 
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "identity": {
-                "description": managed_zone.description.as_deref().unwrap_or(""),
-                "labels": user_labels,
                 "name": managed_zone.name.as_deref().unwrap_or(""),
-            },
-            "config": {
-                "cloud_logging_config": &managed_zone.cloud_logging_config,
-                "dnssec_config": &managed_zone.dnssec_config,
-                "forwarding_config": &managed_zone.forwarding_config,
-                "name_server_set": managed_zone.name_server_set.as_deref().unwrap_or(""),
-                "peering_config": &managed_zone.peering_config,
-                "reverse_lookup_config": &managed_zone.reverse_lookup_config,
-                "visibility": &managed_zone.visibility,
             },
             "dns": {
                 "dns_name": managed_zone.dns_name.as_deref().unwrap_or(""),
             },
         });
+        if let Some(desc) = managed_zone
+            .description
+            .as_deref()
+            .filter(|s| !s.is_empty())
+        {
+            state["identity"]["description"] = serde_json::json!(desc);
+        }
+        if !user_labels.is_empty() {
+            state["identity"]["labels"] = serde_json::Value::Object(user_labels);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&managed_zone.name));
