@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "crates/smelt-provider", "crates/smelt-aws", "crates/smelt-gcp"]
+resolver = "3"
+
 [package]
 name = "smelt"
 version = "0.1.0"
@@ -6,6 +10,11 @@ description = "Declarative infrastructure-as-code with semantic backing"
 license = "MIT"
 
 [dependencies]
+# Workspace crates
+smelt-provider = { path = "crates/smelt-provider" }
+smelt-aws = { path = "crates/smelt-aws" }
+smelt-gcp = { path = "crates/smelt-gcp" }
+
 # CLI
 clap = { version = "4", features = ["derive"] }
 
@@ -36,103 +45,8 @@ chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["rt", "macros", "time"] }
 futures = "0.3"
 
-# AWS SDK — uses aws-lc-rs + rustls by default (no openssl)
-aws-config = { version = "1", features = ["behavior-version-latest"] }
-aws-sdk-ec2 = "1"
-aws-sdk-iam = "1"
-aws-sdk-s3 = "1"
-aws-sdk-elasticloadbalancingv2 = "1"
-aws-sdk-ecs = "1"
-aws-sdk-ecr = "1"
-aws-sdk-rds = "1"
-aws-sdk-lambda = "1"
-aws-sdk-route53 = "1"
-aws-sdk-cloudwatchlogs = "1"
-aws-sdk-sqs = "1"
-aws-sdk-sns = "1"
-aws-sdk-kms = "1"
-aws-sdk-dynamodb = "1"
-aws-sdk-cloudfront = "1"
-aws-sdk-acm = "1"
-aws-sdk-secretsmanager = "1"
-aws-sdk-ssm = "1"
-aws-sdk-elasticache = "1"
-aws-sdk-efs = "1"
-aws-sdk-apigatewayv2 = "1"
-aws-sdk-sfn = "1"
-aws-sdk-eventbridge = "1"
-aws-sdk-cloudwatch = "1"
-aws-sdk-autoscaling = "1"
-aws-sdk-eks = "1"
-aws-sdk-wafv2 = "1"
-aws-sdk-cognitoidentityprovider = "1"
-aws-sdk-sesv2 = "1"
-
 # AWS crypto — FIPS-validated, use instead of ring
-# We'll use this for signing state transitions and future TLS needs
 aws-lc-rs = "1"
-
-# GCP SDK — official Google Cloud Rust crates (googleapis org)
-google-cloud-auth = "1"
-google-cloud-compute-v1 = { version = "2", features = [
-    "instances", "networks", "subnetworks", "firewalls", "addresses",
-    "disks", "routes", "backend-services", "health-checks",
-    "forwarding-rules", "global-addresses", "global-forwarding-rules",
-    "autoscalers", "images", "instance-templates", "instance-groups",
-    "routers", "security-policies", "snapshots", "ssl-certificates",
-    "url-maps", "target-http-proxies", "target-https-proxies",
-    "vpn-gateways", "vpn-tunnels", "reservations",
-    "interconnect-attachments", "firewall-policies", "resource-policies",
-] }
-google-cloud-storage = "1"
-google-cloud-sql-v1 = "2"
-google-cloud-iam-v1 = "1"
-google-cloud-iam-admin-v1 = "1"
-google-cloud-dns-v1 = "1"
-google-cloud-container-v1 = "1"
-google-cloud-run-v2 = "1"
-google-cloud-functions-v2 = "1"
-google-cloud-api = "1"
-google-cloud-pubsub = "0.32.3-preview"
-google-cloud-wkt = "1"
-google-cloud-kms-v1 = "1"
-google-cloud-secretmanager-v1 = "1"
-google-cloud-logging-v2 = "1"
-google-cloud-monitoring-v3 = "1"
-google-cloud-longrunning = "1"
-bytes = { version = "1", features = ["serde"] }
-google-cloud-rpc = "1"
-google-cloud-artifactregistry-v1 = "1.5.0"
-google-cloud-certificatemanager-v1 = "1.6.0"
-google-cloud-memorystore-v1 = "1.6.0"
-google-cloud-lro = "1.3.1"
-google-cloud-scheduler-v1 = "1"
-google-cloud-tasks-v2 = "1"
-google-cloud-servicedirectory-v1 = "1"
-google-cloud-build-v1 = "1"
-google-cloud-eventarc-v1 = "1"
-# Tier 1 expansion
-google-cloud-apikeys-v2 = "1"
-google-cloud-vpcaccess-v1 = "1"
-google-cloud-alloydb-v1 = "1"
-google-cloud-filestore-v1 = "1"
-google-cloud-spanner-admin-database-v1 = "1"
-google-cloud-spanner-admin-instance-v1 = "1"
-google-cloud-security-privateca-v1 = "1"
-google-cloud-networkconnectivity-v1 = "1"
-google-cloud-networksecurity-v1 = "1"
-google-cloud-networkservices-v1 = "1"
-google-cloud-workstations-v1 = "1"
-google-cloud-domains-v1 = "1"
-# Tier 2 expansion
-google-cloud-resourcemanager-v3 = "1"
-google-cloud-orgpolicy-v2 = "1"
-google-cloud-gkebackup-v1 = "1"
-google-cloud-dataproc-v1 = "1"
-google-cloud-workflows-v1 = "1"
-
-# URL encoding (for IAM policy document decoding)
-urlencoding = "2"
 
 # Telemetry
 tracing = "0.1"

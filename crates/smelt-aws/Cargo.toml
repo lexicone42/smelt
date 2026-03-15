@@ -1,0 +1,44 @@
+[package]
+name = "smelt-aws"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+smelt-provider = { path = "../smelt-provider" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "macros", "time"] }
+chrono = { version = "0.4", features = ["serde"] }
+urlencoding = "2"
+
+# AWS SDK
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-sdk-ec2 = "1"
+aws-sdk-iam = "1"
+aws-sdk-s3 = "1"
+aws-sdk-elasticloadbalancingv2 = "1"
+aws-sdk-ecs = "1"
+aws-sdk-ecr = "1"
+aws-sdk-rds = "1"
+aws-sdk-lambda = "1"
+aws-sdk-route53 = "1"
+aws-sdk-cloudwatchlogs = "1"
+aws-sdk-sqs = "1"
+aws-sdk-sns = "1"
+aws-sdk-kms = "1"
+aws-sdk-dynamodb = "1"
+aws-sdk-cloudfront = "1"
+aws-sdk-acm = "1"
+aws-sdk-secretsmanager = "1"
+aws-sdk-ssm = "1"
+aws-sdk-elasticache = "1"
+aws-sdk-efs = "1"
+aws-sdk-apigatewayv2 = "1"
+aws-sdk-sfn = "1"
+aws-sdk-eventbridge = "1"
+aws-sdk-cloudwatch = "1"
+aws-sdk-autoscaling = "1"
+aws-sdk-eks = "1"
+aws-sdk-wafv2 = "1"
+aws-sdk-cognitoidentityprovider = "1"
+aws-sdk-sesv2 = "1"
