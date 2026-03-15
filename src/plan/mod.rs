@@ -5,7 +5,7 @@ use similar::{ChangeTag, TextDiff};
 
 use crate::ast::{Declaration, LayerDecl, SmeltFile, Value};
 use crate::graph::DependencyGraph;
-use crate::provider::{ChangeType, FieldChange};
+use crate::provider::{ChangeType, FieldChange, ProviderRegistry};
 
 /// A plan showing what would change when applying the current config.
 ///
@@ -151,6 +151,30 @@ pub fn build_plan_with_layers(
     graph: &DependencyGraph,
     layer_names: &[String],
 ) -> Plan {
+    build_plan_with_layers_and_registry(
+        environment,
+        desired_files,
+        current_state,
+        graph,
+        layer_names,
+        None,
+    )
+}
+
+/// Build a plan with schema-aware default injection.
+///
+/// When a `ProviderRegistry` is provided, schema defaults are injected into
+/// the desired state for fields not explicitly set in the `.smelt` config.
+/// This prevents false-positive diffs where the read state includes defaults
+/// (e.g., `delay_seconds: 0`) that the config omits.
+pub fn build_plan_with_layers_and_registry(
+    environment: &str,
+    desired_files: &[SmeltFile],
+    current_state: &BTreeMap<String, CurrentResource>,
+    graph: &DependencyGraph,
+    layer_names: &[String],
+    registry: Option<&ProviderRegistry>,
+) -> Plan {
     // Collect all matching layers in the specified order
     let layers: Vec<&LayerDecl> = layer_names
         .iter()
@@ -211,6 +235,12 @@ pub fn build_plan_with_layers(
                 forces_replacement: false,
             },
             Some(cr) => {
+                // Inject schema defaults for unset fields — prevents false diffs
+                // when the provider read returns defaults the config omits.
+                // Only inject for fields present in the actual state.
+                if let Some(reg) = registry {
+                    inject_schema_defaults(&mut desired_json, &node.type_path, reg, &cr.config);
+                }
                 let mut changes = Vec::new();
                 crate::provider::diff_values("", &desired_json, &cr.config, &mut changes);
                 let action = if changes.is_empty() {
@@ -253,6 +283,62 @@ pub fn build_plan_with_layers(
 
     let tiers: Vec<Vec<PlannedAction>> = tier_map.into_values().collect();
     Plan::new(environment.to_string(), tiers)
+}
+
+/// Inject schema defaults into `desired_json` for fields not explicitly set.
+///
+/// When a provider schema defines `default: Some(value)` for a field, and the
+/// desired config doesn't include that field, this inserts the default. This
+/// prevents false diffs where the provider read returns defaults that the
+/// config intentionally omits (e.g., `delay_seconds: 0` on SQS queues).
+fn inject_schema_defaults(
+    desired: &mut serde_json::Value,
+    type_path: &str,
+    registry: &ProviderRegistry,
+    actual: &serde_json::Value,
+) {
+    let Some((provider, resource_type)) = registry.resolve(type_path) else {
+        return;
+    };
+    let Some(info) = provider
+        .resource_types()
+        .into_iter()
+        .find(|rt| rt.type_path == resource_type)
+    else {
+        return;
+    };
+
+    for section_schema in &info.schema.sections {
+        for field_schema in &section_schema.fields {
+            let Some(ref default_val) = field_schema.default else {
+                continue;
+            };
+
+            // Only inject if the field exists in the actual state — prevents
+            // false "Add" diffs for fields the read function doesn't return.
+            let actual_has_field = actual
+                .get(&section_schema.name)
+                .and_then(|s| s.get(&field_schema.name))
+                .is_some();
+            if !actual_has_field {
+                continue;
+            }
+
+            // Check if the field is already set in desired
+            let desired_has_field = desired
+                .get(&section_schema.name)
+                .and_then(|s| s.get(&field_schema.name))
+                .is_some();
+
+            if !desired_has_field {
+                // Insert the schema default
+                if desired.get(&section_schema.name).is_none() {
+                    desired[&section_schema.name] = serde_json::json!({});
+                }
+                desired[&section_schema.name][&field_schema.name] = default_val.clone();
+            }
+        }
+    }
 }
 
 /// Convert a resource declaration to a JSON value for comparison.

@@ -412,15 +412,24 @@ fn cmd_plan(
         .ok()
         .filter(|s| s.has_key());
 
+    let registry_for_plan;
     let current_state = if live {
         eprintln!("reading live state from cloud providers...");
-        let registry = build_registry();
-        load_live_state(environment, &graph, &registry)?
+        registry_for_plan = Some(build_registry());
+        load_live_state(environment, &graph, registry_for_plan.as_ref().unwrap())?
     } else {
+        registry_for_plan = Some(build_registry());
         load_current_state(environment, secret_store.as_ref())
     };
 
-    let mut p = plan::build_plan_with_layers(environment, &parsed, &current_state, &graph, &layers);
+    let mut p = plan::build_plan_with_layers_and_registry(
+        environment,
+        &parsed,
+        &current_state,
+        &graph,
+        &layers,
+        registry_for_plan.as_ref(),
+    );
 
     if let Some(target) = target {
         p = filter_plan_to_target(&p, target, &graph)?;
@@ -827,7 +836,14 @@ fn cmd_apply(
     } else {
         load_current_state(environment, secret_store.as_ref())
     };
-    let mut p = plan::build_plan_with_layers(environment, &parsed, &current_state, &graph, &layers);
+    let mut p = plan::build_plan_with_layers_and_registry(
+        environment,
+        &parsed,
+        &current_state,
+        &graph,
+        &layers,
+        Some(&registry),
+    );
 
     if let Some(target) = target {
         p = filter_plan_to_target(&p, target, &graph)?;
