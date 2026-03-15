@@ -231,7 +231,8 @@ impl GcpProvider {
 
         // Make API call
         let parent = format!("projects/{}", self.project_id);
-        self.monitoring()
+        let created = self
+            .monitoring()
             .await?
             .create_alert_policy()
             .set_name(&parent)
@@ -240,7 +241,8 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_alert_policy AlertPolicy", e))?;
 
-        let provider_id = format!("projects/{}/alertPolicies/{}", self.project_id, name);
+        // GCP auto-assigns the alert policy ID — use the name from the response
+        let provider_id = created.name.clone();
         self.read_monitoring_alertpolicy(&provider_id).await
     }
 

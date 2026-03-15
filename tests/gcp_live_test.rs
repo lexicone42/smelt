@@ -881,7 +881,7 @@ async fn gcp_monitoring_alert_policy_crud() {
             "conditions": [{
                 "displayName": "CPU > 80%",
                 "conditionThreshold": {
-                    "filter": "metric.type = \"compute.googleapis.com/instance/cpu/utilization\"",
+                    "filter": "resource.type = \"gce_instance\" AND metric.type = \"compute.googleapis.com/instance/cpu/utilization\"",
                     "comparison": "COMPARISON_GT",
                     "thresholdValue": 0.8,
                     "duration": "60s",
