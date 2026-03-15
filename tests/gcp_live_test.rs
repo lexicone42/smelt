@@ -158,8 +158,8 @@ async fn gcp_subnetwork_crud() {
         .expect("Network create failed");
     println!("  network = {}", net.provider_id);
 
-    // Wait for network to be available
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    // Wait for network to be available (GCP needs time after first creation)
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
 
     let config = serde_json::json!({
         "identity": { "name": &name },
@@ -245,9 +245,27 @@ async fn gcp_service_account_crud() {
 // Time: ~10 min for cluster creation
 // ═══════════════════════════════════════════════════════════════
 
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 #[ignore]
 async fn gcp_gke_full_stack() {
+    // GKE Cluster model is deeply nested — needs extra stack in debug builds
+    const STACK_SIZE: usize = 16 * 1024 * 1024; // 16 MB
+    let result = std::thread::Builder::new()
+        .stack_size(STACK_SIZE)
+        .spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(gke_full_stack_inner())
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+    result
+}
+
+async fn gke_full_stack_inner() -> () {
     let project = gcp_project();
     let provider = GcpProvider::from_env(&project, REGION)
         .await
@@ -275,7 +293,7 @@ async fn gcp_gke_full_stack() {
 
     // ── 2. Create Subnet with secondary ranges for GKE ─────────────────
     println!("\n=== STEP 2: Subnet ===");
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
     let subnet_name = format!("{prefix}-subnet");
     let subnet = provider
         .create(
@@ -316,6 +334,17 @@ async fn gcp_gke_full_stack() {
         "identity": {
             "name": &cluster_name,
             "description": "smelt GKE live test cluster",
+        },
+        "config": {
+            "initial_cluster_version": "latest",
+            "node_pools": [{
+                "name": "default-pool",
+                "initial_node_count": 1,
+                "config": {
+                    "machine_type": "e2-small",
+                    "disk_size_gb": 20,
+                }
+            }],
         },
         "network": {
             "network": format!("projects/{project}/global/networks/{net_name}"),

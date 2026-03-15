@@ -1095,6 +1095,21 @@ pub(crate) fn extract_labels(
     labels
 }
 
+/// Strip the GCP API base URL prefix from resource self-links.
+///
+/// GCP returns resource references as full URLs like
+/// `https://www.googleapis.com/compute/v1/projects/my-project/global/networks/my-vpc`
+/// but configs use short `projects/my-project/global/networks/my-vpc` paths.
+/// This normalizes to the short form so diffs match.
+pub(crate) fn normalize_gcp_url(url: &str) -> &str {
+    // Strip common GCP API prefixes
+    url.strip_prefix("https://www.googleapis.com/compute/v1/")
+        .or_else(|| url.strip_prefix("https://www.googleapis.com/compute/beta/"))
+        .or_else(|| url.strip_prefix("https://container.googleapis.com/v1/"))
+        .or_else(|| url.strip_prefix("https://container.googleapis.com/v1beta1/"))
+        .unwrap_or(url)
+}
+
 impl Provider for GcpProvider {
     fn name(&self) -> &str {
         "gcp"

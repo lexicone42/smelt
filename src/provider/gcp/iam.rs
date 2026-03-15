@@ -7,6 +7,16 @@ use std::collections::HashMap;
 
 use super::GcpProvider;
 
+/// Extract the short account ID from a service account email or full resource path.
+/// e.g., "projects/p/serviceAccounts/foo@p.iam.gserviceaccount.com" → "foo"
+/// e.g., "foo@p.iam.gserviceaccount.com" → "foo"
+/// e.g., "foo" → "foo"
+fn service_account_to_id(provider_id: &str) -> &str {
+    // Try email format: take everything before @
+    let last_segment = provider_id.rsplit('/').next().unwrap_or(provider_id);
+    last_segment.split('@').next().unwrap_or(last_segment)
+}
+
 impl GcpProvider {
     pub(super) fn iam_serviceaccount_schema() -> crate::provider::ResourceTypeInfo {
         crate::provider::ResourceTypeInfo {
@@ -86,13 +96,13 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("Create_service_account ServiceAccount", e))?;
 
         let provider_id = created.name.clone();
-        // Retry read-back: some APIs (e.g. IAM) have eventual consistency
-        for attempt in 0..3u32 {
+        // Retry read-back: IAM has significant eventual consistency (up to ~10s)
+        for attempt in 0..5u32 {
             match self.read_iam_serviceaccount(&provider_id).await {
                 Ok(result) => return Ok(result),
-                Err(ProviderError::NotFound(_)) if attempt < 2 => {
+                Err(ProviderError::NotFound(_)) if attempt < 4 => {
                     tokio::time::sleep(std::time::Duration::from_millis(
-                        500 * (attempt as u64 + 1),
+                        1000 * (attempt as u64 + 1),
                     ))
                     .await;
                 }
@@ -106,11 +116,8 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let _name = provider_id
-            .rsplit('/')
-            .next()
-            .unwrap_or(provider_id)
-            .to_string();
+        // Extract short account ID from full path (projects/.../serviceAccounts/email)
+        let account_id = service_account_to_id(provider_id);
         let service_account = self
             .iam()
             .await?
@@ -120,13 +127,19 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetServiceAccount", e))?;
 
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "identity": {
-                "description": service_account.description.as_str(),
-                "display_name": service_account.display_name.as_str(),
-                "name": service_account.name.as_str(),
+                "name": account_id,
             },
         });
+        let desc = service_account.description.as_str();
+        if !desc.is_empty() {
+            state["identity"]["description"] = serde_json::json!(desc);
+        }
+        let dn = service_account.display_name.as_str();
+        if !dn.is_empty() {
+            state["identity"]["display_name"] = serde_json::json!(dn);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&service_account.name));

@@ -196,23 +196,21 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetNetwork", e))?;
 
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "identity": {
-                "description": network.description.as_deref().unwrap_or(""),
                 "name": network.name.as_deref().unwrap_or(""),
-            },
-            "config": {
-                "enable_ula_internal_ipv_6": network.enable_ula_internal_ipv_6.unwrap_or(false),
-                "internal_ipv_6_range": network.internal_ipv_6_range.as_deref().unwrap_or(""),
-                "network_profile": network.network_profile.as_deref().unwrap_or(""),
-                "params": &network.params,
             },
             "network": {
                 "auto_create_subnetworks": network.auto_create_subnetworks.unwrap_or(false),
-                "mtu": network.mtu.unwrap_or(0),
-                "routing_config": &network.routing_config,
+                "routing_mode": network.routing_config.as_ref()
+                    .and_then(|rc| rc.routing_mode.as_ref())
+                    .map(|m| format!("{m:?}").to_uppercase())
+                    .unwrap_or_default(),
             },
         });
+        if let Some(desc) = network.description.as_deref().filter(|s| !s.is_empty()) {
+            state["identity"]["description"] = serde_json::json!(desc);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert(
@@ -665,36 +663,20 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetSubnetwork", e))?;
 
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "identity": {
-                "description": subnetwork.description.as_deref().unwrap_or(""),
                 "name": subnetwork.name.as_deref().unwrap_or(""),
-            },
-            "config": {
-                "allow_subnet_cidr_routes_overlap": subnetwork.allow_subnet_cidr_routes_overlap.unwrap_or(false),
-                "enable_flow_logs": subnetwork.enable_flow_logs.unwrap_or(false),
-                "external_ipv_6_prefix": subnetwork.external_ipv_6_prefix.as_deref().unwrap_or(""),
-                "internal_ipv_6_prefix": subnetwork.internal_ipv_6_prefix.as_deref().unwrap_or(""),
-                "ip_collection": subnetwork.ip_collection.as_deref().unwrap_or(""),
-                "ipv_6_access_type": &subnetwork.ipv_6_access_type,
-                "log_config": &subnetwork.log_config,
-                "params": &subnetwork.params,
-                "private_ip_google_access": subnetwork.private_ip_google_access.unwrap_or(false),
-                "purpose": &subnetwork.purpose,
-                "reserved_internal_range": subnetwork.reserved_internal_range.as_deref().unwrap_or(""),
-                "resolve_subnet_mask": &subnetwork.resolve_subnet_mask,
-                "role": &subnetwork.role,
-                "secondary_ip_ranges": &subnetwork.secondary_ip_ranges,
-                "stack_type": &subnetwork.stack_type,
             },
             "network": {
                 "ip_cidr_range": subnetwork.ip_cidr_range.as_deref().unwrap_or(""),
-                "network": subnetwork.network.as_deref().unwrap_or(""),
-            },
-            "sizing": {
-                "region": subnetwork.region.as_deref().unwrap_or(""),
+                "network": super::normalize_gcp_url(
+                    subnetwork.network.as_deref().unwrap_or("")
+                ),
             },
         });
+        if let Some(desc) = subnetwork.description.as_deref().filter(|s| !s.is_empty()) {
+            state["identity"]["description"] = serde_json::json!(desc);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert(
