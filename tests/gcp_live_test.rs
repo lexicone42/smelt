@@ -424,3 +424,46 @@ async fn gke_full_stack_inner() -> () {
 
     println!("\n=== GKE Full Stack Test Complete ===");
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Cloud Run Service — free tier, tests container deployment
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_cloud_run_service_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("run");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+        },
+        "config": {
+            "template": {
+                "containers": [{
+                    "image": "us-docker.pkg.dev/cloudrun/container/hello:latest",
+                }],
+            },
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "run.Service", &config, &name).await;
+
+    println!("\n[DELETE] run.Service...");
+    provider
+        .delete("run.Service", &created.provider_id)
+        .await
+        .expect("DELETE run.Service failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}

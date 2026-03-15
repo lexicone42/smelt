@@ -273,7 +273,8 @@ impl GcpProvider {
         if let Some(v) = multi_region_settings {
             model = model.set_multi_region_settings(v);
         }
-        model = model.set_name(name.clone());
+        // Note: do NOT set model.name — Cloud Run requires it empty on create.
+        // The name is passed via set_service_id() on the request.
         if let Some(v) = scaling {
             model = model.set_scaling(v);
         }
@@ -301,6 +302,21 @@ impl GcpProvider {
             "projects/{}/locations/{}/services/{}",
             self.project_id, self.region, name
         );
+
+        // Cloud Run service creation is an LRO — poll until ready
+        for attempt in 0..30u32 {
+            match self.read_run_service(&provider_id).await {
+                Ok(result) => return Ok(result),
+                Err(ProviderError::NotFound(_)) if attempt < 29 => {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                }
+                Err(e) if attempt < 29 => {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            }
+        }
         self.read_run_service(&provider_id).await
     }
 
