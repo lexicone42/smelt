@@ -1,5 +1,6 @@
 [workspace]
 members = [".", "crates/smelt-provider", "crates/smelt-aws", "crates/smelt-gcp"]
+exclude = ["tools/codegen"]
 resolver = "3"
 
 [package]

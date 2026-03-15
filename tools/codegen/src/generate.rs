@@ -3211,27 +3211,46 @@ fn write_state_json(out: &mut String, m: &ResourceManifest, model_var: &str) {
         let _ = writeln!(out);
     }
 
-    // Same conditional read pattern as AWS: optional string fields without
-    // defaults are conditionally included to avoid phantom empty-string diffs.
+    // Conditional read pattern: optional fields without defaults are conditionally
+    // included to prevent phantom diffs (empty strings, null objects, empty arrays).
+    //
+    // Three categories:
+    // 1. "name" in identity → use short name from provider_id (not full resource path)
+    // 2. "labels" → conditional on non-empty (skip empty `{}`)
+    // 3. Optional fields without defaults → conditional insertion
+    //    - String: filter empty strings
+    //    - Non-string (Record, Array, Enum): skip entirely from inline json!()
+    //      These produce phantom null/{}/[] values. Better to omit than include.
     let is_conditional_gcp = |field: &FieldDef, name: &str| -> bool {
-        if !field.optional { return false; }
         if field.required || field.output_only { return false; }
         if field.default.is_some() { return false; }
         if field.read_expression.is_some() { return false; }
         if name == "name" || name == "labels" { return false; }
-        matches!(field.field_type.as_str(), "String")
+        if !field.optional { return false; }
+        // ALL optional types without defaults are conditional — not just String
+        true
     };
 
-    // Check if any conditional fields exist
-    let has_conditional = sections.iter().any(|(_, fields)| {
+    // The "name" field needs short-name extraction
+    let has_name_field = m.fields.contains_key("name");
+    // Labels need conditional inclusion
+    let has_labels = m.fields.contains_key("labels");
+    // Any conditional fields need `let mut state`
+    let has_conditional = has_labels || sections.iter().any(|(_, fields)| {
         fields.iter().any(|(name, f)| !f.output_only && is_conditional_gcp(f, name))
     });
+
+    // Extract short name from provider_id for the "name" field
+    if has_name_field {
+        let _ = writeln!(out, "    let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);");
+    }
 
     // Count inline fields per section
     let mut section_has_inline: std::collections::HashMap<&str, bool> = std::collections::HashMap::new();
     for (section_name, fields) in &sections {
         let has_inline = fields.iter().any(|(name, f)| {
             !f.output_only && !is_conditional_gcp(f, name)
+                && !(name == &"labels") // labels handled separately
         });
         section_has_inline.insert(section_name, has_inline);
     }
@@ -3245,18 +3264,30 @@ fn write_state_json(out: &mut String, m: &ResourceManifest, model_var: &str) {
         }
         let _ = writeln!(out, "        \"{section_name}\": {{");
         for (field_name, field) in fields {
-            if field.output_only || is_conditional_gcp(field, field_name) {
+            if field.output_only || is_conditional_gcp(field, field_name) || field_name == &"labels" {
                 continue;
             }
-            let accessor = field_read_accessor(model_var, field_name, field);
-            let _ = writeln!(out, "            \"{field_name}\": {accessor},");
+            // Use short_name for the "name" field
+            if field_name == &"name" && has_name_field {
+                let _ = writeln!(out, "            \"name\": short_name,");
+            } else {
+                let accessor = field_read_accessor(model_var, field_name, field);
+                let _ = writeln!(out, "            \"{field_name}\": {accessor},");
+            }
         }
         let _ = writeln!(out, "        }},");
     }
 
     let _ = writeln!(out, "    }});");
 
-    // Generate conditional insertions for optional string fields
+    // Conditional: labels (skip empty map)
+    if has_labels {
+        let _ = writeln!(out, "    if !user_labels.is_empty() {{");
+        let _ = writeln!(out, "        state[\"identity\"][\"labels\"] = serde_json::Value::Object(user_labels);");
+        let _ = writeln!(out, "    }}");
+    }
+
+    // Conditional: optional string fields (skip empty strings)
     for (section_name, fields) in &sections {
         for (field_name, field) in fields {
             if !is_conditional_gcp(field, field_name) { continue; }
@@ -3264,6 +3295,11 @@ fn write_state_json(out: &mut String, m: &ResourceManifest, model_var: &str) {
                 .or(field.sdk_field.as_deref())
                 .unwrap_or(field_name);
             let sdk_field = raw_field(sdk_field_raw);
+
+            // Only generate conditional insertion for String fields
+            // Non-string optional fields (Records, Arrays, Enums) are simply omitted
+            // from state to avoid phantom null/{}/[] diffs
+            if field.field_type != "String" { continue; }
 
             let section_exists = section_has_inline.get(section_name.as_str()).copied().unwrap_or(false);
             if section_exists {
