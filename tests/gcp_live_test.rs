@@ -1076,3 +1076,103 @@ async fn gcp_iam_role_crud() {
         }
     }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// DNS RecordSet — free, depends on ManagedZone
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_dns_record_set_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let zone_name = test_name("dnsz");
+
+    // Create zone first
+    println!("[SETUP] Creating DNS ManagedZone...");
+    let zone = provider
+        .create(
+            "dns.ManagedZone",
+            &serde_json::json!({
+                "identity": { "name": &zone_name, "description": "smelt test zone for records" },
+                "dns": { "dns_name": "smelt-test-records.internal." },
+            }),
+        )
+        .await
+        .expect("Zone create failed");
+    println!("  zone = {}", zone.provider_id);
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": "test-a.smelt-test-records.internal.",
+            "managed_zone": &zone_name,
+        },
+        "config": {
+            "type": "A",
+        },
+        "dns": {
+            "ttl": 300,
+            "rrdatas": ["10.0.0.1"],
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "dns.RecordSet", &config, "test-a").await;
+
+    println!("\n[DELETE] dns.RecordSet...");
+    provider
+        .delete("dns.RecordSet", &created.provider_id)
+        .await
+        .expect("RecordSet DELETE failed");
+    println!("  Deleted record.");
+    println!("[DELETE] dns.ManagedZone...");
+    provider
+        .delete("dns.ManagedZone", &zone.provider_id)
+        .await
+        .expect("Zone DELETE failed");
+    println!("  Deleted zone.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Compute Address (static IP) — free when attached, ~$0.01/hr unattached
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_compute_address_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("addr");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "compute.Address", &config, &name).await;
+
+    println!("\n[DELETE] compute.Address...");
+    provider
+        .delete("compute.Address", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}

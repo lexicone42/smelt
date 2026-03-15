@@ -468,6 +468,7 @@ impl GcpProvider {
     ) -> Result<ResourceOutput, ProviderError> {
         // Extract fields from config
         let name = config.require_str("/identity/name")?.to_string();
+        let managed_zone = config.require_str("/identity/managed_zone")?.to_string();
         let routing_policy = config.pointer("/config/routing_policy").and_then(|v| {
             serde_json::from_value::<google_cloud_dns_v1::model::RRSetRoutingPolicy>(v.clone()).ok()
         });
@@ -506,6 +507,7 @@ impl GcpProvider {
             .await?
             .create()
             .set_project(&self.project_id)
+            .set_managed_zone(&managed_zone)
             .set_body(model)
             .send()
             .await
