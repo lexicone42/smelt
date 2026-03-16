@@ -88,13 +88,13 @@ impl GcpProvider {
         if let Some(v) = display_name {
             model = model.set_display_name(v);
         }
-        model = model.set_name(name.clone());
+        // Do NOT set model.name on create — output-only field, name via set_key_id
         if let Some(v) = restrictions {
             model = model.set_restrictions(v);
         }
 
         // Make API call
-        let parent = format!("projects/{}", self.project_id);
+        let parent = format!("projects/{}/locations/global", self.project_id);
         self.api_keys()
             .await?
             .create_key()
@@ -106,7 +106,10 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_key Key", e))?;
 
-        let provider_id = format!("projects/{}/keys/{}", self.project_id, name);
+        let provider_id = format!(
+            "projects/{}/locations/global/keys/{}",
+            self.project_id, name
+        );
         self.read_apikeys_key(&provider_id).await
     }
 

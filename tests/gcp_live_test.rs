@@ -1176,3 +1176,235 @@ async fn gcp_compute_address_crud() {
         }
     }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// API Keys — free
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_apikeys_key_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    // API key IDs must be alphanumeric + hyphens, 2-63 chars
+    let name = test_name("key");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "display_name": "smelt live test key",
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "apikeys.Key", &config, &name).await;
+
+    println!("\n[DELETE] apikeys.Key...");
+    provider
+        .delete("apikeys.Key", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Service Directory Namespace — free
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_servicedirectory_namespace_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("ns");
+
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "servicedirectory.Namespace", &config, &name).await;
+
+    println!("\n[DELETE] servicedirectory.Namespace...");
+    provider
+        .delete("servicedirectory.Namespace", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// KMS CryptoKey — free, depends on KeyRing
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_kms_cryptokey_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("ck");
+
+    // Create KeyRing first (these are permanent, can't delete)
+    let kr_name = test_name("kr2");
+    println!("[SETUP] Creating KMS KeyRing...");
+    let kr = provider
+        .create(
+            "kms.KeyRing",
+            &serde_json::json!({
+                "identity": { "name": &kr_name },
+            }),
+        )
+        .await
+        .expect("KeyRing create failed");
+    println!("  keyring = {}", kr.provider_id);
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "key_ring_id": &kr.provider_id,
+        },
+        "config": {
+            "purpose": "ENCRYPT_DECRYPT",
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "kms.CryptoKey", &config, &name).await;
+
+    // CryptoKeys can't be fully deleted — just scheduled for destruction
+    println!("\n[NOTE] KMS CryptoKeys cannot be fully deleted.");
+    let _ = created;
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Compute Route — free, depends on Network
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_compute_route_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("route");
+
+    // Create network first
+    println!("[SETUP] Creating VPC network...");
+    let net = provider
+        .create(
+            "compute.Network",
+            &serde_json::json!({
+                "identity": { "name": &format!("{name}-net") },
+                "network": { "auto_create_subnetworks": false, "routing_mode": "REGIONAL" }
+            }),
+        )
+        .await
+        .expect("Network create failed");
+    println!("  network = {}", net.provider_id);
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test route",
+        },
+        "config": {
+            "dest_range": "10.99.0.0/16",
+            "next_hop_gateway": format!("projects/{project}/global/gateways/default-internet-gateway"),
+        },
+        "network": {
+            "network": format!("projects/{project}/global/networks/{name}-net"),
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "compute.Route", &config, &name).await;
+
+    println!("\n[DELETE] compute.Route...");
+    provider
+        .delete("compute.Route", &created.provider_id)
+        .await
+        .expect("Route DELETE failed");
+    println!("  Deleted route.");
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    println!("[DELETE] compute.Network...");
+    provider
+        .delete("compute.Network", &net.provider_id)
+        .await
+        .expect("Network DELETE failed");
+    println!("  Deleted network.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Compute Disk — cheap (~$0.04/mo for 1GB)
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_compute_disk_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("disk");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test disk",
+        },
+        "sizing": {
+            "size_gb": 10,
+            "type": format!("projects/{project}/zones/{REGION}-a/diskTypes/pd-standard"),
+            "zone": format!("{REGION}-a"),
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "compute.Disk", &config, &name).await;
+
+    println!("\n[DELETE] compute.Disk...");
+    provider
+        .delete("compute.Disk", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
