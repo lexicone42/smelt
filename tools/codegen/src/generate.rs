@@ -3147,8 +3147,13 @@ fn write_provider_id_construction(out: &mut String, m: &ResourceManifest) {
                     "    let provider_id = format!(\"{{region}}/{{name}}\");"
                 );
             }
-            _ => {
-                let _ = writeln!(out, "    let provider_id = name.to_string();");
+            Scope::Global => {
+                // Global compute resources need full path for cross-resource references
+                let noun_plural = resource_noun_plural(m);
+                let _ = writeln!(
+                    out,
+                    "    let provider_id = format!(\"projects/{{}}/global/{noun_plural}/{{}}\", self.project_id, name);"
+                );
             }
         }
     }

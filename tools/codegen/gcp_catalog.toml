@@ -260,6 +260,7 @@ crud_read = "get_job"
 # Cloud Run uses with_request() pattern for updates, not individual setters
 crud_update = ""
 crud_delete = "delete_job"
+skip_name_on_create = true
 
 # ─── Cloud Functions ─────────────────────────────────────────────────────────
 
@@ -273,6 +274,7 @@ scope = "regional"
 parent_format = "projects/{project}/locations/{location}"
 resource_body_setter = "set_function"
 resource_id_setter = "set_function_id"
+skip_name_on_create = true
 crud_create = "create_function"
 crud_read = "get_function"
 crud_update = "update_function"
@@ -290,6 +292,7 @@ scope = "regional"
 parent_format = "projects/{project}/locations/{location}"
 resource_noun = "keyRings"
 resource_id_setter = "set_key_ring_id"
+skip_name_on_create = true
 resource_body_setter = "set_key_ring"
 crud_create = "create_key_ring"
 crud_read = "get_key_ring"
@@ -309,6 +312,7 @@ parent_format = "projects/{project}/locations/{location}/keyRings/{parent_resour
 resource_noun = "cryptoKeys"
 parent_binding = "key_ring_id"
 resource_id_setter = "set_crypto_key_id"
+skip_name_on_create = true
 resource_body_setter = "set_crypto_key"
 crud_create = "create_crypto_key"
 crud_read = "get_crypto_key"
@@ -485,6 +489,7 @@ crud_create = "create_role"
 crud_read = "get_role"
 crud_update = "update_role"
 crud_delete = "delete_role"
+skip_name_on_create = true
 
 # ─── Monitoring ─────────────────────────────────────────────────────────────
 
@@ -505,6 +510,7 @@ crud_create = "create_alert_policy"
 crud_read = "get_alert_policy"
 crud_update = "update_alert_policy"
 crud_delete = "delete_alert_policy"
+skip_name_on_create = true
 
 [[resource]]
 struct_name = "NotificationChannel"
@@ -696,6 +702,7 @@ scope = "regional"
 parent_format = "projects/{project}/locations/{location}"
 resource_noun = "repositories"
 resource_id_setter = "set_repository_id"
+skip_name_on_create = true
 resource_body_setter = "set_repository"
 crud_create = "create_repository"
 crud_read = "get_repository"
@@ -849,6 +856,7 @@ api_style = "resource_name"
 scope = "regional"
 parent_format = "projects/{project}/locations/{location}"
 resource_id_setter = "set_trigger_id"
+skip_name_on_create = true
 resource_body_setter = "set_trigger"
 crud_create = "create_trigger"
 crud_read = "get_trigger"
@@ -866,6 +874,7 @@ api_style = "resource_name"
 scope = "regional"
 parent_format = "projects/{project}/locations/{location}"
 resource_id_setter = "set_channel_id"
+skip_name_on_create = true
 resource_body_setter = "set_channel"
 crud_create = "create_channel"
 crud_read = "get_channel"
@@ -885,6 +894,7 @@ api_style = "resource_name"
 scope = "global"
 parent_format = "projects/{project}/locations/global"
 resource_id_setter = "set_key_id"
+skip_name_on_create = true
 resource_body_setter = "set_key"
 crud_create = "create_key"
 crud_read = "get_key"
@@ -1356,6 +1366,7 @@ scope = "regional"
 parent_format = "projects/{project}/locations/{location}/namespaces/{parent_resource}"
 parent_binding = "namespace_id"
 resource_id_setter = "set_service_id"
+skip_name_on_create = true
 resource_body_setter = "set_service"
 crud_create = "create_service"
 crud_read = "get_service"
