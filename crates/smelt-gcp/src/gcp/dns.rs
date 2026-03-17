@@ -513,7 +513,9 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create ResourceRecordSet", e))?;
 
-        let provider_id = name.to_string();
+        // Composite provider_id: managed_zone/name/type
+        let record_type = config.optional_str("/config/type").unwrap_or("A");
+        let provider_id = format!("{managed_zone}/{name}/{record_type}");
         self.read_dns_recordset(&provider_id).await
     }
 
@@ -521,13 +523,20 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.to_string();
+        // Parse composite: managed_zone/record_name/record_type
+        let parts: Vec<&str> = provider_id.splitn(3, '/').collect();
+        let (zone, name, rtype) = match parts.len() {
+            3 => (parts[0], parts[1], parts[2]),
+            _ => ("", provider_id, "A"),
+        };
         let resource_record_set = self
             .resource_record_sets()
             .await?
             .get()
             .set_project(&self.project_id)
-            .set_name(&name)
+            .set_managed_zone(zone)
+            .set_name(name)
+            .set_type(rtype)
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("GetResourceRecordSet", e))?;
@@ -571,12 +580,18 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<(), ProviderError> {
-        let name = provider_id.to_string();
+        let parts: Vec<&str> = provider_id.splitn(3, '/').collect();
+        let (zone, name, rtype) = match parts.len() {
+            3 => (parts[0], parts[1], parts[2]),
+            _ => ("", provider_id, "A"),
+        };
         self.resource_record_sets()
             .await?
             .delete()
             .set_project(&self.project_id)
-            .set_name(&name)
+            .set_managed_zone(zone)
+            .set_name(name)
+            .set_type(rtype)
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("DeleteResourceRecordSet", e))?;

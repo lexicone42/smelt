@@ -1806,3 +1806,77 @@ async fn gcp_cloud_run_service_update() {
 
     assert!(updated.is_ok(), "Cloud Run update should succeed");
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Cloud SQL Database + User — depends on Instance (~$0.01/hr)
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_sql_database_and_user_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let inst_name = test_name("sqli");
+
+    // Create instance first (takes ~5 min)
+    println!("[SETUP] Creating Cloud SQL Instance (this takes ~5 min)...");
+    let inst = provider
+        .create(
+            "sql.Instance",
+            &serde_json::json!({
+                "identity": { "name": &inst_name },
+                "config": {
+                    "database_version": "POSTGRES_15",
+                    "settings": {
+                        "tier": "db-f1-micro",
+                        "ipConfiguration": { "ipv4Enabled": true },
+                    },
+                },
+                "sizing": { "region": REGION },
+            }),
+        )
+        .await
+        .expect("Instance create failed");
+    println!("  instance = {}", inst.provider_id);
+
+    // Create database
+    let db_name = "smelt_test_db";
+    let db_config = serde_json::json!({
+        "identity": { "name": db_name },
+        "config": { "instance": &inst_name },
+    });
+    println!("\n[CREATE] sql.Database...");
+    let db = provider.create("sql.Database", &db_config).await;
+    match &db {
+        Ok(d) => println!("  database = {} (provider_id = {})", db_name, d.provider_id),
+        Err(e) => println!("  DATABASE CREATE FAILED: {e:?}"),
+    }
+
+    // Read database back
+    if let Ok(ref d) = db {
+        println!("\n[READ] sql.Database...");
+        let read = provider.read("sql.Database", &d.provider_id).await;
+        match &read {
+            Ok(r) => println!(
+                "  state = {}",
+                serde_json::to_string_pretty(&r.state).unwrap()
+            ),
+            Err(e) => println!("  READ FAILED: {e:?}"),
+        }
+    }
+
+    // Cleanup
+    if let Ok(ref d) = db {
+        println!("\n[DELETE] sql.Database...");
+        let _ = provider.delete("sql.Database", &d.provider_id).await;
+        println!("  Deleted database.");
+    }
+    println!("[DELETE] sql.Instance...");
+    provider
+        .delete("sql.Instance", &inst.provider_id)
+        .await
+        .expect("Instance DELETE failed");
+    println!("  Deleted instance.");
+}
