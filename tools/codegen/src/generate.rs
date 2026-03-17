@@ -3125,10 +3125,22 @@ fn write_provider_id_construction(out: &mut String, m: &ResourceManifest) {
                     out,
                     "    let provider_id = format!(\"projects/{{}}/locations/{{}}/{noun_plural}/{{}}\", self.project_id, self.region, name);"
                 );
+            } else if has_project && parent_fmt.contains("locations/global") {
+                // Fixed location (e.g., apikeys: projects/{project}/locations/global)
+                let _ = writeln!(
+                    out,
+                    "    let provider_id = format!(\"projects/{{}}/locations/global/{noun_plural}/{{}}\", self.project_id, name);"
+                );
             } else if has_project {
                 let _ = writeln!(
                     out,
                     "    let provider_id = format!(\"projects/{{}}/{noun_plural}/{{}}\", self.project_id, name);"
+                );
+            } else if parent_fmt.starts_with("projects/") {
+                // Literal parent (e.g., "projects/_" for GCS)
+                let _ = writeln!(
+                    out,
+                    "    let provider_id = format!(\"{parent_fmt}/{noun_plural}/{{}}\", name);"
                 );
             } else {
                 let _ = writeln!(out, "    let provider_id = name.to_string();");
