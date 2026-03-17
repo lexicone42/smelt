@@ -1110,6 +1110,46 @@ pub(crate) fn normalize_gcp_url(url: &str) -> &str {
         .unwrap_or(url)
 }
 
+/// Check if a GCP error message indicates a transient "not ready" condition.
+/// Resources like VPCs need propagation time before dependents can use them.
+pub(crate) fn is_not_ready_error(err: &impl std::fmt::Display) -> bool {
+    let msg = err.to_string();
+    msg.contains("is not ready") || msg.contains("not found") && msg.contains("resource")
+}
+
+/// Retry a GCP API call that might fail with "not ready" errors.
+/// Useful for resources that depend on recently-created infrastructure.
+pub(crate) async fn retry_not_ready<F, Fut, T, E>(
+    operation: &str,
+    max_attempts: u32,
+    delay_secs: u64,
+    mut f: F,
+) -> Result<T, ProviderError>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, E>>,
+    E: std::fmt::Display,
+{
+    let mut last_err = None;
+    for attempt in 0..max_attempts {
+        match f().await {
+            Ok(v) => return Ok(v),
+            Err(e) => {
+                if is_not_ready_error(&e) && attempt < max_attempts - 1 {
+                    tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
+                    last_err = Some(e.to_string());
+                    continue;
+                }
+                return Err(classify_gcp_error(operation, e));
+            }
+        }
+    }
+    Err(ProviderError::ApiError(format!(
+        "{operation}: exhausted {max_attempts} retries, last error: {}",
+        last_err.unwrap_or_default()
+    )))
+}
+
 impl Provider for GcpProvider {
     fn name(&self) -> &str {
         "gcp"
