@@ -1,0 +1,83 @@
+resource vpc "main" : gcp.compute.Network {
+  @intent "Primary VPC for the application stack"
+
+  identity {
+    name = "minimal-dev-vpc"
+  }
+
+  network {
+    auto_create_subnetworks = false
+    routing_mode = "REGIONAL"
+  }
+}
+
+resource subnet "app" : gcp.compute.Subnetwork {
+  @intent "Application subnet for Cloud Run VPC connector"
+
+  needs vpc.main -> network
+
+  identity {
+    name = "minimal-dev-app-subnet"
+  }
+
+  network {
+    ip_cidr_range = "10.0.0.0/24"
+  }
+}
+
+resource sa "app" : gcp.iam.ServiceAccount {
+  @intent "Service account for application workloads"
+
+  identity {
+    name = "minimal-dev-app"
+    display_name = "minimal.dev application SA"
+  }
+}
+
+resource topic "events" : gcp.pubsub.Topic {
+  @intent "Application event bus"
+
+  identity {
+    name = "minimal-dev-events"
+  }
+}
+
+resource registry "app" : gcp.artifactregistry.Repository {
+  @intent "Container registry for application images"
+
+  identity {
+    name = "minimal-dev-app"
+    description = "Application container images"
+  }
+
+  config {
+    format = "DOCKER"
+  }
+}
+
+resource dataset "analytics" : gcp.bigquery.Dataset {
+  @intent "Analytics data warehouse"
+
+  identity {
+    name = "minimal_dev_analytics"
+    description = "Analytics and reporting data"
+    friendly_name = "Analytics"
+  }
+
+  config {
+    location = "US"
+  }
+}
+
+resource log "app-errors" : gcp.logging.LogMetric {
+  @intent "Track application error rate"
+
+  identity {
+    name = "minimal-dev-app-errors"
+    description = "Count of application errors"
+  }
+
+  config {
+    filter = "severity >= ERROR"
+  }
+}
