@@ -1179,6 +1179,7 @@ impl GcpProvider {
                 s.as_str(),
             ));
         }
+        let inst_name = instance.as_deref().unwrap_or("").to_string();
         if let Some(v) = instance {
             model = model.set_instance(v);
         }
@@ -1210,12 +1211,14 @@ impl GcpProvider {
             .await?
             .insert()
             .set_project(&self.project_id)
+            .set_instance(&inst_name)
             .set_body(model)
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("Insert User", e))?;
 
-        let provider_id = name.to_string();
+        // Composite provider_id: instance/username
+        let provider_id = format!("{inst_name}/{name}");
         self.read_sql_user(&provider_id).await
     }
 
@@ -1223,13 +1226,14 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.to_string();
+        let (instance_name, user_name) = provider_id.split_once('/').unwrap_or(("", provider_id));
         let user = self
             .sql_users()
             .await?
             .get()
             .set_project(&self.project_id)
-            .set_name(&name)
+            .set_instance(instance_name)
+            .set_name(user_name)
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("GetUser", e))?;
@@ -1270,7 +1274,7 @@ impl GcpProvider {
         provider_id: &str,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.to_string();
+        let (instance_name, user_name) = provider_id.split_once('/').unwrap_or(("", provider_id));
         // Extract fields from config
         let database_roles = config
             .pointer("/config/database_roles")
@@ -1341,7 +1345,8 @@ impl GcpProvider {
             .await?
             .update()
             .set_project(&self.project_id)
-            .set_name(&name)
+            .set_instance(instance_name)
+            .set_name(user_name)
             .set_body(model)
             .send()
             .await
@@ -1351,12 +1356,13 @@ impl GcpProvider {
     }
 
     pub(super) async fn delete_sql_user(&self, provider_id: &str) -> Result<(), ProviderError> {
-        let name = provider_id.to_string();
+        let (instance_name, user_name) = provider_id.split_once('/').unwrap_or(("", provider_id));
         self.sql_users()
             .await?
             .delete()
             .set_project(&self.project_id)
-            .set_name(&name)
+            .set_instance(instance_name)
+            .set_name(user_name)
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("DeleteUser", e))?;
