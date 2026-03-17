@@ -1408,3 +1408,49 @@ async fn gcp_compute_disk_crud() {
         }
     }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Cloud SQL Instance — ~$0.01/hr for db-f1-micro
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_sql_instance_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("sql");
+
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+        "config": {
+            "database_version": "POSTGRES_15",
+            "settings": {
+                "tier": "db-f1-micro",
+                "ipConfiguration": {
+                    "ipv4Enabled": true,
+                },
+            },
+        },
+        "sizing": {
+            "region": REGION,
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "sql.Instance", &config, &name).await;
+
+    println!("\n[DELETE] sql.Instance...");
+    provider
+        .delete("sql.Instance", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}

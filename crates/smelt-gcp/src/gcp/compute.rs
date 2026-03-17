@@ -177,7 +177,7 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Insert Network", e))?;
 
-        let provider_id = name.to_string();
+        let provider_id = format!("projects/{}/global/networks/{}", self.project_id, name);
         self.read_compute_network(&provider_id).await
     }
 
@@ -185,7 +185,11 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.to_string();
+        let name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
         let network = self
             .networks()
             .await?
@@ -230,7 +234,11 @@ impl GcpProvider {
         provider_id: &str,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.to_string();
+        let name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
         // Extract fields from config
         let auto_create_subnetworks = config.optional_bool("/network/auto_create_subnetworks");
         let description = config
@@ -299,7 +307,11 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<(), ProviderError> {
-        let name = provider_id.to_string();
+        let name = provider_id
+            .rsplit('/')
+            .next()
+            .unwrap_or(provider_id)
+            .to_string();
         self.networks()
             .await?
             .delete()
@@ -631,17 +643,38 @@ impl GcpProvider {
             );
         }
 
-        // Make API call
+        // Make API call (with retry for "not ready" — VPC propagation delay)
         let region = config.str_or("/network/region", &self.region).to_string();
-        self.subnetworks()
-            .await?
-            .insert()
-            .set_project(&self.project_id)
-            .set_region(&region)
-            .set_body(model)
-            .send()
-            .await
-            .map_err(|e| super::classify_gcp_error("Insert Subnetwork", e))?;
+        let mut last_err = None;
+        for attempt in 0..6u32 {
+            match self
+                .subnetworks()
+                .await?
+                .insert()
+                .set_project(&self.project_id)
+                .set_region(&region)
+                .set_body(model.clone())
+                .send()
+                .await
+            {
+                Ok(_) => {
+                    last_err = None;
+                    break;
+                }
+                Err(e) => {
+                    let msg = e.to_string();
+                    if msg.contains("is not ready") && attempt < 5 {
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        last_err = Some(e);
+                        continue;
+                    }
+                    return Err(super::classify_gcp_error("Insert Subnetwork", e));
+                }
+            }
+        }
+        if let Some(e) = last_err {
+            return Err(super::classify_gcp_error("Insert Subnetwork", e));
+        }
 
         let provider_id = format!("{region}/{name}");
         self.read_compute_subnetwork(&provider_id).await
