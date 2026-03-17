@@ -383,12 +383,53 @@ impl GcpProvider {
 
     pub(super) async fn update_run_service(
         &self,
-        _provider_id: &str,
-        _config: &serde_json::Value,
+        provider_id: &str,
+        config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        Err(ProviderError::RequiresReplacement(
-            "resource does not support in-place update".into(),
-        ))
+        // Re-build the model from the new config and update via the API
+        let template = config.pointer("/config/template").and_then(|v| {
+            serde_json::from_value::<google_cloud_run_v2::model::RevisionTemplate>(v.clone()).ok()
+        });
+        let ingress = config.optional_str("/config/ingress").map(String::from);
+        let description = config
+            .optional_str("/identity/description")
+            .map(String::from);
+
+        let labels = super::extract_labels(config);
+        let mut model = google_cloud_run_v2::model::Service::default();
+        if let Some(v) = template {
+            model = model.set_template(v);
+        }
+        if let Some(ref s) = ingress {
+            model = model.set_ingress(google_cloud_run_v2::model::IngressTraffic::from(s.as_str()));
+        }
+        if let Some(v) = description {
+            model = model.set_description(v);
+        }
+        model = model.set_labels(labels);
+
+        // Cloud Run uses with_request() pattern for updates
+        model = model.set_name(provider_id.to_string());
+        let req = google_cloud_run_v2::model::UpdateServiceRequest::default().set_service(model);
+        self.run_services()
+            .await?
+            .update_service()
+            .with_request(req)
+            .send()
+            .await
+            .map_err(|e| super::classify_gcp_error("UpdateService", e))?;
+
+        // LRO — poll for readiness
+        for attempt in 0..15u32 {
+            match self.read_run_service(provider_id).await {
+                Ok(result) => return Ok(result),
+                Err(_) if attempt < 14 => {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        self.read_run_service(provider_id).await
     }
 
     pub(super) async fn delete_run_service(&self, provider_id: &str) -> Result<(), ProviderError> {

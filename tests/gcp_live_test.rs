@@ -1744,3 +1744,65 @@ async fn gcp_bigquery_table_crud() {
         }
     }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Cloud Run Service Update — change container image
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_cloud_run_service_update() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("runup");
+
+    // Create
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+        "config": {
+            "template": {
+                "containers": [{ "image": "us-docker.pkg.dev/cloudrun/container/hello:latest" }],
+            },
+        },
+    });
+    println!("[CREATE] run.Service...");
+    let created = provider
+        .create("run.Service", &config)
+        .await
+        .expect("CREATE failed");
+    println!("  provider_id = {}", created.provider_id);
+
+    // Update — change to a different image tag
+    let update_config = serde_json::json!({
+        "identity": { "name": &name },
+        "config": {
+            "template": {
+                "containers": [{ "image": "us-docker.pkg.dev/cloudrun/container/hello:latest" }],
+                "serviceAccount": format!("smelt-dev@{project}.iam.gserviceaccount.com"),
+            },
+        },
+    });
+    println!("\n[UPDATE] run.Service (add serviceAccount)...");
+    let updated = provider
+        .update("run.Service", &created.provider_id, &config, &update_config)
+        .await;
+    match &updated {
+        Ok(output) => println!(
+            "  Updated OK. template = {}",
+            serde_json::to_string(&output.state["config"]["template"]).unwrap_or_default()
+        ),
+        Err(e) => println!("  UPDATE FAILED: {e:?}"),
+    }
+
+    // Cleanup
+    println!("\n[DELETE] run.Service...");
+    provider
+        .delete("run.Service", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    assert!(updated.is_ok(), "Cloud Run update should succeed");
+}
