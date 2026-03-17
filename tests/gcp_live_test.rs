@@ -1670,3 +1670,77 @@ async fn gcp_bigquery_dataset_crud() {
 
     assert!(updated.is_ok(), "UPDATE should succeed");
 }
+
+// ═══════════════════════════════════════════════════════════════
+// BigQuery Table — free, depends on Dataset
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_bigquery_table_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let ds_name = format!("smelt_test_ds_{}", ts % 1_000_000);
+    let tbl_name = format!("smelt_test_tbl_{}", ts % 1_000_000);
+
+    // Create dataset first
+    println!("[SETUP] Creating BigQuery Dataset...");
+    let ds = provider
+        .create(
+            "bigquery.Dataset",
+            &serde_json::json!({
+                "identity": { "name": &ds_name },
+                "config": { "location": "US" },
+            }),
+        )
+        .await
+        .expect("Dataset create failed");
+    println!("  dataset = {}", ds.provider_id);
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &tbl_name,
+            "dataset_id": &ds_name,
+            "description": "smelt live test table",
+        },
+        "config": {
+            "schema": {
+                "fields": [
+                    { "name": "id", "type": "INTEGER", "mode": "REQUIRED" },
+                    { "name": "name", "type": "STRING", "mode": "NULLABLE" },
+                    { "name": "created_at", "type": "TIMESTAMP", "mode": "NULLABLE" },
+                ]
+            }
+        },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "bigquery.Table", &config, &tbl_name).await;
+
+    // Cleanup
+    println!("\n[DELETE] bigquery.Table...");
+    provider
+        .delete("bigquery.Table", &created.provider_id)
+        .await
+        .expect("Table DELETE failed");
+    println!("  Deleted table.");
+    println!("[DELETE] bigquery.Dataset...");
+    provider
+        .delete("bigquery.Dataset", &ds.provider_id)
+        .await
+        .expect("Dataset DELETE failed");
+    println!("  Deleted dataset.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}

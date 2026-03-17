@@ -1213,6 +1213,7 @@ impl Provider for GcpProvider {
             Self::storage_bucket_schema(),
             // BigQuery (1)
             Self::bigquery_dataset_schema(),
+            Self::bigquery_table_schema(),
             // Cloud Run (2)
             Self::run_service_schema(),
             Self::run_job_schema(),
@@ -1349,6 +1350,7 @@ impl Provider for GcpProvider {
                 // Cloud Storage
                 "storage.Bucket" => read_storage_bucket,
                 "bigquery.Dataset" => read_bigquery_dataset,
+                "bigquery.Table" => read_bigquery_table,
                 // Cloud SQL
                 "sql.Instance" => read_sql_instance,
                 "sql.Database" => read_sql_database,
@@ -1486,6 +1488,7 @@ impl Provider for GcpProvider {
                 // Cloud Storage
                 "storage.Bucket" => create_storage_bucket,
                 "bigquery.Dataset" => create_bigquery_dataset,
+                "bigquery.Table" => create_bigquery_table,
                 // Cloud SQL
                 "sql.Instance" => create_sql_instance,
                 "sql.Database" => create_sql_database,
@@ -1626,6 +1629,7 @@ impl Provider for GcpProvider {
                 // Cloud Storage
                 "storage.Bucket" => update_storage_bucket,
                 "bigquery.Dataset" => update_bigquery_dataset,
+                "bigquery.Table" => update_bigquery_table,
                 // Cloud SQL
                 "sql.Instance" => update_sql_instance,
                 "sql.Database" => update_sql_database,
@@ -1762,6 +1766,7 @@ impl Provider for GcpProvider {
                 // Cloud Storage
                 "storage.Bucket" => delete_storage_bucket,
                 "bigquery.Dataset" => delete_bigquery_dataset,
+                "bigquery.Table" => delete_bigquery_table,
                 // Cloud SQL
                 "sql.Instance" => delete_sql_instance,
                 "sql.Database" => delete_sql_database,

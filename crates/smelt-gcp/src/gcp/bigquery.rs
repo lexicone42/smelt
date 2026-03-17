@@ -275,4 +275,296 @@ impl GcpProvider {
         }
         Ok(())
     }
+
+    // ── BigQuery Table ─────────────────────────────────────────────────
+
+    pub(super) fn bigquery_table_schema() -> ResourceTypeInfo {
+        ResourceTypeInfo {
+            type_path: "bigquery.Table".into(),
+            description: "BigQuery table".into(),
+            schema: ResourceSchema {
+                sections: vec![
+                    SectionSchema {
+                        name: "identity".into(),
+                        description: "Identity configuration".into(),
+                        fields: vec![
+                            FieldSchema {
+                                name: "name".into(),
+                                description: "Table ID".into(),
+                                field_type: FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                            FieldSchema {
+                                name: "dataset_id".into(),
+                                description: "Parent dataset ID".into(),
+                                field_type: FieldType::String,
+                                required: true,
+                                default: None,
+                                sensitive: false,
+                            },
+                            FieldSchema {
+                                name: "description".into(),
+                                description: "Table description".into(),
+                                field_type: FieldType::String,
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
+                            FieldSchema {
+                                name: "friendly_name".into(),
+                                description: "Human-readable name".into(),
+                                field_type: FieldType::String,
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
+                            FieldSchema {
+                                name: "labels".into(),
+                                description: "Resource labels".into(),
+                                field_type: FieldType::Record(vec![]),
+                                required: false,
+                                default: None,
+                                sensitive: false,
+                            },
+                        ],
+                    },
+                    SectionSchema {
+                        name: "config".into(),
+                        description: "Table configuration".into(),
+                        fields: vec![FieldSchema {
+                            name: "schema".into(),
+                            description: "Table schema (fields array)".into(),
+                            field_type: FieldType::Record(vec![]),
+                            required: false,
+                            default: None,
+                            sensitive: false,
+                        }],
+                    },
+                ],
+            },
+        }
+    }
+
+    pub(super) async fn create_bigquery_table(
+        &self,
+        config: &serde_json::Value,
+    ) -> Result<ResourceOutput, ProviderError> {
+        let name = config.require_str("/identity/name")?.to_string();
+        let dataset_id = config.require_str("/identity/dataset_id")?.to_string();
+        let description = config.optional_str("/identity/description");
+        let friendly_name = config.optional_str("/identity/friendly_name");
+        let schema = config.pointer("/config/schema");
+
+        let labels: HashMap<String, String> = config
+            .pointer("/identity/labels")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+
+        let mut body = serde_json::json!({
+            "tableReference": {
+                "tableId": &name,
+                "datasetId": &dataset_id,
+                "projectId": &self.project_id,
+            },
+        });
+        if let Some(desc) = description {
+            body["description"] = serde_json::json!(desc);
+        }
+        if let Some(fname) = friendly_name {
+            body["friendlyName"] = serde_json::json!(fname);
+        }
+        if let Some(s) = schema {
+            body["schema"] = s.clone();
+        }
+        if !labels.is_empty() {
+            body["labels"] = serde_json::json!(labels);
+        }
+
+        let (client, token) = self.bq_client().await?;
+        let url = format!(
+            "{BQ_BASE}/projects/{}/datasets/{dataset_id}/tables",
+            self.project_id
+        );
+        let resp = client
+            .post(&url)
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ProviderError::ApiError(format!("CreateTable: {e}")))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(ProviderError::ApiError(format!(
+                "CreateTable {status}: {text}"
+            )));
+        }
+
+        // Composite provider_id: dataset_id/table_id
+        let provider_id = format!("{dataset_id}/{name}");
+        self.read_bigquery_table(&provider_id).await
+    }
+
+    pub(super) async fn read_bigquery_table(
+        &self,
+        provider_id: &str,
+    ) -> Result<ResourceOutput, ProviderError> {
+        let (dataset_id, table_id) = provider_id.split_once('/').unwrap_or(("", provider_id));
+
+        let (client, token) = self.bq_client().await?;
+        let url = format!(
+            "{BQ_BASE}/projects/{}/datasets/{dataset_id}/tables/{table_id}",
+            self.project_id
+        );
+        let resp = client
+            .get(&url)
+            .bearer_auth(&token)
+            .send()
+            .await
+            .map_err(|e| ProviderError::ApiError(format!("GetTable: {e}")))?;
+
+        if resp.status() == 404 {
+            return Err(ProviderError::NotFound(format!("Table {provider_id}")));
+        }
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(ProviderError::ApiError(format!(
+                "GetTable {status}: {text}"
+            )));
+        }
+
+        let data: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| ProviderError::ApiError(format!("GetTable parse: {e}")))?;
+
+        let tid = data["tableReference"]["tableId"]
+            .as_str()
+            .unwrap_or(table_id);
+        let did = data["tableReference"]["datasetId"]
+            .as_str()
+            .unwrap_or(dataset_id);
+
+        let mut state = serde_json::json!({
+            "identity": {
+                "name": tid,
+                "dataset_id": did,
+            },
+        });
+        if let Some(desc) = data["description"].as_str().filter(|s| !s.is_empty()) {
+            state["identity"]["description"] = serde_json::json!(desc);
+        }
+        if let Some(fname) = data["friendlyName"].as_str().filter(|s| !s.is_empty()) {
+            state["identity"]["friendly_name"] = serde_json::json!(fname);
+        }
+        if let Some(labels) = data["labels"].as_object() {
+            if !labels.is_empty() {
+                state["identity"]["labels"] = serde_json::json!(labels);
+            }
+        }
+        if let Some(schema) = data.get("schema") {
+            if !schema.is_null() {
+                state["config"] = serde_json::json!({ "schema": schema });
+            }
+        }
+
+        let mut outputs = HashMap::new();
+        outputs.insert("table_id".into(), serde_json::json!(tid));
+        outputs.insert("dataset_id".into(), serde_json::json!(did));
+
+        Ok(ResourceOutput {
+            provider_id: provider_id.to_string(),
+            state,
+            outputs,
+        })
+    }
+
+    pub(super) async fn update_bigquery_table(
+        &self,
+        provider_id: &str,
+        config: &serde_json::Value,
+    ) -> Result<ResourceOutput, ProviderError> {
+        let (dataset_id, table_id) = provider_id.split_once('/').unwrap_or(("", provider_id));
+
+        let description = config.optional_str("/identity/description");
+        let friendly_name = config.optional_str("/identity/friendly_name");
+        let schema = config.pointer("/config/schema");
+        let labels: HashMap<String, String> = config
+            .pointer("/identity/labels")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+
+        let mut body = serde_json::json!({
+            "tableReference": {
+                "tableId": table_id,
+                "datasetId": dataset_id,
+                "projectId": &self.project_id,
+            },
+        });
+        if let Some(desc) = description {
+            body["description"] = serde_json::json!(desc);
+        }
+        if let Some(fname) = friendly_name {
+            body["friendlyName"] = serde_json::json!(fname);
+        }
+        if let Some(s) = schema {
+            body["schema"] = s.clone();
+        }
+        body["labels"] = serde_json::json!(labels);
+
+        let (client, token) = self.bq_client().await?;
+        let url = format!(
+            "{BQ_BASE}/projects/{}/datasets/{dataset_id}/tables/{table_id}",
+            self.project_id
+        );
+        let resp = client
+            .patch(&url)
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ProviderError::ApiError(format!("PatchTable: {e}")))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(ProviderError::ApiError(format!(
+                "PatchTable {status}: {text}"
+            )));
+        }
+
+        self.read_bigquery_table(provider_id).await
+    }
+
+    pub(super) async fn delete_bigquery_table(
+        &self,
+        provider_id: &str,
+    ) -> Result<(), ProviderError> {
+        let (dataset_id, table_id) = provider_id.split_once('/').unwrap_or(("", provider_id));
+
+        let (client, token) = self.bq_client().await?;
+        let url = format!(
+            "{BQ_BASE}/projects/{}/datasets/{dataset_id}/tables/{table_id}",
+            self.project_id
+        );
+        let resp = client
+            .delete(&url)
+            .bearer_auth(&token)
+            .send()
+            .await
+            .map_err(|e| ProviderError::ApiError(format!("DeleteTable: {e}")))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(ProviderError::ApiError(format!(
+                "DeleteTable {status}: {text}"
+            )));
+        }
+        Ok(())
+    }
 }
