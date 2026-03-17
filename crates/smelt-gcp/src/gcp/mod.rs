@@ -1,6 +1,7 @@
 mod alloydb;
 mod apikeys;
 mod artifactregistry;
+// mod bigquery; // blocked by reqwest version conflict with google-cloud-storage
 mod certificatemanager;
 mod compute;
 mod container;

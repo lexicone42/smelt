@@ -66,3 +66,7 @@ google-cloud-orgpolicy-v2 = "1"
 google-cloud-gkebackup-v1 = "1"
 google-cloud-dataproc-v1 = "1"
 google-cloud-workflows-v1 = "1"
+
+# BigQuery — blocked by reqwest version conflict with google-cloud-storage
+# google-cloud-bigquery = { version = "0.15", default-features = false, features = ["auth", "rustls-tls"] }
+# TODO: either wait for upstream fix or implement via REST API directly
