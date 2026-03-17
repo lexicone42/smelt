@@ -1,10 +1,13 @@
-// Hand-written BigQuery provider — uses google-cloud-bigquery crate
-// which has a different client pattern than the googleapis crates.
+// BigQuery provider — direct REST API implementation.
+// Uses reqwest + google-cloud-auth for authenticated HTTP calls.
+// No BigQuery SDK crate due to reqwest version conflict.
 
 use smelt_provider::*;
 use std::collections::HashMap;
 
 use super::GcpProvider;
+
+const BQ_BASE: &str = "https://bigquery.googleapis.com/bigquery/v2";
 
 impl GcpProvider {
     pub(super) fn bigquery_dataset_schema() -> ResourceTypeInfo {
@@ -68,88 +71,127 @@ impl GcpProvider {
         }
     }
 
+    /// Get an authenticated reqwest client with a bearer token.
+    async fn bq_client(&self) -> Result<(reqwest::Client, String), ProviderError> {
+        let token = self
+            .auth_token()
+            .await
+            .map_err(|e| ProviderError::ApiError(format!("BigQuery auth: {e}")))?;
+        let client = reqwest::Client::new();
+        Ok((client, token))
+    }
+
     pub(super) async fn create_bigquery_dataset(
         &self,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
         let name = config.require_str("/identity/name")?.to_string();
-        let description = config.optional_str("/identity/description").map(String::from);
-        let friendly_name = config
-            .optional_str("/identity/friendly_name")
-            .map(String::from);
-        let location = config
-            .str_or("/config/location", "US")
-            .to_string();
+        let description = config.optional_str("/identity/description");
+        let friendly_name = config.optional_str("/identity/friendly_name");
+        let location = config.str_or("/config/location", "US");
 
         let labels: HashMap<String, String> = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default();
 
-        let mut dataset = google_cloud_bigquery::http::dataset::Dataset::default();
-        dataset.dataset_reference = google_cloud_bigquery::http::dataset::DatasetReference {
-            dataset_id: name.clone(),
-            project_id: self.project_id.clone(),
-        };
-        dataset.location = location;
-        dataset.description = description;
-        dataset.friendly_name = friendly_name;
-        dataset.labels = labels;
+        let mut body = serde_json::json!({
+            "datasetReference": {
+                "datasetId": &name,
+                "projectId": &self.project_id,
+            },
+            "location": location,
+        });
+        if let Some(desc) = description {
+            body["description"] = serde_json::json!(desc);
+        }
+        if let Some(fname) = friendly_name {
+            body["friendlyName"] = serde_json::json!(fname);
+        }
+        if !labels.is_empty() {
+            body["labels"] = serde_json::json!(labels);
+        }
 
-        let client = self.bigquery_dataset_client().await?;
-        client
-            .create(&dataset)
+        let (client, token) = self.bq_client().await?;
+        let url = format!("{BQ_BASE}/projects/{}/datasets", self.project_id);
+        let resp = client
+            .post(&url)
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("CreateDataset: {e}")))?;
 
-        let provider_id = name.clone();
-        self.read_bigquery_dataset(&provider_id).await
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(ProviderError::ApiError(format!(
+                "CreateDataset {status}: {text}"
+            )));
+        }
+
+        self.read_bigquery_dataset(&name).await
     }
 
     pub(super) async fn read_bigquery_dataset(
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let client = self.bigquery_dataset_client().await?;
-        let dataset = client
-            .get(&self.project_id, provider_id)
+        let (client, token) = self.bq_client().await?;
+        let url = format!(
+            "{BQ_BASE}/projects/{}/datasets/{provider_id}",
+            self.project_id
+        );
+        let resp = client
+            .get(&url)
+            .bearer_auth(&token)
+            .send()
             .await
-            .map_err(|e| {
-                let msg = e.to_string();
-                if msg.contains("404") || msg.contains("notFound") || msg.contains("Not found") {
-                    ProviderError::NotFound(format!("Dataset {provider_id}: {msg}"))
-                } else {
-                    ProviderError::ApiError(format!("GetDataset: {msg}"))
-                }
-            })?;
+            .map_err(|e| ProviderError::ApiError(format!("GetDataset: {e}")))?;
+
+        if resp.status() == 404 {
+            return Err(ProviderError::NotFound(format!("Dataset {provider_id}")));
+        }
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(ProviderError::ApiError(format!(
+                "GetDataset {status}: {text}"
+            )));
+        }
+
+        let data: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| ProviderError::ApiError(format!("GetDataset parse: {e}")))?;
+
+        let dataset_id = data["datasetReference"]["datasetId"]
+            .as_str()
+            .unwrap_or(provider_id);
+        let location = data["location"].as_str().unwrap_or("US");
 
         let mut state = serde_json::json!({
             "identity": {
-                "name": dataset.dataset_reference.dataset_id,
+                "name": dataset_id,
             },
             "config": {
-                "location": dataset.location,
+                "location": location,
             },
         });
-        if let Some(ref desc) = dataset.description {
-            if !desc.is_empty() {
-                state["identity"]["description"] = serde_json::json!(desc);
-            }
+        if let Some(desc) = data["description"].as_str().filter(|s| !s.is_empty()) {
+            state["identity"]["description"] = serde_json::json!(desc);
         }
-        if let Some(ref fname) = dataset.friendly_name {
-            if !fname.is_empty() {
-                state["identity"]["friendly_name"] = serde_json::json!(fname);
-            }
+        if let Some(fname) = data["friendlyName"].as_str().filter(|s| !s.is_empty()) {
+            state["identity"]["friendly_name"] = serde_json::json!(fname);
         }
-        if !dataset.labels.is_empty() {
-            state["identity"]["labels"] = serde_json::json!(dataset.labels);
+        if let Some(labels) = data["labels"].as_object() {
+            if !labels.is_empty() {
+                state["identity"]["labels"] = serde_json::json!(labels);
+            }
         }
 
         let mut outputs = HashMap::new();
-        outputs.insert(
-            "dataset_id".into(),
-            serde_json::json!(dataset.dataset_reference.dataset_id),
-        );
+        outputs.insert("dataset_id".into(), serde_json::json!(dataset_id));
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -163,29 +205,47 @@ impl GcpProvider {
         provider_id: &str,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let description = config.optional_str("/identity/description").map(String::from);
-        let friendly_name = config
-            .optional_str("/identity/friendly_name")
-            .map(String::from);
+        let description = config.optional_str("/identity/description");
+        let friendly_name = config.optional_str("/identity/friendly_name");
         let labels: HashMap<String, String> = config
             .pointer("/identity/labels")
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default();
 
-        let mut dataset = google_cloud_bigquery::http::dataset::Dataset::default();
-        dataset.dataset_reference = google_cloud_bigquery::http::dataset::DatasetReference {
-            dataset_id: provider_id.to_string(),
-            project_id: self.project_id.clone(),
-        };
-        dataset.description = description;
-        dataset.friendly_name = friendly_name;
-        dataset.labels = labels;
+        let mut body = serde_json::json!({
+            "datasetReference": {
+                "datasetId": provider_id,
+                "projectId": &self.project_id,
+            },
+        });
+        if let Some(desc) = description {
+            body["description"] = serde_json::json!(desc);
+        }
+        if let Some(fname) = friendly_name {
+            body["friendlyName"] = serde_json::json!(fname);
+        }
+        body["labels"] = serde_json::json!(labels);
 
-        let client = self.bigquery_dataset_client().await?;
-        client
-            .patch(&dataset)
+        let (client, token) = self.bq_client().await?;
+        let url = format!(
+            "{BQ_BASE}/projects/{}/datasets/{provider_id}",
+            self.project_id
+        );
+        let resp = client
+            .patch(&url)
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("PatchDataset: {e}")))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(ProviderError::ApiError(format!(
+                "PatchDataset {status}: {text}"
+            )));
+        }
 
         self.read_bigquery_dataset(provider_id).await
     }
@@ -194,11 +254,25 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<(), ProviderError> {
-        let client = self.bigquery_dataset_client().await?;
-        client
-            .delete(&self.project_id, provider_id)
+        let (client, token) = self.bq_client().await?;
+        let url = format!(
+            "{BQ_BASE}/projects/{}/datasets/{provider_id}?deleteContents=true",
+            self.project_id
+        );
+        let resp = client
+            .delete(&url)
+            .bearer_auth(&token)
+            .send()
             .await
             .map_err(|e| ProviderError::ApiError(format!("DeleteDataset: {e}")))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(ProviderError::ApiError(format!(
+                "DeleteDataset {status}: {text}"
+            )));
+        }
         Ok(())
     }
 }

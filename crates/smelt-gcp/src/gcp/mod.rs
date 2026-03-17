@@ -1,7 +1,7 @@
 mod alloydb;
 mod apikeys;
 mod artifactregistry;
-// mod bigquery; // blocked by reqwest version conflict with google-cloud-storage
+mod bigquery;
 mod certificatemanager;
 mod compute;
 mod container;
@@ -90,6 +90,9 @@ macro_rules! gcp_dispatch_delete {
 pub struct GcpProvider {
     pub(crate) project_id: String,
     pub(crate) region: String,
+    // Auth for REST API calls (BigQuery etc.)
+    pub(crate) credentials:
+        tokio::sync::OnceCell<google_cloud_auth::credentials::AccessTokenCredentials>,
     // Compute Engine (27 client types)
     pub(crate) instances_client: tokio::sync::OnceCell<google_cloud_compute_v1::client::Instances>,
     pub(crate) networks_client: tokio::sync::OnceCell<google_cloud_compute_v1::client::Networks>,
@@ -266,6 +269,7 @@ impl GcpProvider {
         Ok(Self {
             project_id: project_id.to_string(),
             region: region.to_string(),
+            credentials: tokio::sync::OnceCell::new(),
             // Compute Engine
             instances_client: tokio::sync::OnceCell::new(),
             networks_client: tokio::sync::OnceCell::new(),
@@ -585,6 +589,25 @@ impl GcpProvider {
             "init ForwardingRules"
         )
     }
+    // Auth token for REST API calls (BigQuery etc.)
+    pub(crate) async fn auth_token(&self) -> Result<String, ProviderError> {
+        let creds = self
+            .credentials
+            .get_or_try_init(|| async {
+                google_cloud_auth::credentials::Builder::default()
+                    .with_scopes(&["https://www.googleapis.com/auth/cloud-platform".to_string()])
+                    .build_access_token_credentials()
+            })
+            .await
+            .map_err(|e| ProviderError::ApiError(format!("auth credentials: {e}")))?;
+
+        let token = creds
+            .access_token()
+            .await
+            .map_err(|e| ProviderError::ApiError(format!("auth token: {e}")))?;
+        Ok(token.token)
+    }
+
     // Cloud Storage
     pub(crate) async fn storage(
         &self,
@@ -1188,6 +1211,8 @@ impl Provider for GcpProvider {
             Self::loadbalancing_forwardingrule_schema(),
             // Cloud Storage (1)
             Self::storage_bucket_schema(),
+            // BigQuery (1)
+            Self::bigquery_dataset_schema(),
             // Cloud Run (2)
             Self::run_service_schema(),
             Self::run_job_schema(),
@@ -1323,6 +1348,7 @@ impl Provider for GcpProvider {
                 "loadbalancing.ForwardingRule" => read_loadbalancing_forwardingrule,
                 // Cloud Storage
                 "storage.Bucket" => read_storage_bucket,
+                "bigquery.Dataset" => read_bigquery_dataset,
                 // Cloud SQL
                 "sql.Instance" => read_sql_instance,
                 "sql.Database" => read_sql_database,
@@ -1459,6 +1485,7 @@ impl Provider for GcpProvider {
                 "loadbalancing.ForwardingRule" => create_loadbalancing_forwardingrule,
                 // Cloud Storage
                 "storage.Bucket" => create_storage_bucket,
+                "bigquery.Dataset" => create_bigquery_dataset,
                 // Cloud SQL
                 "sql.Instance" => create_sql_instance,
                 "sql.Database" => create_sql_database,
@@ -1598,6 +1625,7 @@ impl Provider for GcpProvider {
                 "loadbalancing.ForwardingRule" => update_loadbalancing_forwardingrule,
                 // Cloud Storage
                 "storage.Bucket" => update_storage_bucket,
+                "bigquery.Dataset" => update_bigquery_dataset,
                 // Cloud SQL
                 "sql.Instance" => update_sql_instance,
                 "sql.Database" => update_sql_database,
@@ -1733,6 +1761,7 @@ impl Provider for GcpProvider {
                 "loadbalancing.ForwardingRule" => delete_loadbalancing_forwardingrule,
                 // Cloud Storage
                 "storage.Bucket" => delete_storage_bucket,
+                "bigquery.Dataset" => delete_bigquery_dataset,
                 // Cloud SQL
                 "sql.Instance" => delete_sql_instance,
                 "sql.Database" => delete_sql_database,
@@ -2056,6 +2085,7 @@ mod tests {
         let provider = GcpProvider {
             project_id: "test".into(),
             region: "us-central1".into(),
+            credentials: tokio::sync::OnceCell::new(),
             instances_client: tokio::sync::OnceCell::new(),
             networks_client: tokio::sync::OnceCell::new(),
             subnetworks_client: tokio::sync::OnceCell::new(),

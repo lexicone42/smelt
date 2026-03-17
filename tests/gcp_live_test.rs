@@ -1596,3 +1596,77 @@ async fn gcp_secret_manager_update() {
         println!("  Note: update not supported for this resource");
     }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// BigQuery Dataset — free (storage charges only on data)
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_bigquery_dataset_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    // BQ dataset IDs: alphanumeric + underscore, no hyphens
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let name = format!("smelt_test_{}", ts % 1_000_000);
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test dataset",
+            "friendly_name": "Smelt Test",
+        },
+        "config": {
+            "location": "US",
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "bigquery.Dataset", &config, &name).await;
+
+    // Test update
+    println!("\n[UPDATE] bigquery.Dataset (change description)...");
+    let update_config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test dataset — updated",
+            "friendly_name": "Smelt Test Updated",
+        },
+        "config": { "location": "US" },
+    });
+    let updated = provider
+        .update(
+            "bigquery.Dataset",
+            &created.provider_id,
+            &config,
+            &update_config,
+        )
+        .await;
+    match &updated {
+        Ok(output) => println!(
+            "  Updated. state = {}",
+            serde_json::to_string_pretty(&output.state).unwrap()
+        ),
+        Err(e) => println!("  UPDATE FAILED: {e:?}"),
+    }
+
+    println!("\n[DELETE] bigquery.Dataset...");
+    provider
+        .delete("bigquery.Dataset", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+
+    assert!(updated.is_ok(), "UPDATE should succeed");
+}
