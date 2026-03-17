@@ -350,26 +350,14 @@ fn cmd_validate(files: &[std::path::PathBuf]) -> Result<()> {
                     }
                 }
 
-                // Check binding targets exist in schema
-                let binding_paths = schema.schema.binding_paths();
+                // Check binding targets exist as fields in the schema.
+                // Accepts both Ref-typed fields and regular fields (e.g., String vpc_id).
                 for dep in &resource.dependencies {
-                    if !binding_paths.contains_key(&dep.binding) {
-                        let valid_bindings: Vec<&str> =
-                            binding_paths.keys().map(|k| k.as_str()).collect();
-                        if valid_bindings.is_empty() {
-                            errors.push(format!(
-                                "{}.{}: binding '{}' has no Ref fields in schema",
-                                resource.kind, resource.name, dep.binding
-                            ));
-                        } else {
-                            errors.push(format!(
-                                "{}.{}: unknown binding '{}' (valid: {})",
-                                resource.kind,
-                                resource.name,
-                                dep.binding,
-                                valid_bindings.join(", ")
-                            ));
-                        }
+                    if schema.schema.field_path(&dep.binding).is_none() {
+                        errors.push(format!(
+                            "{}.{}: binding '{}' does not match any field in the schema",
+                            resource.kind, resource.name, dep.binding
+                        ));
                     }
                 }
             }

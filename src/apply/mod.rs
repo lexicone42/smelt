@@ -815,12 +815,25 @@ fn get_binding_paths(
     provider: &dyn crate::provider::Provider,
     resource_type: &str,
 ) -> BindingPathMap {
-    provider
+    let Some(rt) = provider
         .resource_types()
-        .iter()
+        .into_iter()
         .find(|rt| rt.type_path == resource_type)
-        .map(|rt| rt.schema.binding_paths())
-        .unwrap_or_default()
+    else {
+        return BindingPathMap::new();
+    };
+    // Start with explicit Ref fields, then add all other fields as fallback.
+    // This ensures `needs vpc.main -> vpc_id` works even when vpc_id is
+    // typed as String rather than Ref in the schema.
+    let mut paths = rt.schema.binding_paths();
+    for section in &rt.schema.sections {
+        for field in &section.fields {
+            paths
+                .entry(field.name.clone())
+                .or_insert_with(|| format!("/{}/{}", section.name, field.name));
+        }
+    }
+    paths
 }
 
 fn resolve_refs(

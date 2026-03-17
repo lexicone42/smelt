@@ -107,6 +107,20 @@ impl ResourceSchema {
         paths
     }
 
+    /// Find the JSON pointer path for any field by name, regardless of type.
+    /// Returns the path like "/network/vpc_id" if the field exists in any section.
+    /// This enables `needs` bindings to work even when the field isn't typed as `Ref`.
+    pub fn field_path(&self, field_name: &str) -> Option<String> {
+        for section in &self.sections {
+            for field in &section.fields {
+                if field.name == field_name {
+                    return Some(format!("/{}/{}", section.name, field.name));
+                }
+            }
+        }
+        None
+    }
+
     /// Validate a config JSON value against this schema.
     /// Returns a list of validation errors (empty = valid).
     pub fn validate(&self, config: &serde_json::Value) -> Vec<String> {

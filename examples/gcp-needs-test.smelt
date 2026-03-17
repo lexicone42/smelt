@@ -1,0 +1,26 @@
+resource vpc "main" : gcp.compute.Network {
+  @intent "VPC network for needs binding test"
+
+  identity {
+    name = "smelt-needs-test-net"
+  }
+
+  network {
+    auto_create_subnetworks = false
+    routing_mode = "REGIONAL"
+  }
+}
+
+resource subnet "main" : gcp.compute.Subnetwork {
+  @intent "Subnet that depends on VPC via needs binding"
+
+  needs vpc.main -> network
+
+  identity {
+    name = "smelt-needs-test-subnet"
+  }
+
+  network {
+    ip_cidr_range = "10.0.1.0/24"
+  }
+}
