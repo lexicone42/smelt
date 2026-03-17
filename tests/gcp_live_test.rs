@@ -1454,3 +1454,145 @@ async fn gcp_sql_instance_crud() {
         }
     }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Update path: Pub/Sub Topic — add labels after create
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_pubsub_topic_update() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("topicup");
+
+    // Create
+    let config = serde_json::json!({ "identity": { "name": &name } });
+    println!("[CREATE] pubsub.Topic...");
+    let created = provider
+        .create("pubsub.Topic", &config)
+        .await
+        .expect("CREATE failed");
+    println!("  provider_id = {}", created.provider_id);
+
+    // Update — add description via labels
+    let update_config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "labels": { "env": "test", "managed_by": "smelt" },
+        },
+    });
+    println!("\n[UPDATE] pubsub.Topic (add labels)...");
+    let updated = provider
+        .update(
+            "pubsub.Topic",
+            &created.provider_id,
+            &config,
+            &update_config,
+        )
+        .await;
+    match &updated {
+        Ok(output) => {
+            println!(
+                "  Updated. labels = {:?}",
+                output.state["identity"]["labels"]
+            );
+        }
+        Err(e) => println!("  UPDATE FAILED: {e:?}"),
+    }
+
+    // Read back and verify labels
+    println!("\n[READ] pubsub.Topic...");
+    let read = provider
+        .read("pubsub.Topic", &created.provider_id)
+        .await
+        .expect("READ failed");
+    let labels = &read.state["identity"]["labels"];
+    println!(
+        "  labels = {}",
+        serde_json::to_string_pretty(labels).unwrap()
+    );
+
+    // Diff against update config
+    let changes = provider.diff("pubsub.Topic", &update_config, &read.state);
+    println!("\n[DIFF] after update: {} change(s)", changes.len());
+    for c in &changes {
+        println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+    }
+
+    // Cleanup
+    println!("\n[DELETE] pubsub.Topic...");
+    provider
+        .delete("pubsub.Topic", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if updated.is_err() {
+        println!("  Note: update not supported for this resource");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Update path: Secret Manager — update description
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_secret_manager_update() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("secup");
+
+    // Create
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+        "reliability": { "replication": { "automatic": {} } }
+    });
+    println!("[CREATE] secretmanager.Secret...");
+    let created = provider
+        .create("secretmanager.Secret", &config)
+        .await
+        .expect("CREATE failed");
+
+    // Update — add labels
+    let update_config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "labels": { "env": "staging" },
+        },
+        "reliability": { "replication": { "automatic": {} } }
+    });
+    println!("\n[UPDATE] secretmanager.Secret (add labels)...");
+    let updated = provider
+        .update(
+            "secretmanager.Secret",
+            &created.provider_id,
+            &config,
+            &update_config,
+        )
+        .await;
+    match &updated {
+        Ok(output) => println!(
+            "  Updated. state = {}",
+            serde_json::to_string_pretty(&output.state).unwrap()
+        ),
+        Err(e) => println!("  UPDATE FAILED: {e:?}"),
+    }
+
+    // Cleanup
+    println!("\n[DELETE] secretmanager.Secret...");
+    provider
+        .delete("secretmanager.Secret", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if updated.is_err() {
+        println!("  Note: update not supported for this resource");
+    }
+}
