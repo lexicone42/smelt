@@ -887,6 +887,7 @@ impl GcpProvider {
                 })?;
             model = model.set_sqlserver_database_details(parsed);
         }
+        let inst_name = instance.as_deref().unwrap_or("").to_string();
         if let Some(v) = instance {
             model = model.set_instance(v);
         }
@@ -900,12 +901,15 @@ impl GcpProvider {
             .await?
             .insert()
             .set_project(&self.project_id)
+            .set_instance(&inst_name)
             .set_body(model)
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("Insert Database", e))?;
 
-        let provider_id = name.to_string();
+        // Composite provider_id: instance/database
+        let inst = &inst_name;
+        let provider_id = format!("{inst}/{name}");
         self.read_sql_database(&provider_id).await
     }
 
@@ -913,24 +917,27 @@ impl GcpProvider {
         &self,
         provider_id: &str,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.to_string();
+        // Parse composite provider_id: instance/database
+        let (instance_name, db_name) = provider_id.split_once('/').unwrap_or(("", provider_id));
         let database = self
             .sql_databases()
             .await?
             .get()
             .set_project(&self.project_id)
-            .set_database(&name)
+            .set_instance(instance_name)
+            .set_database(db_name)
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("GetDatabase", e))?;
 
         let state = serde_json::json!({
             "identity": {
-                "name": database.name.as_str(),
+                "name": db_name,
             },
             "config": {
                 "charset": database.charset.as_str(),
                 "collation": database.collation.as_str(),
+                "instance": instance_name,
                 "database_details": serde_json::Value::Null,
                 "instance": database.instance.as_str(),
                 "project": database.project.as_str(),
@@ -952,12 +959,10 @@ impl GcpProvider {
         provider_id: &str,
         config: &serde_json::Value,
     ) -> Result<ResourceOutput, ProviderError> {
-        let name = provider_id.to_string();
+        let (instance_name, db_name) = provider_id.split_once('/').unwrap_or(("", provider_id));
         // Extract fields from config
         let charset = config.optional_str("/config/charset").map(String::from);
         let collation = config.optional_str("/config/collation").map(String::from);
-        let instance = config.optional_str("/config/instance").map(String::from);
-        let project = config.optional_str("/config/project").map(String::from);
 
         let mut model = google_cloud_sql_v1::model::Database::default();
         if let Some(v) = charset {
@@ -973,18 +978,13 @@ impl GcpProvider {
                 })?;
             model = model.set_sqlserver_database_details(parsed);
         }
-        if let Some(v) = instance {
-            model = model.set_instance(v);
-        }
-        if let Some(v) = project {
-            model = model.set_project(v);
-        }
 
         self.sql_databases()
             .await?
             .patch()
             .set_project(&self.project_id)
-            .set_database(&name)
+            .set_instance(instance_name)
+            .set_database(db_name)
             .set_body(model)
             .send()
             .await
@@ -994,12 +994,13 @@ impl GcpProvider {
     }
 
     pub(super) async fn delete_sql_database(&self, provider_id: &str) -> Result<(), ProviderError> {
-        let name = provider_id.to_string();
+        let (instance_name, db_name) = provider_id.split_once('/').unwrap_or(("", provider_id));
         self.sql_databases()
             .await?
             .delete()
             .set_project(&self.project_id)
-            .set_database(&name)
+            .set_instance(instance_name)
+            .set_database(db_name)
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("DeleteDatabase", e))?;
