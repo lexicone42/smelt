@@ -1585,34 +1585,68 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetAddress", e))?;
 
+        let mut state = serde_json::json!({
+            "identity": {
+                "name": address.name.as_deref().unwrap_or(""),
+            },
+        });
+
+        // identity: optional fields
+        if let Some(desc) = address.description.as_deref().filter(|s| !s.is_empty()) {
+            state["identity"]["description"] = serde_json::json!(desc);
+        }
         let user_labels: serde_json::Map<String, serde_json::Value> = address
             .labels
             .iter()
             .filter(|(k, _)| k.as_str() != "managed_by")
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
+        if !user_labels.is_empty() {
+            state["identity"]["labels"] = serde_json::json!(user_labels);
+        }
 
-        let state = serde_json::json!({
-            "identity": {
-                "description": address.description.as_deref().unwrap_or(""),
-                "labels": user_labels,
-                "name": address.name.as_deref().unwrap_or(""),
-            },
-            "config": {
-                "address": address.address.as_deref().unwrap_or(""),
-                "address_type": &address.address_type,
-                "ip_collection": address.ip_collection.as_deref().unwrap_or(""),
-                "ip_version": &address.ip_version,
-                "ipv_6_endpoint_type": &address.ipv_6_endpoint_type,
-                "network_tier": &address.network_tier,
-                "prefix_length": address.prefix_length.unwrap_or(0),
-                "purpose": &address.purpose,
-            },
-            "network": {
-                "network": address.network.as_deref().unwrap_or(""),
-                "subnetwork": address.subnetwork.as_deref().unwrap_or(""),
-            },
-        });
+        // config: only include user-facing fields that are non-empty/non-default
+        let mut config = serde_json::Map::new();
+        if let Some(addr) = address.address.as_deref().filter(|s| !s.is_empty()) {
+            config.insert("address".into(), serde_json::json!(addr));
+        }
+        if let Some(at) = address.address_type.as_ref().and_then(|e| e.name()) {
+            if at != "EXTERNAL" {
+                config.insert("address_type".into(), serde_json::json!(at));
+            }
+        }
+        if let Some(ip_ver) = address.ip_version.as_ref().and_then(|e| e.name()) {
+            config.insert("ip_version".into(), serde_json::json!(ip_ver));
+        }
+        if let Some(net_tier) = address.network_tier.as_ref().and_then(|e| e.name()) {
+            if net_tier != "PREMIUM" {
+                config.insert("network_tier".into(), serde_json::json!(net_tier));
+            }
+        }
+        if let Some(purpose) = address.purpose.as_ref().and_then(|e| e.name()) {
+            config.insert("purpose".into(), serde_json::json!(purpose));
+        }
+        if !config.is_empty() {
+            state["config"] = serde_json::Value::Object(config);
+        }
+
+        // network: skip empty strings
+        let mut network = serde_json::Map::new();
+        if let Some(net) = address.network.as_deref().filter(|s| !s.is_empty()) {
+            network.insert(
+                "network".into(),
+                serde_json::json!(super::normalize_gcp_url(net)),
+            );
+        }
+        if let Some(sub) = address.subnetwork.as_deref().filter(|s| !s.is_empty()) {
+            network.insert(
+                "subnetwork".into(),
+                serde_json::json!(super::normalize_gcp_url(sub)),
+            );
+        }
+        if !network.is_empty() {
+            state["network"] = serde_json::Value::Object(network);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert(
@@ -2145,50 +2179,70 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetDisk", e))?;
 
+        let mut state = serde_json::json!({
+            "identity": {
+                "name": disk.name.as_deref().unwrap_or(""),
+            },
+        });
+
+        // identity: optional fields
+        if let Some(desc) = disk.description.as_deref().filter(|s| !s.is_empty()) {
+            state["identity"]["description"] = serde_json::json!(desc);
+        }
         let user_labels: serde_json::Map<String, serde_json::Value> = disk
             .labels
             .iter()
             .filter(|(k, _)| k.as_str() != "managed_by")
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
+        if !user_labels.is_empty() {
+            state["identity"]["labels"] = serde_json::json!(user_labels);
+        }
 
-        let state = serde_json::json!({
-            "identity": {
-                "description": disk.description.as_deref().unwrap_or(""),
-                "labels": user_labels,
-                "name": disk.name.as_deref().unwrap_or(""),
-            },
-            "config": {
-                "access_mode": &disk.access_mode,
-                "architecture": &disk.architecture,
-                "async_primary_disk": &disk.async_primary_disk,
-                "disk_encryption_key": &disk.disk_encryption_key,
-                "enable_confidential_compute": disk.enable_confidential_compute.unwrap_or(false),
-                "guest_os_features": &disk.guest_os_features,
-                "license_codes": &disk.license_codes,
-                "licenses": &disk.licenses,
-                "location_hint": disk.location_hint.as_deref().unwrap_or(""),
-                "options": disk.options.as_deref().unwrap_or(""),
-                "params": &disk.params,
-                "physical_block_size_bytes": disk.physical_block_size_bytes.unwrap_or(0),
-                "provisioned_iops": disk.provisioned_iops.unwrap_or(0),
-                "provisioned_throughput": disk.provisioned_throughput.unwrap_or(0),
-                "replica_zones": &disk.replica_zones,
-                "resource_policies": &disk.resource_policies,
-                "size_gb": disk.size_gb.unwrap_or(0),
-                "source_disk": disk.source_disk.as_deref().unwrap_or(""),
-                "source_image_encryption_key": &disk.source_image_encryption_key,
-                "source_instant_snapshot": disk.source_instant_snapshot.as_deref().unwrap_or(""),
-                "source_snapshot": disk.source_snapshot.as_deref().unwrap_or(""),
-                "source_snapshot_encryption_key": &disk.source_snapshot_encryption_key,
-                "source_storage_object": disk.source_storage_object.as_deref().unwrap_or(""),
-                "storage_pool": disk.storage_pool.as_deref().unwrap_or(""),
-                "type": disk.r#type.as_deref().unwrap_or(""),
-            },
-            "runtime": {
-                "source_image": disk.source_image.as_deref().unwrap_or(""),
-            },
-        });
+        // sizing: size_gb, type, zone — these are what users specify
+        let mut sizing = serde_json::Map::new();
+        if let Some(size) = disk.size_gb {
+            sizing.insert("size_gb".into(), serde_json::json!(size));
+        }
+        if let Some(t) = disk.r#type.as_deref().filter(|s| !s.is_empty()) {
+            // Disk type: keep as short project-relative path for comparison
+            let short = super::normalize_gcp_url(t);
+            sizing.insert("type".into(), serde_json::json!(short));
+        }
+        if let Some(z) = disk.zone.as_deref().filter(|s| !s.is_empty()) {
+            // Extract just the zone name from full path (projects/.../zones/us-central1-a)
+            let zone_short = z.rsplit('/').next().unwrap_or(z);
+            sizing.insert("zone".into(), serde_json::json!(zone_short));
+        }
+        if !sizing.is_empty() {
+            state["sizing"] = serde_json::Value::Object(sizing);
+        }
+
+        // config: other user-specified fields, skip empty/default values
+        let mut config = serde_json::Map::new();
+        if let Some(am) = disk.access_mode.as_ref().and_then(|e| e.name()) {
+            config.insert("access_mode".into(), serde_json::json!(am));
+        }
+        if let Some(arch) = disk.architecture.as_ref().and_then(|e| e.name()) {
+            config.insert("architecture".into(), serde_json::json!(arch));
+        }
+        if let Some(sd) = disk.source_disk.as_deref().filter(|s| !s.is_empty()) {
+            config.insert("source_disk".into(), serde_json::json!(sd));
+        }
+        if let Some(ss) = disk.source_snapshot.as_deref().filter(|s| !s.is_empty()) {
+            config.insert("source_snapshot".into(), serde_json::json!(ss));
+        }
+        if let Some(sp) = disk.storage_pool.as_deref().filter(|s| !s.is_empty()) {
+            config.insert("storage_pool".into(), serde_json::json!(sp));
+        }
+        if !config.is_empty() {
+            state["config"] = serde_json::Value::Object(config);
+        }
+
+        // runtime: only include non-empty source_image
+        if let Some(si) = disk.source_image.as_deref().filter(|s| !s.is_empty()) {
+            state["runtime"] = serde_json::json!({ "source_image": super::normalize_gcp_url(si) });
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert(
@@ -3433,29 +3487,77 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetRoute", e))?;
 
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "identity": {
-                "description": route.description.as_deref().unwrap_or(""),
                 "name": route.name.as_deref().unwrap_or(""),
-                "tags": &route.tags,
-            },
-            "config": {
-                "dest_range": route.dest_range.as_deref().unwrap_or(""),
-                "next_hop_gateway": route.next_hop_gateway.as_deref().unwrap_or(""),
-                "next_hop_ilb": route.next_hop_ilb.as_deref().unwrap_or(""),
-                "next_hop_instance": route.next_hop_instance.as_deref().unwrap_or(""),
-                "next_hop_ip": route.next_hop_ip.as_deref().unwrap_or(""),
-                "next_hop_network": route.next_hop_network.as_deref().unwrap_or(""),
-                "next_hop_vpn_tunnel": route.next_hop_vpn_tunnel.as_deref().unwrap_or(""),
-                "params": &route.params,
-            },
-            "network": {
-                "network": route.network.as_deref().unwrap_or(""),
-            },
-            "security": {
-                "priority": route.priority.unwrap_or(0),
             },
         });
+
+        // identity: optional fields
+        if let Some(desc) = route.description.as_deref().filter(|s| !s.is_empty()) {
+            state["identity"]["description"] = serde_json::json!(desc);
+        }
+        if !route.tags.is_empty() {
+            state["identity"]["tags"] = serde_json::json!(&route.tags);
+        }
+
+        // config: only include non-empty fields, strip URLs
+        let mut config = serde_json::Map::new();
+        if let Some(dr) = route.dest_range.as_deref().filter(|s| !s.is_empty()) {
+            config.insert("dest_range".into(), serde_json::json!(dr));
+        }
+        if let Some(nhg) = route.next_hop_gateway.as_deref().filter(|s| !s.is_empty()) {
+            config.insert(
+                "next_hop_gateway".into(),
+                serde_json::json!(super::normalize_gcp_url(nhg)),
+            );
+        }
+        if let Some(nhi) = route.next_hop_ilb.as_deref().filter(|s| !s.is_empty()) {
+            config.insert(
+                "next_hop_ilb".into(),
+                serde_json::json!(super::normalize_gcp_url(nhi)),
+            );
+        }
+        if let Some(nhi) = route.next_hop_instance.as_deref().filter(|s| !s.is_empty()) {
+            config.insert(
+                "next_hop_instance".into(),
+                serde_json::json!(super::normalize_gcp_url(nhi)),
+            );
+        }
+        if let Some(nhip) = route.next_hop_ip.as_deref().filter(|s| !s.is_empty()) {
+            config.insert("next_hop_ip".into(), serde_json::json!(nhip));
+        }
+        if let Some(nhn) = route.next_hop_network.as_deref().filter(|s| !s.is_empty()) {
+            config.insert(
+                "next_hop_network".into(),
+                serde_json::json!(super::normalize_gcp_url(nhn)),
+            );
+        }
+        if let Some(nhv) = route
+            .next_hop_vpn_tunnel
+            .as_deref()
+            .filter(|s| !s.is_empty())
+        {
+            config.insert(
+                "next_hop_vpn_tunnel".into(),
+                serde_json::json!(super::normalize_gcp_url(nhv)),
+            );
+        }
+        if !config.is_empty() {
+            state["config"] = serde_json::Value::Object(config);
+        }
+
+        // network: strip URL to short form
+        if let Some(net) = route.network.as_deref().filter(|s| !s.is_empty()) {
+            state["network"] = serde_json::json!({ "network": super::normalize_gcp_url(net) });
+        }
+
+        // security: skip default priority (1000)
+        if let Some(p) = route.priority {
+            if p != 1000 {
+                state["security"] = serde_json::json!({ "priority": p });
+            }
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert(

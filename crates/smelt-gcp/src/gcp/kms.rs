@@ -306,28 +306,59 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetCryptoKey", e))?;
 
+        let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);
+
+        // Extract key_ring_id from provider_id: .../keyRings/<ring>/cryptoKeys/<key> → .../keyRings/<ring>
+        let key_ring_id = provider_id
+            .find("/cryptoKeys/")
+            .map(|i| &provider_id[..i])
+            .unwrap_or(provider_id);
+
+        let mut state = serde_json::json!({
+            "identity": {
+                "key_ring_id": key_ring_id,
+                "name": short_name,
+            },
+        });
+
+        // identity: labels only if non-empty
         let user_labels: serde_json::Map<String, serde_json::Value> = crypto_key
             .labels
             .iter()
             .filter(|(k, _)| k.as_str() != "managed_by")
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
+        if !user_labels.is_empty() {
+            state["identity"]["labels"] = serde_json::json!(user_labels);
+        }
 
-        let state = serde_json::json!({
-            "identity": {
-                "labels": user_labels,
-                "name": crypto_key.name.as_str(),
-            },
-            "config": {
-                "crypto_key_backend": crypto_key.crypto_key_backend.as_str(),
-                "destroy_scheduled_duration": &crypto_key.destroy_scheduled_duration,
-                "import_only": crypto_key.import_only,
-                "next_rotation_time": &crypto_key.next_rotation_time,
-                "purpose": &crypto_key.purpose,
-                "rotation_schedule": serde_json::Value::Null,
-                "version_template": &crypto_key.version_template,
-            },
-        });
+        // config: only include non-empty/non-default fields
+        let mut config = serde_json::Map::new();
+        if let Some(purpose_name) = crypto_key.purpose.name() {
+            if purpose_name != "CRYPTO_KEY_PURPOSE_UNSPECIFIED" {
+                config.insert("purpose".into(), serde_json::json!(purpose_name));
+            }
+        }
+        let backend = crypto_key.crypto_key_backend.as_str();
+        if !backend.is_empty() {
+            config.insert("crypto_key_backend".into(), serde_json::json!(backend));
+        }
+        // Skip destroy_scheduled_duration if it's the default "2592000s" (30 days)
+        if let Some(ref dur) = crypto_key.destroy_scheduled_duration {
+            let dur_str = serde_json::to_string(dur).unwrap_or_default();
+            if dur_str != "\"2592000s\"" && dur_str != "null" {
+                config.insert("destroy_scheduled_duration".into(), serde_json::json!(dur));
+            }
+        }
+        if crypto_key.import_only {
+            config.insert("import_only".into(), serde_json::json!(true));
+        }
+        if let Some(ref nrt) = crypto_key.next_rotation_time {
+            config.insert("next_rotation_time".into(), serde_json::json!(nrt));
+        }
+        if !config.is_empty() {
+            state["config"] = serde_json::Value::Object(config);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&crypto_key.name));

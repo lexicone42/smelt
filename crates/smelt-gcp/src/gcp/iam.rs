@@ -365,18 +365,34 @@ impl GcpProvider {
             "identity": {
                 "name": short_name,
             },
-            "security": {
-                "included_permissions": &role.included_permissions,
-                "stage": format!("{:?}", role.stage).to_uppercase(),
-            },
         });
+
+        // identity: optional description
         let desc = role.description.as_str();
         if !desc.is_empty() {
             state["identity"]["description"] = serde_json::json!(desc);
         }
+
+        // config: included_permissions, stage, title, deleted
+        let mut config = serde_json::Map::new();
+        if !role.included_permissions.is_empty() {
+            config.insert(
+                "included_permissions".into(),
+                serde_json::json!(&role.included_permissions),
+            );
+        }
+        if let Some(stage_name) = role.stage.name() {
+            config.insert("stage".into(), serde_json::json!(stage_name));
+        }
         let title = role.title.as_str();
         if !title.is_empty() {
-            state["identity"]["title"] = serde_json::json!(title);
+            config.insert("title".into(), serde_json::json!(title));
+        }
+        if role.deleted {
+            config.insert("deleted".into(), serde_json::json!(true));
+        }
+        if !config.is_empty() {
+            state["config"] = serde_json::Value::Object(config);
         }
 
         let mut outputs = HashMap::new();
