@@ -264,25 +264,79 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetAlertPolicy", e))?;
 
-        let state = serde_json::json!({
+        // Extract short name from full resource path
+        let _short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);
+
+        // Clean conditions: strip auto-generated condition names and convert
+        // proto enum integers to their string representations
+        let mut clean_conditions = serde_json::to_value(&alert_policy.conditions)
+            .unwrap_or(serde_json::Value::Array(vec![]));
+        if let Some(arr) = clean_conditions.as_array_mut() {
+            for cond in arr.iter_mut() {
+                if let Some(obj) = cond.as_object_mut() {
+                    obj.remove("name"); // auto-generated condition ID
+                    // Clean conditionThreshold enums
+                    if let Some(ct) = obj.get_mut("conditionThreshold") {
+                        if let Some(ct_obj) = ct.as_object_mut() {
+                            // comparison: integer → string
+                            if let Some(cmp) = ct_obj.get("comparison").and_then(|v| v.as_i64()) {
+                                let s = match cmp {
+                                    0 => "COMPARISON_UNSPECIFIED",
+                                    1 => "COMPARISON_GT",
+                                    2 => "COMPARISON_GE",
+                                    3 => "COMPARISON_LT",
+                                    4 => "COMPARISON_LE",
+                                    5 => "COMPARISON_EQ",
+                                    6 => "COMPARISON_NE",
+                                    _ => "COMPARISON_UNSPECIFIED",
+                                };
+                                ct_obj.insert(
+                                    "comparison".into(),
+                                    serde_json::Value::String(s.into()),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Convert combiner enum integer to string
+        let combiner_str = match alert_policy.combiner.value() {
+            Some(1) => "AND",
+            Some(2) => "OR",
+            Some(3) => "AND_WITH_MATCHING_RESOURCE",
+            _ => "COMBINE_UNSPECIFIED",
+        };
+
+        let mut state = serde_json::json!({
             "identity": {
                 "display_name": alert_policy.display_name.as_str(),
-                "name": alert_policy.name.as_str(),
             },
             "config": {
-                "alert_strategy": &alert_policy.alert_strategy,
-                "combiner": &alert_policy.combiner,
-                "conditions": &alert_policy.conditions,
-                "creation_record": &alert_policy.creation_record,
-                "documentation": &alert_policy.documentation,
-                "enabled": alert_policy.enabled.unwrap_or(false),
-                "mutation_record": &alert_policy.mutation_record,
-                "notification_channels": &alert_policy.notification_channels,
-                "severity": &alert_policy.severity,
-                "user_labels": &alert_policy.user_labels,
-                "validity": &alert_policy.validity,
+                "combiner": combiner_str,
+                "conditions": clean_conditions,
             },
         });
+        // Conditionally include non-null/non-empty/non-default fields
+        // Skip: creation_record, mutation_record (GCP metadata, not user config)
+        // Skip: enabled=true (default), severity=0 (default), validity=null
+        if alert_policy.alert_strategy.is_some() {
+            state["config"]["alert_strategy"] = serde_json::json!(&alert_policy.alert_strategy);
+        }
+        if alert_policy.documentation.is_some() {
+            state["config"]["documentation"] = serde_json::json!(&alert_policy.documentation);
+        }
+        if alert_policy.enabled == Some(false) {
+            state["config"]["enabled"] = serde_json::json!(false);
+        }
+        if !alert_policy.notification_channels.is_empty() {
+            state["config"]["notification_channels"] =
+                serde_json::json!(&alert_policy.notification_channels);
+        }
+        if !alert_policy.user_labels.is_empty() {
+            state["config"]["user_labels"] = serde_json::json!(&alert_policy.user_labels);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&alert_policy.name));

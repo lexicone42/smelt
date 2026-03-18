@@ -463,7 +463,6 @@ impl GcpProvider {
 
         let mut state = serde_json::json!({
             "identity": {
-                "labels": user_labels,
                 "name": short_name,
             },
             "config": {
@@ -471,9 +470,12 @@ impl GcpProvider {
                 "storage_class": bucket.storage_class.as_str(),
             },
         });
+        if !user_labels.is_empty() {
+            state["identity"]["labels"] = serde_json::Value::Object(user_labels);
+        }
         // Conditionally include optional config fields
         let rpo = bucket.rpo.as_str();
-        if !rpo.is_empty() {
+        if !rpo.is_empty() && rpo != "DEFAULT" {
             state["config"]["rpo"] = serde_json::json!(rpo);
         }
 

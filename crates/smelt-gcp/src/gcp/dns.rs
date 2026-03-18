@@ -541,13 +541,12 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetResourceRecordSet", e))?;
 
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "identity": {
                 "name": resource_record_set.name.as_deref().unwrap_or(""),
+                "managed_zone": zone,
             },
             "config": {
-                "routing_policy": &resource_record_set.routing_policy,
-                "signature_rrdatas": &resource_record_set.signature_rrdatas,
                 "type": resource_record_set.r#type.as_deref().unwrap_or(""),
             },
             "dns": {
@@ -555,6 +554,15 @@ impl GcpProvider {
                 "ttl": resource_record_set.ttl.unwrap_or(0),
             },
         });
+        // Conditionally include non-null/non-empty optional fields
+        if resource_record_set.routing_policy.is_some() {
+            state["config"]["routing_policy"] =
+                serde_json::json!(&resource_record_set.routing_policy);
+        }
+        if !resource_record_set.signature_rrdatas.is_empty() {
+            state["config"]["signature_rrdatas"] =
+                serde_json::json!(&resource_record_set.signature_rrdatas);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&resource_record_set.name));

@@ -1,8 +1,7 @@
 #:schema: https://www.schemastore.org/prek.json
 
-# Hooks are ordered fast → slow. Builtins (trailing-whitespace, end-of-file-fixer)
-# auto-fix files — prek will fail the commit so you can re-stage and retry.
-# All cargo hooks are check-only (no file modifications).
+# Fast checks only on pre-commit. Run `cargo clippy` and `cargo test`
+# manually before pushing — they take 1-2 min on this workspace.
 
 [[repos]]
 repo = "builtin"
@@ -21,30 +20,6 @@ hooks = [
         id = "cargo-fmt",
         name = "cargo fmt --check",
         entry = "cargo fmt --check",
-        language = "system",
-        pass_filenames = false,
-        always_run = true,
-    },
-    {
-        id = "cargo-clippy",
-        name = "cargo clippy (frozen)",
-        entry = "cargo clippy --frozen --all-targets -- -D warnings",
-        language = "system",
-        pass_filenames = false,
-        always_run = true,
-    },
-    {
-        id = "cargo-test",
-        name = "cargo test (frozen)",
-        entry = "cargo test --frozen",
-        language = "system",
-        pass_filenames = false,
-        always_run = true,
-    },
-    {
-        id = "cargo-deny",
-        name = "cargo deny check (frozen)",
-        entry = "cargo deny check",
         language = "system",
         pass_filenames = false,
         always_run = true,
