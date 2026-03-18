@@ -1056,6 +1056,11 @@ fn value_to_json(value: &Value) -> serde_json::Value {
         Value::Secret(s) => serde_json::Value::String(s.clone()),
         // ParamRef should be resolved before reaching value_to_json
         Value::ParamRef(name) => serde_json::Value::String(format!("{{param.{name}}}")),
+        // EnvRef resolved from process environment
+        Value::EnvRef(var) => {
+            let val = std::env::var(var).unwrap_or_default();
+            serde_json::Value::String(val)
+        }
     }
 }
 

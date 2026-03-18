@@ -255,6 +255,9 @@ pub enum Value {
     Secret(String),
     /// A parameter reference within a component: `param.name`
     ParamRef(String),
+    /// An environment variable reference: `env("VAR_NAME")`
+    /// Resolved at plan/apply time from the process environment.
+    EnvRef(String),
 }
 
 impl Value {
@@ -268,6 +271,7 @@ impl Value {
             Self::Record(_) => "record",
             Self::Secret(_) => "secret",
             Self::ParamRef(_) => "param_ref",
+            Self::EnvRef(_) => "env_ref",
         }
     }
 }

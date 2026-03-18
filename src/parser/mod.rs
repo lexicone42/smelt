@@ -123,27 +123,39 @@ fn resource_body() -> impl Parser<char, ResourceBody, Error = Simple<char>> {
     resource_body_item()
         .padded_by(ws())
         .repeated()
-        .map(|items| {
+        .try_map(|items, span| {
             let mut annotations = Vec::new();
             let mut dependencies = Vec::new();
             let mut sections = Vec::new();
             let mut fields = Vec::new();
+            let mut seen_sections = std::collections::HashSet::new();
 
             for item in items {
                 match item {
                     ResourceBodyItem::Annotation(a) => annotations.push(a),
                     ResourceBodyItem::Dependency(d) => dependencies.push(d),
-                    ResourceBodyItem::Section(s) => sections.push(s),
+                    ResourceBodyItem::Section(s) => {
+                        if !seen_sections.insert(s.name.clone()) {
+                            return Err(Simple::custom(
+                                span.clone(),
+                                format!(
+                                    "duplicate section '{}' — sections must be unique within a resource",
+                                    s.name
+                                ),
+                            ));
+                        }
+                        sections.push(s);
+                    }
                     ResourceBodyItem::Field(f) => fields.push(f),
                 }
             }
 
-            ResourceBody {
+            Ok(ResourceBody {
                 annotations,
                 dependencies,
                 sections,
                 fields,
-            }
+            })
         })
 }
 
@@ -410,6 +422,15 @@ fn value() -> impl Parser<char, Value, Error = Simple<char>> {
             .ignore_then(ident())
             .map(Value::ParamRef);
 
+        // env("VAR_NAME") — an environment variable reference
+        let env_ref = text::keyword("env")
+            .ignore_then(
+                string_literal()
+                    .padded()
+                    .delimited_by(just('(').padded(), just(')').padded()),
+            )
+            .map(Value::EnvRef);
+
         let string_val = string_literal().map(Value::String);
 
         let number_val = {
@@ -462,9 +483,10 @@ fn value() -> impl Parser<char, Value, Error = Simple<char>> {
             .delimited_by(just('{').padded(), just('}').padded())
             .map(Value::Record);
 
-        // Order matters: secret/param before string (secret starts with keyword, not quote)
+        // Order matters: secret/param/env before string (these start with keywords, not quotes)
         secret_val
             .or(param_ref)
+            .or(env_ref)
             .or(bool_val)
             .or(string_val)
             .or(number_val)
@@ -1067,5 +1089,39 @@ mod tests {
         assert!(matches!(file.declarations[0], Declaration::Component(_)));
         assert!(matches!(file.declarations[1], Declaration::Use(_)));
         assert!(matches!(file.declarations[2], Declaration::Use(_)));
+    }
+
+    #[test]
+    fn parse_duplicate_section_rejected() {
+        let input = r#"resource vpc "main" : aws.ec2.Vpc {
+            network { cidr_block = "10.0.0.0/16" }
+            network { dns_support = true }
+        }"#;
+        let result = resource_decl().parse(input);
+        assert!(result.is_err(), "duplicate sections should be rejected");
+    }
+
+    #[test]
+    fn parse_env_ref() {
+        let result = field().parse("project = env(\"GCP_PROJECT_ID\")");
+        assert!(result.is_ok(), "parse error: {:?}", result.err());
+        let f = result.unwrap();
+        assert_eq!(f.name, "project");
+        assert!(matches!(f.value, Value::EnvRef(ref s) if s == "GCP_PROJECT_ID"));
+    }
+
+    #[test]
+    fn parse_env_ref_in_resource() {
+        let input = r#"resource sa "scanner" : gcp.iam.ServiceAccount {
+            identity {
+                name = env("SCANNER_SA_NAME")
+            }
+        }"#;
+        let result = resource_decl().parse(input);
+        assert!(result.is_ok(), "parse error: {:?}", result.err());
+        let r = result.unwrap();
+        let name_field = &r.sections[0].fields[0];
+        assert_eq!(name_field.name, "name");
+        assert!(matches!(name_field.value, Value::EnvRef(ref s) if s == "SCANNER_SA_NAME"));
     }
 }

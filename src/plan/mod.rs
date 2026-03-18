@@ -376,6 +376,11 @@ fn value_to_json(value: &Value) -> serde_json::Value {
         }
         Value::Secret(s) => serde_json::Value::String(s.clone()),
         Value::ParamRef(name) => serde_json::Value::String(format!("{{param.{name}}}")),
+        Value::EnvRef(var) => {
+            // Resolve environment variable at plan time
+            let val = std::env::var(var).unwrap_or_default();
+            serde_json::Value::String(val)
+        }
     }
 }
 

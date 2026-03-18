@@ -1,0 +1,90 @@
+resource sa "scanner" : gcp.iam.ServiceAccount {
+  @intent "Scanner identity with org-level read roles"
+
+  identity {
+    display_name = "Karkinos Security Scanner"
+    name = "karkinos-scanner"
+  }
+}
+
+resource sa "scheduler" : gcp.iam.ServiceAccount {
+  @intent "Scheduler identity that invokes the scanner job"
+
+  identity {
+    display_name = "Karkinos Scheduler"
+    name = "karkinos-scheduler"
+  }
+}
+
+resource registry "scanner" : gcp.artifactregistry.Repository {
+  @intent "Container registry for scanner images"
+
+  config {
+    format = "DOCKER"
+  }
+
+  identity {
+    description = "Karkinos scanner container images"
+    name = "karkinos"
+  }
+}
+
+resource config "scanner" : gcp.secretmanager.Secret {
+  @intent "Scanner configuration (config.toml)"
+
+  identity {
+    name = "karkinos-config"
+  }
+
+  reliability {
+    replication = {
+      automatic = {}
+    }
+  }
+}
+
+resource job "scanner" : gcp.run.Job {
+  @intent "Security scanner — runs to completion on schedule"
+
+  config {
+    template = {
+      template = {
+        containers = [
+          { image = "us-docker.pkg.dev/cloudrun/container/hello:latest" }
+        ]
+      }
+    }
+  }
+
+  identity {
+    name = "karkinos-scanner"
+  }
+}
+
+resource schedule "scanner" : gcp.scheduler.Job {
+  @intent "Daily scan trigger"
+
+  config {
+    schedule = "0 2 * * *"
+    time_zone = "UTC"
+  }
+
+  identity {
+    description = "Triggers karkinos scanner daily at 2am UTC"
+    name = "karkinos-daily-scan"
+  }
+}
+
+resource dataset "findings" : gcp.bigquery.Dataset {
+  @intent "Scan results storage — findings, attack paths, metadata"
+
+  config {
+    location = "US"
+  }
+
+  identity {
+    description = "Karkinos security scan results"
+    friendly_name = "Karkinos Findings"
+    name = "karkinos_findings"
+  }
+}

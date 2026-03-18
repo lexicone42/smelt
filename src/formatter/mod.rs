@@ -340,6 +340,9 @@ fn format_value(out: &mut String, value: &Value, indent: usize) {
         Value::ParamRef(name) => {
             out.push_str(&format!("param.{name}"));
         }
+        Value::EnvRef(var) => {
+            out.push_str(&format!("env(\"{}\")", escape_string(var)));
+        }
     }
 }
 
