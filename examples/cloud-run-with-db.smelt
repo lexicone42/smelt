@@ -1,0 +1,44 @@
+resource sa "app" : gcp.iam.ServiceAccount {
+  @intent "Application service account"
+
+  identity {
+    display_name = "Application Service Account"
+    name = "my-app-sa"
+  }
+}
+
+resource db "main" : gcp.sql.Instance {
+  @intent "PostgreSQL database for the application"
+
+  config {
+    database_version = "POSTGRES_15"
+    settings = {
+      ipConfiguration = { ipv4Enabled = true }
+      tier = "db-f1-micro"
+    }
+  }
+
+  identity {
+    name = "my-app-db"
+  }
+
+  sizing {
+    region = "us-central1"
+  }
+}
+
+resource service "api" : gcp.run.Service {
+  @intent "API service connected to Cloud SQL"
+
+  config {
+    template = {
+      containers = [
+        { image = "us-docker.pkg.dev/cloudrun/container/hello:latest" }
+      ]
+    }
+  }
+
+  identity {
+    name = "my-api"
+  }
+}

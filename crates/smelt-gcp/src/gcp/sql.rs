@@ -538,46 +538,64 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetDatabaseInstance", e))?;
 
-        let state = serde_json::json!({
+        // Convert database_version proto enum to string name
+        let db_version_str = database_instance
+            .database_version
+            .name()
+            .unwrap_or("UNKNOWN");
+
+        // Clean settings: only include user-facing fields, strip GCP metadata
+        let mut clean_settings = serde_json::Map::new();
+        if let Some(ref settings) = database_instance.settings {
+            // tier is the primary user config
+            clean_settings.insert("tier".into(), serde_json::json!(settings.tier.as_str()));
+            // ipConfiguration: only include user-specified fields
+            if let Some(ref ip_config) = settings.ip_configuration {
+                let mut ip_cfg = serde_json::Map::new();
+                if let Some(ipv4) = ip_config.ipv4_enabled {
+                    ip_cfg.insert("ipv4Enabled".into(), serde_json::json!(ipv4));
+                }
+                if !ip_config.authorized_networks.is_empty() {
+                    ip_cfg.insert(
+                        "authorizedNetworks".into(),
+                        serde_json::json!(&ip_config.authorized_networks),
+                    );
+                }
+                let private_network = ip_config.private_network.as_str();
+                if !private_network.is_empty() {
+                    ip_cfg.insert("privateNetwork".into(), serde_json::json!(private_network));
+                }
+                if !ip_cfg.is_empty() {
+                    clean_settings
+                        .insert("ipConfiguration".into(), serde_json::Value::Object(ip_cfg));
+                }
+            }
+        }
+
+        let mut state = serde_json::json!({
             "identity": {
                 "name": database_instance.name.as_str(),
-                "tags": &database_instance.tags,
             },
             "config": {
-                "backend_type": &database_instance.backend_type,
-                "connection_name": database_instance.connection_name.as_str(),
-                "database_version": &database_instance.database_version,
-                "failover_replica": &database_instance.failover_replica,
-                "gce_zone": database_instance.gce_zone.as_str(),
-                "gemini_config": &database_instance.gemini_config,
-                "include_replicas_for_major_version_upgrade": database_instance.include_replicas_for_major_version_upgrade.unwrap_or(false),
-                "ip_addresses": &database_instance.ip_addresses,
-                "maintenance_version": database_instance.maintenance_version.as_str(),
-                "master_instance_name": database_instance.master_instance_name.as_str(),
-                "node_count": database_instance.node_count.unwrap_or(0),
-                "on_premises_configuration": &database_instance.on_premises_configuration,
-                "project": database_instance.project.as_str(),
-                "replica_configuration": &database_instance.replica_configuration,
-                "replica_names": &database_instance.replica_names,
-                "replication_cluster": &database_instance.replication_cluster,
-                "root_password": database_instance.root_password.as_str(),
-                "satisfies_pzs": database_instance.satisfies_pzs.unwrap_or(false),
-                "secondary_gce_zone": database_instance.secondary_gce_zone.as_str(),
-                "server_ca_cert": &database_instance.server_ca_cert,
-                "service_account_email_address": database_instance.service_account_email_address.as_str(),
-                "settings": &database_instance.settings,
-                "state": &database_instance.state,
-                "suspension_reason": &database_instance.suspension_reason,
-                "switch_transaction_logs_to_cloud_storage_enabled": database_instance.switch_transaction_logs_to_cloud_storage_enabled.unwrap_or(false),
-            },
-            "output": {
-                "disk_encryption_status": &database_instance.disk_encryption_status,
+                "database_version": db_version_str,
+                "settings": clean_settings,
             },
             "sizing": {
-                "instance_type": &database_instance.instance_type,
                 "region": database_instance.region.as_str(),
             },
         });
+        // Conditionally include optional fields
+        if !database_instance.tags.is_empty() {
+            state["identity"]["tags"] = serde_json::json!(&database_instance.tags);
+        }
+        let master = database_instance.master_instance_name.as_str();
+        if !master.is_empty() {
+            state["config"]["master_instance_name"] = serde_json::json!(master);
+        }
+        let root_pw = database_instance.root_password.as_str();
+        if !root_pw.is_empty() {
+            state["config"]["root_password"] = serde_json::json!(root_pw);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&database_instance.name));

@@ -1,0 +1,15 @@
+resource service "api" : gcp.run.Service {
+  @intent "API service running on Cloud Run"
+
+  config {
+    template = {
+      containers = [
+        { image = "us-docker.pkg.dev/cloudrun/container/hello:latest" }
+      ]
+    }
+  }
+
+  identity {
+    name = "my-api-service"
+  }
+}
