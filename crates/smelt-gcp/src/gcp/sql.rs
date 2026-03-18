@@ -496,7 +496,30 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Insert DatabaseInstance", e))?;
 
+        // Cloud SQL instances take significant time to provision (~2-5 minutes).
+        // Poll until the instance reaches RUNNABLE state so dependent resources
+        // (Database, User) can be created against it.
         let provider_id = name.to_string();
+        let max_attempts = 120; // 10 minutes at 5s intervals
+        let delay = std::time::Duration::from_secs(5);
+        for attempt in 0..max_attempts {
+            let output = self.read_sql_instance(&provider_id).await?;
+            let state_val = output.state.pointer("/config/state");
+            // State may serialize as string "RUNNABLE" or integer 1 (proto enum)
+            let is_runnable = match state_val {
+                Some(serde_json::Value::String(s)) => s == "RUNNABLE",
+                Some(serde_json::Value::Number(n)) => n.as_i64() == Some(1),
+                _ => false,
+            };
+            if is_runnable {
+                return Ok(output);
+            }
+            if attempt < max_attempts - 1 {
+                tokio::time::sleep(delay).await;
+            }
+        }
+
+        // Final read — return whatever state we have
         self.read_sql_instance(&provider_id).await
     }
 

@@ -184,10 +184,10 @@ impl GcpProvider {
         if let Some(fname) = data["friendlyName"].as_str().filter(|s| !s.is_empty()) {
             state["identity"]["friendly_name"] = serde_json::json!(fname);
         }
-        if let Some(labels) = data["labels"].as_object() {
-            if !labels.is_empty() {
-                state["identity"]["labels"] = serde_json::json!(labels);
-            }
+        if let Some(labels) = data["labels"].as_object()
+            && !labels.is_empty()
+        {
+            state["identity"]["labels"] = serde_json::json!(labels);
         }
 
         let mut outputs = HashMap::new();
@@ -461,15 +461,15 @@ impl GcpProvider {
         if let Some(fname) = data["friendlyName"].as_str().filter(|s| !s.is_empty()) {
             state["identity"]["friendly_name"] = serde_json::json!(fname);
         }
-        if let Some(labels) = data["labels"].as_object() {
-            if !labels.is_empty() {
-                state["identity"]["labels"] = serde_json::json!(labels);
-            }
+        if let Some(labels) = data["labels"].as_object()
+            && !labels.is_empty()
+        {
+            state["identity"]["labels"] = serde_json::json!(labels);
         }
-        if let Some(schema) = data.get("schema") {
-            if !schema.is_null() {
-                state["config"] = serde_json::json!({ "schema": schema });
-            }
+        if let Some(schema) = data.get("schema")
+            && !schema.is_null()
+        {
+            state["config"] = serde_json::json!({ "schema": schema });
         }
 
         let mut outputs = HashMap::new();

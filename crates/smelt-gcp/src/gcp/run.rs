@@ -348,26 +348,34 @@ impl GcpProvider {
         // Extract short service name from full resource path
         let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);
 
+        // Serialize and clean the template to strip GCP-injected defaults
+        let mut template_json =
+            serde_json::to_value(&service.template).unwrap_or(serde_json::Value::Null);
+        clean_run_template(&mut template_json);
+
         let mut state = serde_json::json!({
             "identity": {
-                "labels": user_labels,
                 "name": short_name,
             },
             "config": {
-                "template": &service.template,
+                "template": template_json,
             },
         });
         // Conditionally include optional identity fields
+        if !user_labels.is_empty() {
+            state["identity"]["labels"] = serde_json::Value::Object(user_labels);
+        }
         let desc = service.description.as_str();
         if !desc.is_empty() {
             state["identity"]["description"] = serde_json::json!(desc);
         }
         // Conditionally include optional config fields
-        // Include ingress if set (proto enums serialize as integers, 0 = default/unset)
-        if service.ingress.value() != Some(0) {
+        // Include ingress only if non-default (0 = unset, 1 = INGRESS_TRAFFIC_ALL = default)
+        if !matches!(service.ingress.value(), Some(0) | Some(1)) {
             state["config"]["ingress"] = serde_json::json!(&service.ingress);
         }
-        if !service.traffic.is_empty() {
+        // Only include traffic if non-default (skip the standard 100% latest allocation)
+        if !service.traffic.is_empty() && !is_default_traffic(&service.traffic) {
             state["config"]["traffic"] = serde_json::json!(&service.traffic);
         }
 
@@ -645,21 +653,66 @@ impl GcpProvider {
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
 
-        let state = serde_json::json!({
+        // Serialize and clean the template to strip GCP-injected defaults
+        let mut template_json =
+            serde_json::to_value(&job.template).unwrap_or(serde_json::Value::Null);
+        // Clean ExecutionTemplate-level defaults
+        if let Some(exec_tmpl) = template_json.as_object_mut() {
+            // taskCount: GCP defaults to 1
+            if exec_tmpl.get("taskCount").and_then(|v| v.as_i64()) == Some(1) {
+                exec_tmpl.remove("taskCount");
+            }
+            // Jobs use ExecutionTemplate → TaskTemplate → containers
+            if let Some(task_template) = exec_tmpl.get_mut("template") {
+                clean_run_template(task_template);
+                // Job-specific TaskTemplate defaults
+                if let Some(tt) = task_template.as_object_mut() {
+                    // executionEnvironment: GCP defaults to 2 (EXECUTION_ENVIRONMENT_GEN2)
+                    if tt.get("executionEnvironment").and_then(|v| v.as_i64()) == Some(2) {
+                        tt.remove("executionEnvironment");
+                    }
+                    // maxRetries: GCP defaults to 3
+                    if tt.get("maxRetries").and_then(|v| v.as_i64()) == Some(3) {
+                        tt.remove("maxRetries");
+                    }
+                    // timeout: GCP defaults to "600s" for Jobs
+                    if tt.get("timeout").and_then(|v| v.as_str()) == Some("600s") {
+                        tt.remove("timeout");
+                    }
+                }
+            }
+        }
+
+        // Extract short name from full resource path
+        let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);
+
+        let mut state = serde_json::json!({
             "identity": {
-                "labels": user_labels,
-                "name": job.name.as_str(),
+                "name": short_name,
             },
             "config": {
-                "annotations": &job.annotations,
-                "binary_authorization": &job.binary_authorization,
-                "client": job.client.as_str(),
-                "client_version": job.client_version.as_str(),
-                "create_execution": serde_json::Value::Null,
-                "launch_stage": &job.launch_stage,
-                "template": &job.template,
+                "template": template_json,
             },
         });
+        // Conditionally include optional fields (skip empty/null/default values)
+        if !user_labels.is_empty() {
+            state["identity"]["labels"] = serde_json::Value::Object(user_labels);
+        }
+        if !job.annotations.is_empty() {
+            state["config"]["annotations"] = serde_json::json!(&job.annotations);
+        }
+        let client = job.client.as_str();
+        if !client.is_empty() {
+            state["config"]["client"] = serde_json::json!(client);
+        }
+        let client_version = job.client_version.as_str();
+        if !client_version.is_empty() {
+            state["config"]["client_version"] = serde_json::json!(client_version);
+        }
+        // launch_stage: 0 = unset, 4 = GA (default)
+        if !matches!(job.launch_stage.value(), Some(0) | Some(4)) {
+            state["config"]["launch_stage"] = serde_json::json!(&job.launch_stage);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&job.name));
@@ -706,4 +759,66 @@ pub(super) fn run_service_forces_replacement(path: &str) -> bool {
 // Diff: fields that force replacement
 pub(super) fn run_job_forces_replacement(path: &str) -> bool {
     matches!(path, "identity.name")
+}
+
+/// Strip GCP-injected default fields from a Cloud Run RevisionTemplate JSON.
+///
+/// When Cloud Run creates a service, it fills in many default values that
+/// the user didn't specify. If we return these in the read output, they show
+/// up as false diffs. Strip them so only user-specified config is compared.
+fn clean_run_template(template: &mut serde_json::Value) {
+    let Some(obj) = template.as_object_mut() else {
+        return;
+    };
+
+    // Strip template-level defaults
+    // maxInstanceRequestConcurrency: GCP defaults to 80
+    if obj
+        .get("maxInstanceRequestConcurrency")
+        .and_then(|v| v.as_i64())
+        == Some(80)
+    {
+        obj.remove("maxInstanceRequestConcurrency");
+    }
+    // timeout: GCP defaults to "300s"
+    if obj.get("timeout").and_then(|v| v.as_str()) == Some("300s") {
+        obj.remove("timeout");
+    }
+    // serviceAccount: GCP fills in the default compute SA
+    obj.remove("serviceAccount");
+    // revision: auto-generated name
+    obj.remove("revision");
+
+    // Clean each container
+    if let Some(containers) = obj.get_mut("containers").and_then(|v| v.as_array_mut()) {
+        for container in containers.iter_mut() {
+            if let Some(c) = container.as_object_mut() {
+                // ports: GCP defaults to [{"containerPort": 8080, "name": "http1"}]
+                if let Some(ports) = c.get("ports").and_then(|v| v.as_array())
+                    && ports.len() == 1
+                {
+                    let p = &ports[0];
+                    if p.get("containerPort").and_then(|v| v.as_i64()) == Some(8080) {
+                        c.remove("ports");
+                    }
+                }
+                // resources: GCP fills in default CPU/memory limits
+                c.remove("resources");
+                // startupProbe: GCP always adds a default startup probe
+                c.remove("startupProbe");
+                // name: auto-generated container name
+                c.remove("name");
+            }
+        }
+    }
+}
+
+/// Check if the traffic allocation is the default (100% to latest revision).
+fn is_default_traffic(traffic: &[google_cloud_run_v2::model::TrafficTarget]) -> bool {
+    if traffic.len() != 1 {
+        return false;
+    }
+    let t = &traffic[0];
+    // Default: 100% to latest, type = TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST
+    t.percent == 100 && t.r#type.value() == Some(1) // TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST
 }

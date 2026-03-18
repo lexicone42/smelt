@@ -9,10 +9,12 @@ pub mod mock;
 // Re-export provider implementations from workspace crates
 pub mod aws {
     pub use smelt_aws::AwsProvider;
+    #[allow(unused_imports)]
     pub use smelt_aws::aws::*;
 }
 
 pub mod gcp {
     pub use smelt_gcp::GcpProvider;
+    #[allow(unused_imports)]
     pub use smelt_gcp::gcp::*;
 }

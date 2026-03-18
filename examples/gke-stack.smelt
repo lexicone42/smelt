@@ -27,8 +27,8 @@ resource sa "gke-nodes" : gcp.iam.ServiceAccount {
   @intent "Service account for GKE node pool workloads"
 
   identity {
-    name = "smelt-gke-nodes"
     display_name = "smelt GKE Node SA"
+    name = "smelt-gke-nodes"
   }
 }
 
@@ -36,8 +36,8 @@ resource cluster "primary" : gcp.container.Cluster {
   @intent "Primary GKE cluster — standard mode, single zone"
 
   identity {
-    name = "smelt-gke-primary"
     description = "smelt GKE integration test cluster"
+    name = "smelt-gke-primary"
   }
 }
 
@@ -45,7 +45,7 @@ resource log "gke" : gcp.logging.Metric {
   @intent "Log-based metric for GKE error tracking"
 
   identity {
-    name = "smelt-gke-errors"
     description = "Count of GKE error logs"
+    name = "smelt-gke-errors"
   }
 }

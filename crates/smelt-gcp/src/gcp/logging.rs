@@ -269,7 +269,7 @@ impl GcpProvider {
             .await?
             .update_bucket()
             .set_bucket(model)
-            .set_update_mask(google_cloud_wkt::FieldMask::default())
+            .set_update_mask(google_cloud_wkt::FieldMask::default().set_paths(vec!["*"]))
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("update_bucket LogBucket", e))?;
@@ -541,7 +541,7 @@ impl GcpProvider {
             .await?
             .update_sink()
             .set_sink(model)
-            .set_update_mask(google_cloud_wkt::FieldMask::default())
+            .set_update_mask(google_cloud_wkt::FieldMask::default().set_paths(vec!["*"]))
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("update_sink LogSink", e))?;
@@ -735,7 +735,7 @@ impl GcpProvider {
             .await?
             .update_exclusion()
             .set_exclusion(model)
-            .set_update_mask(google_cloud_wkt::FieldMask::default())
+            .set_update_mask(google_cloud_wkt::FieldMask::default().set_paths(vec!["*"]))
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("update_exclusion LogExclusion", e))?;
@@ -1032,6 +1032,7 @@ impl GcpProvider {
         self.logging_metrics()
             .await?
             .update_log_metric()
+            .set_metric_name(provider_id)
             .set_metric(model)
             .send()
             .await

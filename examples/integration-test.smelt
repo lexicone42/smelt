@@ -26,8 +26,8 @@ resource queue "events" : aws.sqs.Queue {
   @intent "Event queue for integration test"
 
   identity {
-    name = "smelt-integ-events"
     fifo = false
+    name = "smelt-integ-events"
   }
 
   reliability {

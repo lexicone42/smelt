@@ -2,6 +2,7 @@
 name = "smelt-gcp"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 
 [dependencies]
 smelt-provider = { path = "../smelt-provider" }

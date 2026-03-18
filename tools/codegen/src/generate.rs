@@ -2120,6 +2120,9 @@ fn write_gcp_update_body(out: &mut String, m: &ResourceManifest) {
                 .unwrap_or("set_body");
             let _ = writeln!(out, "        .{body_setter}(model)");
             if m.resource.has_update_mask {
+                // Empty FieldMask = "update all fields" for most GCP APIs.
+                // Some APIs (e.g., IAM ServiceAccount) require explicit paths —
+                // fix those in hand-edited files.
                 let _ = writeln!(
                     out,
                     "        .set_update_mask(google_cloud_wkt::FieldMask::default())"

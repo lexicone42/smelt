@@ -250,7 +250,7 @@ async fn gcp_service_account_crud() {
 async fn gcp_gke_full_stack() {
     // GKE Cluster model is deeply nested — needs extra stack in debug builds
     const STACK_SIZE: usize = 16 * 1024 * 1024; // 16 MB
-    let result = std::thread::Builder::new()
+    std::thread::Builder::new()
         .stack_size(STACK_SIZE)
         .spawn(|| {
             tokio::runtime::Builder::new_current_thread()
@@ -261,8 +261,7 @@ async fn gcp_gke_full_stack() {
         })
         .unwrap()
         .join()
-        .unwrap();
-    result
+        .unwrap()
 }
 
 async fn gke_full_stack_inner() -> () {
@@ -1841,17 +1840,31 @@ async fn gcp_sql_database_and_user_crud() {
         .expect("Instance create failed");
     println!("  instance = {}", inst.provider_id);
 
-    // Create database
+    // Create database (retry for "operation in progress" after instance becomes RUNNABLE)
     let db_name = "smelt_test_db";
     let db_config = serde_json::json!({
         "identity": { "name": db_name },
         "config": { "instance": &inst_name },
     });
-    println!("\n[CREATE] sql.Database...");
-    let db = provider.create("sql.Database", &db_config).await;
-    match &db {
-        Ok(d) => println!("  database = {} (provider_id = {})", db_name, d.provider_id),
-        Err(e) => println!("  DATABASE CREATE FAILED: {e:?}"),
+    // Cloud SQL serializes operations — wait for any lingering create op
+    println!("\n[CREATE] sql.Database (waiting for instance operations)...");
+    let mut db = Err(smelt_provider::ProviderError::NotFound("init".into()));
+    for attempt in 0..10u32 {
+        match provider.create("sql.Database", &db_config).await {
+            Ok(d) => {
+                println!("  database = {} (provider_id = {})", db_name, d.provider_id);
+                db = Ok(d);
+                break;
+            }
+            Err(e) if attempt < 9 => {
+                println!("  Attempt {}: {e:?}, retrying in 30s...", attempt + 1);
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            }
+            Err(e) => {
+                println!("  DATABASE CREATE FAILED after retries: {e:?}");
+                db = Err(e);
+            }
+        }
     }
 
     // Read database back
@@ -1873,10 +1886,230 @@ async fn gcp_sql_database_and_user_crud() {
         let _ = provider.delete("sql.Database", &d.provider_id).await;
         println!("  Deleted database.");
     }
+    // Wait for any lingering operations before deleting instance
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
     println!("[DELETE] sql.Instance...");
-    provider
-        .delete("sql.Instance", &inst.provider_id)
+    for attempt in 0..3u32 {
+        match provider.delete("sql.Instance", &inst.provider_id).await {
+            Ok(()) => {
+                println!("  Deleted instance.");
+                break;
+            }
+            Err(e) if attempt < 2 => {
+                println!(
+                    "  Delete attempt {}: {e:?}, retrying in 15s...",
+                    attempt + 1
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+            }
+            Err(e) => panic!("Instance DELETE failed after retries: {e:?}"),
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Update path: IAM ServiceAccount — update display_name
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_iam_serviceaccount_update() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
         .await
-        .expect("Instance DELETE failed");
-    println!("  Deleted instance.");
+        .expect("GCP provider init");
+    let name = test_name("saup");
+
+    // Create
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "display_name": "Original Display Name",
+        },
+    });
+    println!("[CREATE] iam.ServiceAccount...");
+    let created = provider
+        .create("iam.ServiceAccount", &config)
+        .await
+        .expect("CREATE failed");
+    println!("  provider_id = {}", created.provider_id);
+
+    // Update display_name
+    let update_config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "display_name": "Updated Display Name",
+        },
+    });
+    println!("\n[UPDATE] iam.ServiceAccount (change display_name)...");
+    let updated = provider
+        .update(
+            "iam.ServiceAccount",
+            &created.provider_id,
+            &config,
+            &update_config,
+        )
+        .await;
+    match &updated {
+        Ok(output) => println!(
+            "  Updated. display_name = {:?}",
+            output.state["identity"]["display_name"]
+        ),
+        Err(e) => println!("  UPDATE FAILED: {e:?}"),
+    }
+    assert!(updated.is_ok(), "ServiceAccount update should succeed");
+
+    // Read back and diff
+    let read = provider
+        .read("iam.ServiceAccount", &created.provider_id)
+        .await
+        .expect("READ failed");
+    let changes = provider.diff("iam.ServiceAccount", &update_config, &read.state);
+    println!("[DIFF] after update: {} change(s)", changes.len());
+    for c in &changes {
+        println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+    }
+
+    // Cleanup
+    println!("\n[DELETE] iam.ServiceAccount...");
+    provider
+        .delete("iam.ServiceAccount", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+}
+
+// NOTE: Compute Firewall update test removed — requires solving VPC propagation
+// delay (>35s) for dependent resource creation. The CRUD test handles this with
+// a 15s sleep but that's not always sufficient.
+
+// ═══════════════════════════════════════════════════════════════
+// Update path: BigQuery Dataset — update description
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_bigquery_dataset_update() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("bqup");
+    // BigQuery dataset names must be alphanumeric + underscore
+    let name = name.replace('-', "_");
+
+    // Create
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "Original description",
+            "friendly_name": "Test Dataset",
+        },
+        "config": { "location": "US" },
+    });
+    println!("[CREATE] bigquery.Dataset...");
+    let created = provider
+        .create("bigquery.Dataset", &config)
+        .await
+        .expect("CREATE failed");
+    println!("  provider_id = {}", created.provider_id);
+
+    // Update description
+    let update_config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "Updated description via smelt",
+            "friendly_name": "Test Dataset",
+        },
+        "config": { "location": "US" },
+    });
+    println!("\n[UPDATE] bigquery.Dataset (change description)...");
+    let updated = provider
+        .update(
+            "bigquery.Dataset",
+            &created.provider_id,
+            &config,
+            &update_config,
+        )
+        .await;
+    match &updated {
+        Ok(output) => println!(
+            "  Updated. description = {:?}",
+            output.state["identity"]["description"]
+        ),
+        Err(e) => println!("  UPDATE FAILED: {e:?}"),
+    }
+    assert!(updated.is_ok(), "BigQuery Dataset update should succeed");
+
+    // Cleanup
+    println!("\n[DELETE] bigquery.Dataset...");
+    provider
+        .delete("bigquery.Dataset", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Update path: Logging LogMetric — update filter
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_logging_logmetric_update() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("lmup");
+
+    // Create
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "Original metric",
+        },
+        "config": {
+            "filter": "severity >= ERROR",
+        },
+    });
+    println!("[CREATE] logging.LogMetric...");
+    let created = provider
+        .create("logging.LogMetric", &config)
+        .await
+        .expect("CREATE failed");
+    println!("  provider_id = {}", created.provider_id);
+
+    // Update filter
+    let update_config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "Updated metric description",
+        },
+        "config": {
+            "filter": "severity >= WARNING",
+        },
+    });
+    println!("\n[UPDATE] logging.LogMetric (change filter + description)...");
+    let updated = provider
+        .update(
+            "logging.LogMetric",
+            &created.provider_id,
+            &config,
+            &update_config,
+        )
+        .await;
+    match &updated {
+        Ok(output) => println!("  Updated. filter = {:?}", output.state["config"]["filter"]),
+        Err(e) => println!("  UPDATE FAILED: {e:?}"),
+    }
+    assert!(updated.is_ok(), "LogMetric update should succeed");
+
+    // Cleanup
+    println!("\n[DELETE] logging.LogMetric...");
+    provider
+        .delete("logging.LogMetric", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
 }

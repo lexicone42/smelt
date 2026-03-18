@@ -985,6 +985,58 @@ mod tests {
     }
 
     #[test]
+    fn parse_array_of_records() {
+        let result = field().parse("containers = [{ image = \"nginx\", port = 8080 }]");
+        assert!(result.is_ok(), "parse error: {:?}", result.err());
+        let f = result.unwrap();
+        assert_eq!(f.name, "containers");
+        match f.value {
+            Value::Array(items) => {
+                assert_eq!(items.len(), 1);
+                match &items[0] {
+                    Value::Record(fields) => {
+                        assert_eq!(fields.len(), 2);
+                        assert_eq!(fields[0].name, "image");
+                        assert_eq!(fields[1].name, "port");
+                    }
+                    other => panic!("expected Record, got {other:?}"),
+                }
+            }
+            other => panic!("expected Array, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_array_of_records_multiline() {
+        let input = r#"containers = [
+            { image = "nginx", port = 8080 },
+            { image = "sidecar", port = 9090 }
+        ]"#;
+        let result = field().parse(input);
+        assert!(result.is_ok(), "parse error: {:?}", result.err());
+        match result.unwrap().value {
+            Value::Array(items) => assert_eq!(items.len(), 2),
+            other => panic!("expected Array, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_nested_record_in_value() {
+        // Test nested empty-ish records like replication { automatic {} }
+        // In smelt syntax this would be: replication = { automatic = {} }
+        let result = field().parse("replication = { automatic = {} }");
+        assert!(result.is_ok(), "parse error: {:?}", result.err());
+        match result.unwrap().value {
+            Value::Record(fields) => {
+                assert_eq!(fields.len(), 1);
+                assert_eq!(fields[0].name, "automatic");
+                assert!(matches!(fields[0].value, Value::Record(ref f) if f.is_empty()));
+            }
+            other => panic!("expected Record, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn parse_full_component_with_use() {
         let input = r#"
             component "vpc-stack" {

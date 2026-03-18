@@ -1136,6 +1136,7 @@ pub(crate) fn normalize_gcp_url(url: &str) -> &str {
 
 /// Check if a GCP error message indicates a transient "not ready" condition.
 /// Resources like VPCs need propagation time before dependents can use them.
+#[allow(dead_code)]
 pub(crate) fn is_not_ready_error(err: &impl std::fmt::Display) -> bool {
     let msg = err.to_string();
     msg.contains("is not ready") || msg.contains("not found") && msg.contains("resource")
@@ -1143,6 +1144,7 @@ pub(crate) fn is_not_ready_error(err: &impl std::fmt::Display) -> bool {
 
 /// Retry a GCP API call that might fail with "not ready" errors.
 /// Useful for resources that depend on recently-created infrastructure.
+#[allow(dead_code)]
 pub(crate) async fn retry_not_ready<F, Fut, T, E>(
     operation: &str,
     max_attempts: u32,

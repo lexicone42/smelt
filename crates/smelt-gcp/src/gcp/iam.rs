@@ -178,11 +178,20 @@ impl GcpProvider {
             model = model.set_display_name(v);
         }
 
+        // Build field mask from what's being updated
+        let mut paths = Vec::new();
+        if config.pointer("/identity/description").is_some() {
+            paths.push("description".to_string());
+        }
+        if config.pointer("/identity/display_name").is_some() {
+            paths.push("display_name".to_string());
+        }
+
         self.iam()
             .await?
             .patch_service_account()
             .set_service_account(model)
-            .set_update_mask(google_cloud_wkt::FieldMask::default())
+            .set_update_mask(google_cloud_wkt::FieldMask::default().set_paths(paths))
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("patch_service_account ServiceAccount", e))?;
@@ -425,7 +434,7 @@ impl GcpProvider {
             .await?
             .update_role()
             .set_role(model)
-            .set_update_mask(google_cloud_wkt::FieldMask::default())
+            .set_update_mask(google_cloud_wkt::FieldMask::default().set_paths(vec!["*"]))
             .send()
             .await
             .map_err(|e| super::classify_gcp_error("update_role Role", e))?;

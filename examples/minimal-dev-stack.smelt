@@ -29,8 +29,8 @@ resource sa "app" : gcp.iam.ServiceAccount {
   @intent "Service account for application workloads"
 
   identity {
-    name = "minimal-dev-app"
     display_name = "minimal.dev application SA"
+    name = "minimal-dev-app"
   }
 }
 
@@ -45,39 +45,39 @@ resource topic "events" : gcp.pubsub.Topic {
 resource registry "app" : gcp.artifactregistry.Repository {
   @intent "Container registry for application images"
 
-  identity {
-    name = "minimal-dev-app"
-    description = "Application container images"
-  }
-
   config {
     format = "DOCKER"
+  }
+
+  identity {
+    description = "Application container images"
+    name = "minimal-dev-app"
   }
 }
 
 resource dataset "analytics" : gcp.bigquery.Dataset {
   @intent "Analytics data warehouse"
 
-  identity {
-    name = "minimal_dev_analytics"
-    description = "Analytics and reporting data"
-    friendly_name = "Analytics"
-  }
-
   config {
     location = "US"
+  }
+
+  identity {
+    description = "Analytics and reporting data"
+    friendly_name = "Analytics"
+    name = "minimal_dev_analytics"
   }
 }
 
 resource log "app-errors" : gcp.logging.LogMetric {
   @intent "Track application error rate"
 
-  identity {
-    name = "minimal-dev-app-errors"
-    description = "Count of application errors"
-  }
-
   config {
     filter = "severity >= ERROR"
+  }
+
+  identity {
+    description = "Count of application errors"
+    name = "minimal-dev-app-errors"
   }
 }

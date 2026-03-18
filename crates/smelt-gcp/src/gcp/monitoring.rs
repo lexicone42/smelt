@@ -171,7 +171,7 @@ impl GcpProvider {
             serde_json::from_value::<google_cloud_monitoring_v3::model::MutationRecord>(v.clone())
                 .ok()
         });
-        let name = config.require_str("/identity/name")?.to_string();
+        let _name = config.require_str("/identity/name")?.to_string();
         let notification_channels = config
             .pointer("/config/notification_channels")
             .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());

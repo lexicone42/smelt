@@ -18,7 +18,7 @@ allow = [
     "BSD-3-Clause",
     "ISC",
     "Unicode-3.0",
-    "Unicode-DFS-2016",
+    # "Unicode-DFS-2016",  # removed — no longer needed by current deps
     "Zlib",
     "BSL-1.0",
     "CC0-1.0",
@@ -51,9 +51,7 @@ deny = [
 ]
 
 skip = [
-    # ring is pulled in transitively by the AWS SDK (via rustls 0.21 / aws-smithy-http-client).
-    # Smelt's own code uses aws-lc-rs for crypto — this skip only permits the transitive dep.
-    { crate = "ring" },
+    # ring skip removed — only one version present now
 ]
 
 # ============================================================================
