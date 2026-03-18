@@ -378,8 +378,13 @@ fn value_to_json(value: &Value) -> serde_json::Value {
         Value::ParamRef(name) => serde_json::Value::String(format!("{{param.{name}}}")),
         Value::EnvRef(var) => {
             // Resolve environment variable at plan time
-            let val = std::env::var(var).unwrap_or_default();
-            serde_json::Value::String(val)
+            match std::env::var(var) {
+                Ok(val) => serde_json::Value::String(val),
+                Err(_) => {
+                    eprintln!("warning: env(\"{var}\") is not set, using empty string");
+                    serde_json::Value::String(String::new())
+                }
+            }
         }
     }
 }
