@@ -241,8 +241,14 @@ pub fn build_plan_with_layers_and_registry(
                 if let Some(reg) = registry {
                     inject_schema_defaults(&mut desired_json, &node.type_path, reg, &cr.config);
                 }
+
+                // Strip `needs`-injected binding fields from stored state before diffing.
+                // These fields are dynamically resolved at apply time from dependency
+                // outputs, so they won't appear in the desired config from .smelt files.
+                let current_config = strip_binding_fields(&cr.config, resource_decl);
+
                 let mut changes = Vec::new();
-                crate::provider::diff_values("", &desired_json, &cr.config, &mut changes);
+                crate::provider::diff_values("", &desired_json, &current_config, &mut changes);
                 let action = if changes.is_empty() {
                     ActionType::Unchanged
                 } else {
@@ -387,6 +393,41 @@ fn value_to_json(value: &Value) -> serde_json::Value {
             }
         }
     }
+}
+
+/// Strip fields from current state that were injected by `needs` bindings.
+///
+/// When apply resolves `needs vpc.main -> network`, it injects the provider ID
+/// into the stored config at the binding's field path. On re-plan, this field
+/// exists in stored state but NOT in the desired config (it's a dynamic binding).
+/// Stripping these fields prevents false "Remove" diffs.
+fn strip_binding_fields(
+    config: &serde_json::Value,
+    resource: &crate::ast::ResourceDecl,
+) -> serde_json::Value {
+    if resource.dependencies.is_empty() {
+        return config.clone();
+    }
+
+    let mut stripped = config.clone();
+    let binding_names: std::collections::HashSet<&str> = resource
+        .dependencies
+        .iter()
+        .map(|dep| dep.binding.as_str())
+        .collect();
+
+    // Remove binding fields from section objects
+    if let Some(obj) = stripped.as_object_mut() {
+        for (_section_name, section_val) in obj.iter_mut() {
+            if let Some(section_obj) = section_val.as_object_mut() {
+                section_obj.retain(|field_name, _| !binding_names.contains(field_name.as_str()));
+            }
+        }
+        // Also remove top-level binding fields (fallback injection path)
+        obj.retain(|key, _| !binding_names.contains(key.as_str()));
+    }
+
+    stripped
 }
 
 /// Find a layer declaration matching the given environment name.
