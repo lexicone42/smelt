@@ -102,12 +102,15 @@ impl GcpProvider {
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
 
-        let state = serde_json::json!({
+        let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);
+        let mut state = serde_json::json!({
             "identity": {
-                "labels": user_labels,
-                "name": namespace.name.as_str(),
+                "name": short_name,
             },
         });
+        if !user_labels.is_empty() {
+            state["identity"]["labels"] = serde_json::Value::Object(user_labels);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&namespace.name));
@@ -265,9 +268,10 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetService", e))?;
 
+        let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);
         let state = serde_json::json!({
             "identity": {
-                "name": service.name.as_str(),
+                "name": short_name,
             },
             "config": {
                 "annotations": &service.annotations,
