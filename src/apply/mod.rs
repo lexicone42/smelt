@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use crate::ast::{Declaration, SmeltFile, Value};
+use crate::ast::{Declaration, SmeltFile, StringPart, Value};
 use crate::plan::{ActionType, Plan, PlannedAction};
 use crate::provider::ProviderRegistry;
 use crate::secrets::SecretStore;
@@ -1054,6 +1054,13 @@ fn collect_secret_paths(value: &Value, current_path: &str, paths: &mut HashSet<S
                 collect_secret_paths(item, current_path, paths);
             }
         }
+        Value::Interpolated(parts) => {
+            for part in parts {
+                if let StringPart::Expr(expr) = part {
+                    collect_secret_paths(expr, current_path, paths);
+                }
+            }
+        }
         _ => {}
     }
 }
@@ -1151,6 +1158,22 @@ fn value_to_json(value: &Value) -> serde_json::Value {
         // before reaching value_to_json — this is a safety fallback
         Value::EachValue => serde_json::Value::String("{{each.value}}".to_string()),
         Value::EachIndex => serde_json::Value::String("{{each.index}}".to_string()),
+        Value::Interpolated(parts) => {
+            let mut result = String::new();
+            for part in parts {
+                match part {
+                    StringPart::Literal(s) => result.push_str(s),
+                    StringPart::Expr(expr) => {
+                        let resolved = value_to_json(expr);
+                        match resolved {
+                            serde_json::Value::String(s) => result.push_str(&s),
+                            other => result.push_str(&other.to_string()),
+                        }
+                    }
+                }
+            }
+            serde_json::Value::String(result)
+        }
     }
 }
 

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, TextDiff};
 
-use crate::ast::{Declaration, LayerDecl, SmeltFile, Value};
+use crate::ast::{Declaration, LayerDecl, SmeltFile, StringPart, Value};
 use crate::graph::DependencyGraph;
 use crate::provider::{ChangeType, FieldChange, ProviderRegistry};
 
@@ -419,6 +419,22 @@ fn value_to_json(value: &Value) -> serde_json::Value {
         // before reaching value_to_json — this is a safety fallback
         Value::EachValue => serde_json::Value::String("{{each.value}}".to_string()),
         Value::EachIndex => serde_json::Value::String("{{each.index}}".to_string()),
+        Value::Interpolated(parts) => {
+            let mut result = String::new();
+            for part in parts {
+                match part {
+                    StringPart::Literal(s) => result.push_str(s),
+                    StringPart::Expr(expr) => {
+                        let resolved = value_to_json(expr);
+                        match resolved {
+                            serde_json::Value::String(s) => result.push_str(&s),
+                            other => result.push_str(&other.to_string()),
+                        }
+                    }
+                }
+            }
+            serde_json::Value::String(result)
+        }
     }
 }
 

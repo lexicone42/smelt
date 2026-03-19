@@ -267,6 +267,18 @@ pub enum Value {
     /// `each.index` — the 0-based index in a `for_each` iteration.
     /// Resolved at graph expansion time.
     EachIndex,
+    /// String interpolation: `"prefix-${each.value}-suffix"`
+    /// Resolved by evaluating each part and concatenating.
+    Interpolated(Vec<StringPart>),
+}
+
+/// A segment of an interpolated string.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum StringPart {
+    /// Literal text
+    Literal(String),
+    /// An expression to evaluate (each.value, each.index, env("VAR"), param.name)
+    Expr(Box<Value>),
 }
 
 impl Value {
@@ -283,6 +295,7 @@ impl Value {
             Self::EnvRef(_) => "env_ref",
             Self::EachValue => "each_value",
             Self::EachIndex => "each_index",
+            Self::Interpolated(_) => "interpolated",
         }
     }
 }

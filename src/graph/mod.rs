@@ -6,7 +6,7 @@ use petgraph::dot::{Config, Dot};
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 
-use crate::ast::{ComponentDecl, Declaration, ResourceDecl, SmeltFile, UseDecl, Value};
+use crate::ast::{ComponentDecl, Declaration, ResourceDecl, SmeltFile, StringPart, UseDecl, Value};
 
 /// A unique identifier for a resource: kind.name (e.g., "vpc.main")
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -450,6 +450,10 @@ fn find_param_ref(value: &Value) -> Option<String> {
         Value::ParamRef(name) => Some(name.clone()),
         Value::Array(items) => items.iter().find_map(find_param_ref),
         Value::Record(fields) => fields.iter().find_map(|f| find_param_ref(&f.value)),
+        Value::Interpolated(parts) => parts.iter().find_map(|p| match p {
+            StringPart::Expr(expr) => find_param_ref(expr),
+            _ => None,
+        }),
         _ => None,
     }
 }
@@ -525,6 +529,13 @@ fn substitute_each(value: &mut Value, each_value: &str, each_index: i64) {
         Value::Record(fields) => {
             for field in fields {
                 substitute_each(&mut field.value, each_value, each_index);
+            }
+        }
+        Value::Interpolated(parts) => {
+            for part in parts {
+                if let StringPart::Expr(expr) = part {
+                    substitute_each(expr, each_value, each_index);
+                }
             }
         }
         _ => {}
@@ -633,6 +644,13 @@ fn substitute_params(value: &mut Value, params: &HashMap<String, Value>) {
         Value::Record(fields) => {
             for field in fields {
                 substitute_params(&mut field.value, params);
+            }
+        }
+        Value::Interpolated(parts) => {
+            for part in parts {
+                if let StringPart::Expr(expr) = part {
+                    substitute_params(expr, params);
+                }
             }
         }
         _ => {}

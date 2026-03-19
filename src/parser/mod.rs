@@ -464,7 +464,51 @@ fn value() -> impl Parser<char, Value, Error = Simple<char>> {
                 )),
             });
 
-        let string_val = string_literal().map(Value::String);
+        // String values with optional ${...} interpolation.
+        // Plain strings → Value::String, strings with ${...} → Value::Interpolated
+        let string_val = string_literal().map(|s| {
+            if !s.contains("${") {
+                return Value::String(s);
+            }
+            // Parse interpolation segments
+            let mut parts = Vec::new();
+            let mut remaining = s.as_str();
+            while let Some(start) = remaining.find("${") {
+                if start > 0 {
+                    parts.push(StringPart::Literal(remaining[..start].to_string()));
+                }
+                let after = &remaining[start + 2..];
+                let Some(end) = after.find('}') else {
+                    // Unclosed ${ — treat rest as literal
+                    parts.push(StringPart::Literal(remaining[start..].to_string()));
+                    remaining = "";
+                    break;
+                };
+                let expr_str = after[..end].trim();
+                let expr = match expr_str {
+                    "each.value" => Value::EachValue,
+                    "each.index" => Value::EachIndex,
+                    s if s.starts_with("env(") && s.ends_with(')') => {
+                        let var = s[5..s.len() - 2].to_string(); // strip env(" and ")
+                        Value::EnvRef(var)
+                    }
+                    s if s.starts_with("param.") => Value::ParamRef(s[6..].to_string()),
+                    _ => Value::String(format!("${{{expr_str}}}")), // unknown → literal
+                };
+                parts.push(StringPart::Expr(Box::new(expr)));
+                remaining = &after[end + 1..];
+            }
+            if !remaining.is_empty() {
+                parts.push(StringPart::Literal(remaining.to_string()));
+            }
+            // Optimize: single-part interpolation with just a literal → plain string
+            if parts.len() == 1 {
+                if let StringPart::Literal(s) = &parts[0] {
+                    return Value::String(s.clone());
+                }
+            }
+            Value::Interpolated(parts)
+        });
 
         let number_val = {
             let negative = just('-').or_not();

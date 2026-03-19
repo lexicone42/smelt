@@ -349,6 +349,33 @@ fn format_value(out: &mut String, value: &Value, indent: usize) {
         Value::EachIndex => {
             out.push_str("each.index");
         }
+        Value::Interpolated(parts) => {
+            out.push('"');
+            for part in parts {
+                match part {
+                    StringPart::Literal(s) => out.push_str(&escape_string(s)),
+                    StringPart::Expr(expr) => {
+                        out.push_str("${");
+                        // Format the inner expression without quotes for simple values
+                        match expr.as_ref() {
+                            Value::EachValue => out.push_str("each.value"),
+                            Value::EachIndex => out.push_str("each.index"),
+                            Value::EnvRef(var) => {
+                                out.push_str(&format!("env(\"{}\")", escape_string(var)));
+                            }
+                            Value::ParamRef(name) => {
+                                out.push_str(&format!("param.{name}"));
+                            }
+                            other => {
+                                format_value(out, other, indent);
+                            }
+                        }
+                        out.push('}');
+                    }
+                }
+            }
+            out.push('"');
+        }
     }
 }
 
@@ -363,6 +390,7 @@ fn is_simple_array(items: &[Value]) -> bool {
                 | Value::Bool(_)
                 | Value::EachValue
                 | Value::EachIndex
+                | Value::Interpolated(_)
         )
     })
 }
@@ -379,6 +407,7 @@ fn is_simple_record(fields: &[Field]) -> bool {
                     | Value::Bool(_)
                     | Value::EachValue
                     | Value::EachIndex
+                    | Value::Interpolated(_)
             )
         })
 }

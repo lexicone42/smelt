@@ -1,6 +1,6 @@
 # Smelt vs Terraform/OpenTofu — Feature Benchmark
 
-Capability comparison as of 2026-03-18. Focus: does smelt have the features
+Capability comparison as of 2026-03-19. Focus: does smelt have the features
 needed for production GCP infrastructure management?
 
 ## Verdict Summary
@@ -9,13 +9,13 @@ needed for production GCP infrastructure management?
 |------|-----------|-------|--------|
 | Config readability | HCL (verbose) | Semantic sections + intent | Smelt |
 | AI operability | Bolted-on JSON | First-class (`--json` everywhere) | Smelt |
-| Resource coverage | ~500+ GCP | 87 GCP (30 tested) | Terraform |
-| Plan accuracy | Mature | 23 zero-diff resources | Terraform (maturity) |
+| Resource coverage | ~500+ GCP | 87 GCP (31 zero-diff of 33 tested) | Terraform |
+| Plan accuracy | Mature | 31 zero-diff resources | Parity (for tested resources) |
 | State integrity | Hash-based | BLAKE3 Merkle tree + Ed25519 | Smelt |
 | Audit trail | None built-in | Signed transitions + SBOM + SLSA | Smelt |
 | Secret handling | External (Vault) | Built-in AES-256-GCM | Smelt |
-| Remote state | S3, GCS, Consul, etc. | Local file only | Terraform |
-| CI/CD ecosystem | Atlantis, TF Cloud, Spacelift | None | Terraform |
+| Remote state | S3, GCS, Consul, etc. | GCS with generation-based CAS locking | Parity (GCS) |
+| CI/CD ecosystem | Atlantis, TF Cloud, Spacelift | Plan files + --dry-run + --json | Terraform |
 | Import workflow | `terraform import` (1 at a time) | import + discover + generate | Smelt |
 | Drift detection | `terraform plan` (implicit) | `smelt drift` (explicit) | Parity |
 | Error recovery | State saved per-resource | State saved per-tier + recover cmd | Parity |
@@ -200,33 +200,40 @@ Terraform only offers through paid add-ons.
 at minimum. The full ecosystem (PR comments, cost estimation, policy checks) is what
 makes Terraform adoptable in organizations.
 
-## Critical Gaps for Production Readiness
+## Gap Status (updated 2026-03-19)
 
-### Must-have (blocking production adoption):
-1. **Remote state backend** — GCS at minimum, for team collaboration
-2. **Plan files** — Save plan, review, apply exact plan (TOCTOU prevention)
-3. **`for_each` / `count`** — Creating N resources from a list/map
+### Closed (previously blocking):
+1. ~~**Remote state backend**~~ — **DONE**: GCS with generation-based CAS locking, StorageBackend trait for S3/Azure
+2. ~~**Plan files**~~ — **DONE**: `--out` on plan, `--plan-file` on apply, with config hash staleness detection
+3. ~~**`for_each`**~~ — **DONE**: `for_each = [...]` with `each.value` / `each.index` substitution
+4. ~~**Distributed locking**~~ — **DONE**: GCS `ifGenerationMatch=0` (no DynamoDB needed)
 
-### Should-have (blocking organizational adoption):
-4. **Distributed locking** — GCS-based lock for concurrent safety
-5. **`terraform output` equivalent** — Declare and export named values
-6. **Variable files** — `.smelt.vars` or equivalent for parameterization
-
-### Nice-to-have (competitive parity):
+### Remaining gaps:
+5. **`count`** — Simpler than for_each (create N identical resources). Lower priority since for_each covers more cases.
+6. **String interpolation** — `"subnet-${each.value}"` not yet supported (bare `each.value` works)
 7. **Module registry** — Share components across projects
-8. **PR automation** — GitHub Actions integration at minimum
+8. **PR automation** — GitHub Actions integration
 9. **Policy-as-code** — OPA/Rego integration for constraint checking
 10. **Cost estimation** — GCP pricing API integration
+
+### New advantages added since benchmark:
+- **`smelt schema`** — Resource type discovery with `--example` stub generation
+- **Schema-aware validation** — Levenshtein field name suggestions ("did you mean?")
+- **Smart error suggestions** — Actionable fix advice (which role to grant, which API to enable)
+- **Intent-aware plans** — Blast radius display for updates/deletes
+- **`--dry-run` on destroy** — Non-interactive destroy planning for CI
 
 ## What Smelt Does Better
 
 1. **Audit trail** — Cryptographic proof of every state change, built-in
 2. **Secret management** — Encrypted at rest without external tooling
-3. **Destroy safety** — Lifecycle protection + cascade halting
+3. **Destroy safety** — Lifecycle protection + cascade halting + dry-run
 4. **Layer-based overrides** — Cleaner than workspace + tfvars
-5. **AI operability** — Semantic sections + intent annotations + JSON output
-6. **Blast radius analysis** — `smelt explain` shows full impact
+5. **AI operability** — Schema discovery, example generation, smart error suggestions, JSON everywhere
+6. **Blast radius analysis** — `smelt explain` + inline impact display in plan output
 7. **Import workflow** — Discover + generate is more complete than `terraform import`
 8. **Replacement safety** — Create-before-destroy by default
-9. **State integrity** — BLAKE3 Merkle tree vs single JSON file
+9. **State integrity** — BLAKE3 Merkle tree vs single JSON file, with staleness detection on saved plans
 10. **SBOM/SLSA** — Compliance artifacts out of the box
+11. **Schema-aware validation** — Catches typos with "did you mean?" suggestions before plan
+12. **Actionable errors** — "grant roles/iam.serviceAccountUser" instead of "permission denied"
