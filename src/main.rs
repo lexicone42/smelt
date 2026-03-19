@@ -394,13 +394,63 @@ fn cmd_validate(files: &[std::path::PathBuf]) -> Result<()> {
                 // Check section names
                 for section in &resource.sections {
                     if !valid_sections.contains(&section.name.as_str()) {
+                        let suggestion = find_closest(&section.name, &valid_sections);
+                        let hint = suggestion
+                            .map(|s| format!(" (did you mean '{s}'?)"))
+                            .unwrap_or_default();
                         errors.push(format!(
-                            "{}.{}: unknown section '{}' (valid: {})",
+                            "{}.{}: unknown section '{}'{hint} — valid sections: {}",
                             resource.kind,
                             resource.name,
                             section.name,
                             valid_sections.join(", ")
                         ));
+                    } else {
+                        // Check field names within valid sections
+                        let schema_section = schema
+                            .schema
+                            .sections
+                            .iter()
+                            .find(|s| s.name == section.name);
+                        if let Some(ss) = schema_section {
+                            let valid_fields: Vec<&str> =
+                                ss.fields.iter().map(|f| f.name.as_str()).collect();
+                            for field in &section.fields {
+                                if !valid_fields.contains(&field.name.as_str()) {
+                                    let suggestion = find_closest(&field.name, &valid_fields);
+                                    let hint = suggestion
+                                        .map(|s| format!(" — did you mean '{s}'?"))
+                                        .unwrap_or_default();
+                                    // Warn rather than error — schema may not include
+                                    // hand-written provider fields like routing_mode
+                                    eprintln!(
+                                        "warning: {}.{}: unknown field '{}.{}'{hint}",
+                                        resource.kind, resource.name, section.name, field.name
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Check required fields are present
+                for schema_section in &schema.schema.sections {
+                    for schema_field in &schema_section.fields {
+                        if schema_field.required {
+                            let present = resource.sections.iter().any(|s| {
+                                s.name == schema_section.name
+                                    && s.fields.iter().any(|f| f.name == schema_field.name)
+                            });
+                            if !present {
+                                errors.push(format!(
+                                    "{}.{}: missing required field '{}.{}'",
+                                    resource.kind,
+                                    resource.name,
+                                    schema_section.name,
+                                    schema_field.name
+                                ));
+                            }
+                        }
                     }
                 }
 
@@ -2364,6 +2414,39 @@ fn cmd_schema(type_path: Option<&str>, json: bool, example: bool) -> Result<()> 
     }
 
     Ok(())
+}
+
+/// Find the closest match to `target` in `candidates` using Levenshtein distance.
+/// Threshold scales with target length: max(3, target.len() / 3).
+fn find_closest<'a>(target: &str, candidates: &[&'a str]) -> Option<&'a str> {
+    let threshold = 3.max(target.len() / 3);
+    candidates
+        .iter()
+        .map(|c| (*c, levenshtein(target, c)))
+        .filter(|(_, d)| *d <= threshold && *d > 0)
+        .min_by_key(|(_, d)| *d)
+        .map(|(c, _)| c)
+}
+
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut matrix = vec![vec![0usize; b.len() + 1]; a.len() + 1];
+    for i in 0..=a.len() {
+        matrix[i][0] = i;
+    }
+    for j in 0..=b.len() {
+        matrix[0][j] = j;
+    }
+    for i in 1..=a.len() {
+        for j in 1..=b.len() {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            matrix[i][j] = (matrix[i - 1][j] + 1)
+                .min(matrix[i][j - 1] + 1)
+                .min(matrix[i - 1][j - 1] + cost);
+        }
+    }
+    matrix[a.len()][b.len()]
 }
 
 fn format_parse_errors(errors: &[chumsky::error::Simple<char>]) -> String {
