@@ -462,20 +462,30 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetLogSink", e))?;
 
-        let state = serde_json::json!({
+        let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);
+        let mut state = serde_json::json!({
             "identity": {
-                "description": log_sink.description.as_str(),
-                "name": log_sink.name.as_str(),
+                "name": short_name,
             },
             "config": {
                 "destination": log_sink.destination.as_str(),
-                "disabled": log_sink.disabled,
-                "exclusions": &log_sink.exclusions,
                 "filter": log_sink.filter.as_str(),
-                "include_children": log_sink.include_children,
-                "options": serde_json::Value::Null,
             },
         });
+        // Conditionally include optional fields — skip defaults
+        let desc = log_sink.description.as_str();
+        if !desc.is_empty() {
+            state["identity"]["description"] = serde_json::json!(desc);
+        }
+        if log_sink.disabled {
+            state["config"]["disabled"] = serde_json::json!(true);
+        }
+        if !log_sink.exclusions.is_empty() {
+            state["config"]["exclusions"] = serde_json::json!(&log_sink.exclusions);
+        }
+        if log_sink.include_children {
+            state["config"]["include_children"] = serde_json::json!(true);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&log_sink.name));

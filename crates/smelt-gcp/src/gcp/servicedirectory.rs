@@ -269,14 +269,22 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("GetService", e))?;
 
         let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);
-        let state = serde_json::json!({
+        // Extract namespace from provider_id: .../namespaces/X/services/Y → .../namespaces/X
+        let namespace_id = provider_id
+            .rfind("/services/")
+            .map(|i| &provider_id[..i])
+            .unwrap_or("");
+        let mut state = serde_json::json!({
             "identity": {
                 "name": short_name,
-            },
-            "config": {
-                "annotations": &service.annotations,
+                "namespace_id": namespace_id,
             },
         });
+        if !service.annotations.is_empty() {
+            state["config"] = serde_json::json!({
+                "annotations": &service.annotations,
+            });
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&service.name));
