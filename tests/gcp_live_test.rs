@@ -2113,3 +2113,235 @@ async fn gcp_logging_logmetric_update() {
         .expect("DELETE failed");
     println!("  Deleted.");
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Monitoring Notification Channel — free
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_monitoring_notification_channel_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("notif-ch");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "display_name": "smelt test notification channel",
+            "type": "email",
+            "labels": {
+                "email_address": "smelt-test@example.com",
+            },
+        },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "monitoring.NotificationChannel", &config, &name).await;
+
+    println!("\n[DELETE] monitoring.NotificationChannel...");
+    provider
+        .delete("monitoring.NotificationChannel", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Monitoring Uptime Check — free
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_monitoring_uptime_check_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("uptime");
+
+    let config = serde_json::json!({
+        "identity": {
+            "display_name": &name,
+        },
+        "config": {
+            "monitored_resource": {
+                "type": "uptime_url",
+                "labels": {
+                    "project_id": &project,
+                    "host": "example.com",
+                },
+            },
+            "http_check": {
+                "path": "/health",
+                "port": 443,
+                "use_ssl": true,
+            },
+            "period": "300s",
+            "timeout": "10s",
+        },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "monitoring.UptimeCheckConfig", &config, &name).await;
+
+    println!("\n[DELETE] monitoring.UptimeCheckConfig...");
+    provider
+        .delete("monitoring.UptimeCheckConfig", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Logging Log Sink — free
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_logging_sink_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("sink");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+        },
+        "config": {
+            "destination": format!("storage.googleapis.com/smelt-state-test-halogen"),
+            "filter": "severity >= ERROR",
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "logging.LogSink", &config, &name).await;
+
+    println!("\n[DELETE] logging.LogSink...");
+    provider
+        .delete("logging.LogSink", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Workflows — free
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_workflows_workflow_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("wf");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test workflow",
+        },
+        "config": {
+            "source_contents": "- init:\n    assign:\n      - result: \"hello\"\n- return_result:\n    return: ${result}",
+        },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "workflows.Workflow", &config, &name).await;
+
+    println!("\n[DELETE] workflows.Workflow...");
+    provider
+        .delete("workflows.Workflow", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Service Directory Service — free (within a namespace)
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_servicedirectory_service_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let ns_name = test_name("sd-ns");
+    let svc_name = test_name("sd-svc");
+
+    // Create namespace first
+    let ns_config = serde_json::json!({
+        "identity": { "name": &ns_name },
+    });
+    let ns_created = provider
+        .create("servicedirectory.Namespace", &ns_config)
+        .await
+        .expect("Namespace CREATE failed");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &svc_name,
+            "namespace_id": &ns_created.provider_id,
+        },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "servicedirectory.Service", &config, &svc_name).await;
+
+    // Cleanup: delete service then namespace
+    println!("\n[DELETE] servicedirectory.Service...");
+    provider
+        .delete("servicedirectory.Service", &created.provider_id)
+        .await
+        .expect("Service DELETE failed");
+    println!("  Deleted.");
+
+    println!("\n[DELETE] servicedirectory.Namespace...");
+    provider
+        .delete("servicedirectory.Namespace", &ns_created.provider_id)
+        .await
+        .expect("Namespace DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}

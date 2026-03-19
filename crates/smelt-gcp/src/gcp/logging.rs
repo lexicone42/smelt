@@ -440,7 +440,7 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_sink LogSink", e))?;
 
-        let provider_id = format!("projects/{}/log_sinks/{}", self.project_id, name);
+        let provider_id = format!("projects/{}/sinks/{}", self.project_id, name);
         self.read_logging_logsink(&provider_id).await
     }
 

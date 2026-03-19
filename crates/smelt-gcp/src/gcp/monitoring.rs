@@ -715,30 +715,36 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetNotificationChannel", e))?;
 
-        let user_labels: serde_json::Map<String, serde_json::Value> = notification_channel
+        let channel_labels: serde_json::Map<String, serde_json::Value> = notification_channel
             .labels
             .iter()
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
 
-        let state = serde_json::json!({
+        let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);
+        let mut state = serde_json::json!({
             "identity": {
-                "description": notification_channel.description.as_str(),
                 "display_name": notification_channel.display_name.as_str(),
-                "labels": user_labels,
-                "name": notification_channel.name.as_str(),
+                "name": short_name,
                 "type": notification_channel.r#type.as_str(),
             },
-            "config": {
-                "creation_record": &notification_channel.creation_record,
-                "enabled": notification_channel.enabled.unwrap_or(false),
-                "mutation_records": &notification_channel.mutation_records,
-                "user_labels": &notification_channel.user_labels,
-            },
-            "output": {
-                "verification_status": &notification_channel.verification_status,
-            },
         });
+        // Conditionally include optional fields
+        let desc = notification_channel.description.as_str();
+        if !desc.is_empty() {
+            state["identity"]["description"] = serde_json::json!(desc);
+        }
+        if !channel_labels.is_empty() {
+            state["identity"]["labels"] = serde_json::Value::Object(channel_labels);
+        }
+        // Skip metadata: creation_record, mutation_records, enabled=true (default),
+        // user_labels={} (empty), verification_status (output-only)
+        if notification_channel.enabled == Some(false) {
+            if state.get("config").is_none() {
+                state["config"] = serde_json::json!({});
+            }
+            state["config"]["enabled"] = serde_json::json!(false);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&notification_channel.name));
