@@ -60,6 +60,10 @@ pub enum Command {
         /// Only plan this resource and its dependencies (kind.name, e.g., "vpc.main")
         #[arg(long)]
         target: Option<String>,
+
+        /// Save the plan to a file for later apply (prevents TOCTOU in CI/CD)
+        #[arg(long, value_name = "FILE")]
+        out: Option<PathBuf>,
     },
 
     /// Explain a resource — show intent, dependencies, blast radius
@@ -123,6 +127,10 @@ pub enum Command {
         /// Write resource outputs (IPs, endpoints, ARNs) to a JSON file
         #[arg(long, value_name = "FILE")]
         output_file: Option<PathBuf>,
+
+        /// Apply a saved plan file instead of computing a new plan
+        #[arg(long, value_name = "FILE")]
+        plan_file: Option<PathBuf>,
     },
 
     /// Destroy all resources in an environment

@@ -56,7 +56,15 @@ fn main() -> Result<()> {
             json,
             no_refresh,
             target,
-        } => cmd_plan(&environment, &files, json, !no_refresh, target.as_deref()),
+            out,
+        } => cmd_plan(
+            &environment,
+            &files,
+            json,
+            !no_refresh,
+            target.as_deref(),
+            out.as_deref(),
+        ),
         Command::Explain {
             resource,
             files,
@@ -71,6 +79,7 @@ fn main() -> Result<()> {
             no_refresh,
             target,
             output_file,
+            plan_file,
         } => cmd_apply(
             &environment,
             &files,
@@ -79,6 +88,7 @@ fn main() -> Result<()> {
             !no_refresh,
             target.as_deref(),
             output_file.as_deref(),
+            plan_file.as_deref(),
         ),
         Command::Destroy {
             environment,
@@ -424,6 +434,7 @@ fn cmd_plan(
     json: bool,
     refresh: bool,
     target: Option<&str>,
+    out: Option<&Path>,
 ) -> Result<()> {
     let files = resolve_files(files)?;
     let parsed = parse_files(&files)?;
@@ -467,6 +478,13 @@ fn cmd_plan(
             eprintln!();
         }
         print!("{}", plan::format_plan(&p));
+    }
+
+    // Save plan to file if requested
+    if let Some(path) = out {
+        let plan_json = serde_json::to_string_pretty(&p).into_diagnostic()?;
+        fs::write(path, &plan_json).into_diagnostic()?;
+        eprintln!("plan saved to {}", path.display());
     }
 
     Ok(())
@@ -830,17 +848,13 @@ fn cmd_apply(
     refresh: bool,
     target: Option<&str>,
     output_file: Option<&Path>,
+    plan_file: Option<&Path>,
 ) -> Result<()> {
-    let files = resolve_files(files)?;
-    let parsed = parse_files(&files)?;
-
-    let graph = DependencyGraph::build(&parsed).map_err(|e| miette!("{e}"))?;
     let registry = build_registry();
 
     // Load project config for layers and secret store for encrypt/decrypt
     let project_config =
         ProjectConfig::load_or_default(Path::new(".")).map_err(|e| miette!("{e}"))?;
-    let layers = project_config.layers_for_env(environment);
     let secret_store = SecretStore::open(Path::new("."))
         .ok()
         .filter(|s| s.has_key());
@@ -855,24 +869,46 @@ fn cmd_apply(
         ));
     }
 
-    let current_state = if refresh {
-        eprintln!("refreshing live state from cloud providers...");
-        load_live_state(environment, &graph, &registry)?
-    } else {
-        load_current_state(environment, secret_store.as_ref())
-    };
-    let mut p = plan::build_plan_with_layers_and_registry(
-        environment,
-        &parsed,
-        &current_state,
-        &graph,
-        &layers,
-        Some(&registry),
-    );
+    // Parse files (needed for config extraction during apply, even with saved plans)
+    let files = resolve_files(files)?;
+    let parsed = parse_files(&files)?;
 
-    if let Some(target) = target {
-        p = filter_plan_to_target(&p, target, &graph)?;
-    }
+    // Either load a saved plan or compute a new one
+    let p = if let Some(plan_path) = plan_file {
+        let plan_json = fs::read_to_string(plan_path).into_diagnostic()?;
+        let saved_plan: plan::Plan = serde_json::from_str(&plan_json).into_diagnostic()?;
+        if saved_plan.environment != environment {
+            return Err(miette!(
+                "plan file is for environment '{}', but you specified '{environment}'",
+                saved_plan.environment
+            ));
+        }
+        eprintln!("applying saved plan from {}", plan_path.display());
+        saved_plan
+    } else {
+        let graph = DependencyGraph::build(&parsed).map_err(|e| miette!("{e}"))?;
+        let layers = project_config.layers_for_env(environment);
+
+        let current_state = if refresh {
+            eprintln!("refreshing live state from cloud providers...");
+            load_live_state(environment, &graph, &registry)?
+        } else {
+            load_current_state(environment, secret_store.as_ref())
+        };
+        let mut p = plan::build_plan_with_layers_and_registry(
+            environment,
+            &parsed,
+            &current_state,
+            &graph,
+            &layers,
+            Some(&registry),
+        );
+
+        if let Some(target) = target {
+            p = filter_plan_to_target(&p, target, &graph)?;
+        }
+        p
+    };
 
     if p.summary.create == 0 && p.summary.update == 0 && p.summary.delete == 0 {
         eprintln!("nothing to do — infrastructure matches desired state");

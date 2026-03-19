@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, TextDiff};
 
 use crate::ast::{Declaration, LayerDecl, SmeltFile, Value};
@@ -13,7 +13,7 @@ use crate::provider::{ChangeType, FieldChange, ProviderRegistry};
 /// the same tier have no mutual dependencies and can execute in parallel.
 /// Tier 0 contains resources with no dependencies, tier 1 contains resources
 /// that depend only on tier-0 resources, etc.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Plan {
     pub environment: String,
     /// Actions grouped by dependency tier — each tier can execute in parallel.
@@ -61,7 +61,7 @@ impl PlanSummary {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanSummary {
     pub create: usize,
     pub update: usize,
@@ -80,7 +80,7 @@ pub struct CurrentResource {
 }
 
 /// A single planned action for a resource.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlannedAction {
     pub resource_id: String,
     pub type_path: String,
@@ -93,7 +93,7 @@ pub struct PlannedAction {
     pub forces_replacement: bool,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ActionType {
     Create,
     Update,
