@@ -94,7 +94,8 @@ fn main() -> Result<()> {
             environment,
             files,
             yes,
-        } => cmd_destroy(&environment, &files, yes),
+            dry_run,
+        } => cmd_destroy(&environment, &files, yes, dry_run),
         Command::Drift {
             environment,
             files,
@@ -191,7 +192,11 @@ fn main() -> Result<()> {
             } => cmd_audit_sbom(&environment, output.as_deref()),
         },
         Command::Debug { file } => cmd_debug(&file),
-        Command::Schema { type_path, json } => cmd_schema(type_path.as_deref(), json),
+        Command::Schema {
+            type_path,
+            json,
+            example,
+        } => cmd_schema(type_path.as_deref(), json, example),
     }
 }
 
@@ -982,7 +987,12 @@ fn cmd_apply(
 }
 
 #[tracing::instrument(skip(files))]
-fn cmd_destroy(environment: &str, files: &[std::path::PathBuf], yes: bool) -> Result<()> {
+fn cmd_destroy(
+    environment: &str,
+    files: &[std::path::PathBuf],
+    yes: bool,
+    dry_run: bool,
+) -> Result<()> {
     let files = resolve_files(files)?;
     let parsed = parse_files(&files)?;
     let graph = DependencyGraph::build(&parsed).map_err(|e| miette!("{e}"))?;
@@ -1092,6 +1102,11 @@ fn cmd_destroy(environment: &str, files: &[std::path::PathBuf], yes: bool) -> Re
     }
 
     eprint!("{}", plan::format_plan(&p));
+
+    if dry_run {
+        // Exit cleanly after showing the plan — for CI agents
+        return Ok(());
+    }
 
     if !yes {
         eprint!(
@@ -2242,7 +2257,7 @@ fn cmd_debug(file: &Path) -> Result<()> {
     Ok(())
 }
 
-fn cmd_schema(type_path: Option<&str>, json: bool) -> Result<()> {
+fn cmd_schema(type_path: Option<&str>, json: bool, example: bool) -> Result<()> {
     let registry = build_registry();
 
     match type_path {
@@ -2257,7 +2272,49 @@ fn cmd_schema(type_path: Option<&str>, json: bool) -> Result<()> {
                 .find(|rt| rt.type_path == resource_type)
                 .ok_or_else(|| miette!("schema not found for '{tp}'"))?;
 
-            if json {
+            if example {
+                // Generate a .smelt stub with required fields filled in
+                let kind = tp.rsplit('.').next().unwrap_or("resource").to_lowercase();
+                println!("resource {kind} \"example\" : {tp} {{");
+                println!("  @intent \"TODO: describe this resource\"");
+                println!();
+                for section in &info.schema.sections {
+                    let has_required = section.fields.iter().any(|f| f.required);
+                    let has_optional = section.fields.iter().any(|f| !f.required);
+                    if !has_required && !has_optional {
+                        continue;
+                    }
+                    println!("  {} {{", section.name);
+                    for field in &section.fields {
+                        if field.required {
+                            let placeholder = match &field.field_type {
+                                smelt::provider::FieldType::String => "\"TODO\"".to_string(),
+                                smelt::provider::FieldType::Integer => "0".to_string(),
+                                smelt::provider::FieldType::Bool => "false".to_string(),
+                                smelt::provider::FieldType::Enum(variants) => {
+                                    format!(
+                                        "\"{}\"",
+                                        variants.first().unwrap_or(&"TODO".to_string())
+                                    )
+                                }
+                                _ => "\"TODO\"".to_string(),
+                            };
+                            println!("    {} = {placeholder}", field.name);
+                        }
+                    }
+                    // Show optional fields as comments
+                    if has_optional {
+                        for field in &section.fields {
+                            if !field.required {
+                                println!("    # {} = ...", field.name);
+                            }
+                        }
+                    }
+                    println!("  }}");
+                    println!();
+                }
+                println!("}}");
+            } else if json {
                 let json_str = serde_json::to_string_pretty(&info.schema).into_diagnostic()?;
                 println!("{json_str}");
             } else {

@@ -146,6 +146,10 @@ pub enum Command {
         /// Skip confirmation prompt
         #[arg(long)]
         yes: bool,
+
+        /// Show what would be destroyed without prompting (exit 0 = has resources, exit 1 = empty)
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Detect drift between stored state and live cloud resources
@@ -263,6 +267,10 @@ pub enum Command {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+
+        /// Generate an example .smelt resource stub with required fields
+        #[arg(long)]
+        example: bool,
     },
 
     /// Audit trail, integrity verification, and provenance export
