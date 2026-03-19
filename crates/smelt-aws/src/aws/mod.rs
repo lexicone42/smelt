@@ -387,7 +387,7 @@ impl Provider for AwsProvider {
         let resource_type = resource_type.to_string();
         let config = config.clone();
         Box::pin(async move {
-            aws_dispatch_create!(self, resource_type.as_str(), config, {
+            let result = aws_dispatch_create!(self, resource_type.as_str(), config, {
                 // EC2 (hybrid: generated + hand-written)
                 "ec2.Vpc" => create_ec2_vpc,
                 "ec2.Subnet" => create_ec2_subnet,
@@ -444,6 +444,13 @@ impl Provider for AwsProvider {
                 "sfn.StateMachine" => create_sfn_state_machine,
                 "ecs.Cluster" => create_ecs_cluster,
                 "apigateway.Api" => create_apigateway_api,
+            });
+
+            result.map_err(|e| match e {
+                ProviderError::InvalidConfig(msg) => {
+                    ProviderError::InvalidConfig(format!("[aws.{resource_type}] {msg}"))
+                }
+                other => other,
             })
         })
     }

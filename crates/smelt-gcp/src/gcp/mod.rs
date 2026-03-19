@@ -1547,7 +1547,7 @@ impl Provider for GcpProvider {
         let resource_type = resource_type.to_string();
         let config = config.clone();
         Box::pin(async move {
-            gcp_dispatch_create!(self, resource_type.as_str(), config, {
+            let result = gcp_dispatch_create!(self, resource_type.as_str(), config, {
                 // Compute Engine
                 "compute.Network" => create_compute_network,
                 "compute.Subnetwork" => create_compute_subnetwork,
@@ -1673,6 +1673,14 @@ impl Provider for GcpProvider {
                 "workflows.Workflow" => create_workflows_workflow,
                 // Org Policy
                 "orgpolicy.Policy" => create_orgpolicy_policy,
+            });
+
+            // Add resource type context to config errors
+            result.map_err(|e| match e {
+                ProviderError::InvalidConfig(msg) => {
+                    ProviderError::InvalidConfig(format!("[gcp.{resource_type}] {msg}"))
+                }
+                other => other,
             })
         })
     }
