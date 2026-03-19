@@ -3242,12 +3242,23 @@ fn write_state_json(out: &mut String, m: &ResourceManifest, model_var: &str) {
     //    - Non-string (Record, Array, Enum): skip entirely from inline json!()
     //      These produce phantom null/{}/[] values. Better to omit than include.
     let is_conditional_gcp = |field: &FieldDef, name: &str| -> bool {
-        if field.required || field.output_only { return false; }
-        if field.default.is_some() { return false; }
-        if field.read_expression.is_some() { return false; }
-        if name == "name" || name == "labels" { return false; }
-        if !field.optional { return false; }
-        // ALL optional types without defaults are conditional — not just String
+        if field.required || field.output_only {
+            return false;
+        }
+        if field.read_expression.is_some() {
+            return false;
+        }
+        if name == "name" || name == "labels" {
+            return false;
+        }
+        // Non-optional Bool/String fields are conditional — false/"" are proto defaults
+        // and including them causes phantom diffs when the config omits them.
+        if !field.optional && (field.field_type == "Bool" || field.field_type == "String") {
+            return true;
+        }
+        if !field.optional {
+            return false;
+        }
         true
     };
 
@@ -3256,35 +3267,50 @@ fn write_state_json(out: &mut String, m: &ResourceManifest, model_var: &str) {
     // Labels need conditional inclusion
     let has_labels = m.fields.contains_key("labels");
     // Any conditional fields need `let mut state`
-    let has_conditional = has_labels || sections.iter().any(|(_, fields)| {
-        fields.iter().any(|(name, f)| !f.output_only && is_conditional_gcp(f, name))
-    });
+    let has_conditional = has_labels
+        || sections.iter().any(|(_, fields)| {
+            fields
+                .iter()
+                .any(|(name, f)| !f.output_only && is_conditional_gcp(f, name))
+        });
 
     // Extract short name from provider_id for the "name" field
     if has_name_field {
-        let _ = writeln!(out, "    let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);");
+        let _ = writeln!(
+            out,
+            "    let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);"
+        );
     }
 
     // Count inline fields per section
-    let mut section_has_inline: std::collections::HashMap<&str, bool> = std::collections::HashMap::new();
+    let mut section_has_inline: std::collections::HashMap<&str, bool> =
+        std::collections::HashMap::new();
     for (section_name, fields) in &sections {
         let has_inline = fields.iter().any(|(name, f)| {
-            !f.output_only && !is_conditional_gcp(f, name)
-                && !(name == &"labels") // labels handled separately
+            !f.output_only && !is_conditional_gcp(f, name) && !(name == &"labels") // labels handled separately
         });
         section_has_inline.insert(section_name, has_inline);
     }
 
-    let state_binding = if has_conditional { "let mut state" } else { "let state" };
+    let state_binding = if has_conditional {
+        "let mut state"
+    } else {
+        "let state"
+    };
     let _ = writeln!(out, "    {state_binding} = serde_json::json!({{");
 
     for (section_name, fields) in &sections {
-        if !section_has_inline.get(section_name.as_str()).copied().unwrap_or(false) {
+        if !section_has_inline
+            .get(section_name.as_str())
+            .copied()
+            .unwrap_or(false)
+        {
             continue;
         }
         let _ = writeln!(out, "        \"{section_name}\": {{");
         for (field_name, field) in fields {
-            if field.output_only || is_conditional_gcp(field, field_name) || field_name == &"labels" {
+            if field.output_only || is_conditional_gcp(field, field_name) || field_name == &"labels"
+            {
                 continue;
             }
             // Use short_name for the "name" field
@@ -3303,35 +3329,77 @@ fn write_state_json(out: &mut String, m: &ResourceManifest, model_var: &str) {
     // Conditional: labels (skip empty map)
     if has_labels {
         let _ = writeln!(out, "    if !user_labels.is_empty() {{");
-        let _ = writeln!(out, "        state[\"identity\"][\"labels\"] = serde_json::Value::Object(user_labels);");
+        let _ = writeln!(
+            out,
+            "        state[\"identity\"][\"labels\"] = serde_json::Value::Object(user_labels);"
+        );
         let _ = writeln!(out, "    }}");
     }
 
-    // Conditional: optional string fields (skip empty strings)
+    // Conditional: optional fields — skip defaults (empty strings, false, 0, null, [], {})
     for (section_name, fields) in &sections {
         for (field_name, field) in fields {
-            if !is_conditional_gcp(field, field_name) { continue; }
-            let sdk_field_raw = field.sdk_read_field.as_deref()
+            if !is_conditional_gcp(field, field_name) {
+                continue;
+            }
+            let sdk_field_raw = field
+                .sdk_read_field
+                .as_deref()
                 .or(field.sdk_field.as_deref())
                 .unwrap_or(field_name);
             let sdk_field = raw_field(sdk_field_raw);
 
-            // Only generate conditional insertion for String fields
-            // Non-string optional fields (Records, Arrays, Enums) are simply omitted
-            // from state to avoid phantom null/{}/[] diffs
-            if field.field_type != "String" { continue; }
+            let section_exists = section_has_inline
+                .get(section_name.as_str())
+                .copied()
+                .unwrap_or(false);
 
-            let section_exists = section_has_inline.get(section_name.as_str()).copied().unwrap_or(false);
+            // Generate the appropriate conditional based on field type
+            let (condition, value_expr) = match (field.field_type.as_str(), field.optional) {
+                ("String", true) => (
+                    format!(
+                        "if let Some(val) = {model_var}.{sdk_field}.as_deref().filter(|s| !s.is_empty())"
+                    ),
+                    "serde_json::json!(val)".to_string(),
+                ),
+                ("String", false) => (
+                    format!("if !{model_var}.{sdk_field}.is_empty()"),
+                    format!("serde_json::json!({model_var}.{sdk_field}.as_str())"),
+                ),
+                ("Bool", true) => (
+                    format!("if {model_var}.{sdk_field} == Some(true)"),
+                    "serde_json::json!(true)".to_string(),
+                ),
+                ("Bool", false) => (
+                    format!("if {model_var}.{sdk_field}"),
+                    "serde_json::json!(true)".to_string(),
+                ),
+                ("Integer" | "Integer_u32" | "Integer_u64", true) => (
+                    format!("if let Some(val) = {model_var}.{sdk_field}.filter(|&v| v != 0)"),
+                    "serde_json::json!(val)".to_string(),
+                ),
+                _ => continue, // Complex types (Records, Arrays, Enums) are omitted from state
+            };
+
             if section_exists {
-                let _ = writeln!(out, "    if let Some(val) = {model_var}.{sdk_field}.as_deref().filter(|s| !s.is_empty()) {{");
-                let _ = writeln!(out, "        state[\"{section_name}\"][\"{field_name}\"] = serde_json::json!(val);");
+                let _ = writeln!(out, "    {condition} {{");
+                let _ = writeln!(
+                    out,
+                    "        state[\"{section_name}\"][\"{field_name}\"] = {value_expr};"
+                );
                 let _ = writeln!(out, "    }}");
             } else {
-                let _ = writeln!(out, "    if let Some(val) = {model_var}.{sdk_field}.as_deref().filter(|s| !s.is_empty()) {{");
+                let _ = writeln!(out, "    {condition} {{");
                 let _ = writeln!(out, "        if state.get(\"{section_name}\").is_none() {{");
-                let _ = writeln!(out, "            state[\"{section_name}\"] = serde_json::json!({{}});");
+                let _ = writeln!(
+                    out,
+                    "            state[\"{section_name}\"] = serde_json::json!({{}});"
+                );
                 let _ = writeln!(out, "        }}");
-                let _ = writeln!(out, "        state[\"{section_name}\"][\"{field_name}\"] = serde_json::json!(val);");
+                let _ = writeln!(
+                    out,
+                    "        state[\"{section_name}\"][\"{field_name}\"] = {value_expr};"
+                );
                 let _ = writeln!(out, "    }}");
             }
         }
