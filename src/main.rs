@@ -191,6 +191,7 @@ fn main() -> Result<()> {
             } => cmd_audit_sbom(&environment, output.as_deref()),
         },
         Command::Debug { file } => cmd_debug(&file),
+        Command::Schema { type_path, json } => cmd_schema(type_path.as_deref(), json),
     }
 }
 
@@ -2237,6 +2238,73 @@ fn cmd_debug(file: &Path) -> Result<()> {
 
     let json = serde_json::to_string_pretty(&parsed).into_diagnostic()?;
     println!("{json}");
+
+    Ok(())
+}
+
+fn cmd_schema(type_path: Option<&str>, json: bool) -> Result<()> {
+    let registry = build_registry();
+
+    match type_path {
+        Some(tp) => {
+            // Show schema for a specific resource type
+            let Some((provider, resource_type)) = registry.resolve(tp) else {
+                return Err(miette!("unknown resource type '{tp}'"));
+            };
+            let info = provider
+                .resource_types()
+                .into_iter()
+                .find(|rt| rt.type_path == resource_type)
+                .ok_or_else(|| miette!("schema not found for '{tp}'"))?;
+
+            if json {
+                let json_str = serde_json::to_string_pretty(&info.schema).into_diagnostic()?;
+                println!("{json_str}");
+            } else {
+                println!("{} : {}", tp, info.description);
+                println!();
+                for section in &info.schema.sections {
+                    println!("  {} {{", section.name);
+                    for field in &section.fields {
+                        let req = if field.required { " (required)" } else { "" };
+                        let default = field
+                            .default
+                            .as_ref()
+                            .map(|d| format!(" = {d}"))
+                            .unwrap_or_default();
+                        println!(
+                            "    {} : {:?}{}{} — {}",
+                            field.name, field.field_type, req, default, field.description
+                        );
+                    }
+                    println!("  }}");
+                    println!();
+                }
+            }
+        }
+        None => {
+            // List all resource types
+            let mut types: Vec<(String, String)> = Vec::new();
+            for provider_name in registry.list_providers() {
+                if let Some(provider) = registry.get(provider_name) {
+                    for rt in provider.resource_types() {
+                        types.push((format!("{provider_name}.{}", rt.type_path), rt.description));
+                    }
+                }
+            }
+            types.sort();
+
+            if json {
+                let json_str = serde_json::to_string_pretty(&types).into_diagnostic()?;
+                println!("{json_str}");
+            } else {
+                println!("{} resource types available:", types.len());
+                for (tp, desc) in &types {
+                    println!("  {tp} — {desc}");
+                }
+            }
+        }
+    }
 
     Ok(())
 }

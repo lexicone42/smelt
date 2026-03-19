@@ -468,7 +468,7 @@ pub fn verify_integrity(
 
 /// Generate in-toto attestations from signed transitions.
 pub fn export_intoto(
-    store: &Store,
+    _store: &Store,
     environment: &str,
     project_root: &std::path::Path,
 ) -> Vec<InTotoAttestation> {

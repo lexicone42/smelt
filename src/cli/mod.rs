@@ -255,6 +255,16 @@ pub enum Command {
         action: EnvAction,
     },
 
+    /// Show resource type schema (fields, sections, types)
+    Schema {
+        /// Type path to inspect (e.g., "gcp.compute.Network"). Omit to list all types.
+        type_path: Option<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Audit trail, integrity verification, and provenance export
     Audit {
         #[command(subcommand)]
