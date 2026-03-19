@@ -363,19 +363,28 @@ impl Store {
     // --- Event log operations ---
 
     /// Append an event to the log.
+    ///
+    /// Uses write-to-temp + rename for atomicity — a crash mid-write
+    /// won't leave a partial JSON line in the event log.
     pub fn append_event(&self, event: &Event) -> Result<(), StoreError> {
         let events_dir = self.root.join("events");
         let line = serde_json::to_string(event)?;
 
-        // Find the current event file or create a new one
         let event_file = events_dir.join("events.jsonl");
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&event_file)?;
 
-        use std::io::Write;
-        writeln!(file, "{line}")?;
+        // Read existing content (if any), append new line, write atomically
+        let mut content = if event_file.exists() {
+            fs::read_to_string(&event_file)?
+        } else {
+            String::new()
+        };
+        content.push_str(&line);
+        content.push('\n');
+
+        // Write to temp file, then rename atomically
+        let tmp_file = events_dir.join("events.jsonl.tmp");
+        fs::write(&tmp_file, &content)?;
+        fs::rename(&tmp_file, &event_file)?;
         Ok(())
     }
 

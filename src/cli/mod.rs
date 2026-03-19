@@ -119,6 +119,10 @@ pub enum Command {
         /// Only apply this resource and its dependencies (kind.name, e.g., "vpc.main")
         #[arg(long)]
         target: Option<String>,
+
+        /// Write resource outputs (IPs, endpoints, ARNs) to a JSON file
+        #[arg(long, value_name = "FILE")]
+        output_file: Option<PathBuf>,
     },
 
     /// Destroy all resources in an environment

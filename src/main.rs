@@ -41,6 +41,7 @@ fn main() -> Result<()> {
             json,
             no_refresh,
             target,
+            output_file,
         } => cmd_apply(
             &environment,
             &files,
@@ -48,6 +49,7 @@ fn main() -> Result<()> {
             json,
             !no_refresh,
             target.as_deref(),
+            output_file.as_deref(),
         ),
         Command::Destroy {
             environment,
@@ -798,6 +800,7 @@ fn cmd_apply(
     json: bool,
     refresh: bool,
     target: Option<&str>,
+    output_file: Option<&Path>,
 ) -> Result<()> {
     let files = resolve_files(files)?;
     let parsed = parse_files(&files)?;
@@ -879,6 +882,32 @@ fn cmd_apply(
         eprint!("{}", apply::format_summary(&summary));
     }
 
+    // Export outputs to file if requested
+    if let Some(path) = output_file {
+        let mut outputs = serde_json::Map::new();
+        for result in &summary.results {
+            if let apply::ApplyOutcome::Success {
+                provider_id,
+                outputs: Some(res_outputs),
+                ..
+            } = &result.outcome
+            {
+                let mut entry = serde_json::Map::new();
+                if let Some(pid) = provider_id {
+                    entry.insert("provider_id".to_string(), serde_json::json!(pid));
+                }
+                for (k, v) in res_outputs {
+                    entry.insert(k.clone(), v.clone());
+                }
+                outputs.insert(result.resource_id.clone(), serde_json::Value::Object(entry));
+            }
+        }
+        let json_str =
+            serde_json::to_string_pretty(&serde_json::Value::Object(outputs)).into_diagnostic()?;
+        std::fs::write(path, &json_str).into_diagnostic()?;
+        eprintln!("outputs written to {}", path.display());
+    }
+
     if summary.failed > 0 {
         return Err(miette!("{} resource(s) failed to apply", summary.failed));
     }
@@ -917,9 +946,32 @@ fn cmd_destroy(environment: &str, files: &[std::path::PathBuf], yes: bool) -> Re
     let mut tiers: Vec<Vec<plan::PlannedAction>> = vec![Vec::new(); max_tier + 1];
     let mut seen = std::collections::HashSet::new();
 
+    // Build a lookup of lifecycle annotations from parsed files
+    let lifecycle_protected: std::collections::HashSet<String> = parsed
+        .iter()
+        .flat_map(|f| f.declarations.iter())
+        .filter_map(|d| {
+            if let smelt::ast::Declaration::Resource(r) = d {
+                let has_prevent = r.annotations.iter().any(|a| {
+                    a.kind == smelt::ast::AnnotationKind::Lifecycle && a.value == "prevent_destroy"
+                });
+                if has_prevent {
+                    return Some(format!("{}.{}", r.kind, r.name));
+                }
+            }
+            None
+        })
+        .collect();
+
+    let mut protected_names: Vec<String> = Vec::new();
+
     for (node, tier) in &tiered_destroy {
         let resource_id = node.id.to_string();
         if tree.children.contains_key(&resource_id) {
+            if lifecycle_protected.contains(&resource_id) {
+                protected_names.push(resource_id);
+                continue;
+            }
             tiers[*tier].push(plan::PlannedAction {
                 resource_id: resource_id.clone(),
                 type_path: node.type_path.clone(),
@@ -929,6 +981,16 @@ fn cmd_destroy(environment: &str, files: &[std::path::PathBuf], yes: bool) -> Re
                 forces_replacement: false,
             });
             seen.insert(resource_id);
+        }
+    }
+
+    if !protected_names.is_empty() {
+        eprintln!(
+            "skipping {} protected resource(s) (@lifecycle \"prevent_destroy\"):",
+            protected_names.len()
+        );
+        for name in &protected_names {
+            eprintln!("  - {name}");
         }
     }
 

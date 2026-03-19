@@ -186,7 +186,7 @@ pub fn execute_plan_with_config(
         let mut prepared: Vec<PreparedAction> = Vec::new();
         let mut early_results: Vec<ApplyResult> = Vec::new();
 
-        for action in tier_actions {
+        for action in &tier_actions {
             match action.action {
                 ActionType::Create => {
                     let Some((provider, resource_type)) = registry.resolve(&action.type_path)
@@ -663,6 +663,22 @@ pub fn execute_plan_with_config(
                     tracing::warn!(error = %e, "failed to save tree after tier");
                 }
             }
+        }
+
+        // Halt destroy cascade: if a delete tier has failures, don't proceed to
+        // the next tier (which would try to delete parents of failed children).
+        let is_delete_tier = tier_actions.iter().all(|a| a.action == ActionType::Delete);
+        let tier_has_failure = results
+            .iter()
+            .rev()
+            .take(tier_actions.len())
+            .any(|r| matches!(r.outcome, ApplyOutcome::Failed { .. }));
+        if is_delete_tier && tier_has_failure {
+            tracing::warn!(
+                tier = tier_num,
+                "halting destroy — tier {tier_num} had failures, skipping remaining tiers to prevent cascade"
+            );
+            break;
         }
     }
 
