@@ -1119,6 +1119,55 @@ pub(crate) fn extract_labels(
     labels
 }
 
+/// Strip common GCP metadata fields from a state JSON.
+///
+/// GCP APIs return server-managed fields that aren't part of the user's config:
+/// timestamps, fingerprints, ETags, version counters, auto-generated IDs.
+/// These cause false diffs if left in the stored state.
+///
+/// Call this on the state JSON after building it in a read() function.
+pub(crate) fn strip_gcp_metadata(state: &mut serde_json::Value) {
+    // Top-level metadata fields (from GCP compute, storage, etc.)
+    const METADATA_FIELDS: &[&str] = &[
+        "creationTimestamp",
+        "creation_timestamp",
+        "timeCreated",
+        "time_created",
+        "updated",
+        "updateTime",
+        "update_time",
+        "fingerprint",
+        "etag",
+        "metageneration",
+        "generation",
+        "selfLink",
+        "self_link",
+        "selfLinkWithId",
+        "uid",
+        "id",
+        "projectNumber",
+        "project_number",
+        "kind",
+        "status",
+    ];
+
+    if let Some(obj) = state.as_object_mut() {
+        // Strip top-level metadata
+        for field in METADATA_FIELDS {
+            obj.remove(*field);
+        }
+
+        // Strip metadata from section objects (the smelt semantic sections)
+        for (_section_name, section_val) in obj.iter_mut() {
+            if let Some(section_obj) = section_val.as_object_mut() {
+                for field in METADATA_FIELDS {
+                    section_obj.remove(*field);
+                }
+            }
+        }
+    }
+}
+
 /// Strip the GCP API base URL prefix from resource self-links.
 ///
 /// GCP returns resource references as full URLs like
@@ -1319,7 +1368,7 @@ impl Provider for GcpProvider {
         let resource_type = resource_type.to_string();
         let provider_id = provider_id.to_string();
         Box::pin(async move {
-            gcp_dispatch_read!(self, resource_type.as_str(), provider_id, {
+            let mut result = gcp_dispatch_read!(self, resource_type.as_str(), provider_id, {
                 // Compute Engine
                 "compute.Network" => read_compute_network,
                 "compute.Subnetwork" => read_compute_subnetwork,
@@ -1445,7 +1494,16 @@ impl Provider for GcpProvider {
                 "workflows.Workflow" => read_workflows_workflow,
                 // Org Policy
                 "orgpolicy.Policy" => read_orgpolicy_policy,
-            })
+            });
+
+            // Strip common GCP metadata fields from the state to prevent false diffs.
+            // This runs after every read, so individual resource read functions don't
+            // need to manually strip timestamps, fingerprints, ETags, etc.
+            if let Ok(ref mut output) = result {
+                strip_gcp_metadata(&mut output.state);
+            }
+
+            result
         })
     }
 
