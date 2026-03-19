@@ -19,6 +19,12 @@ pub struct Plan {
     /// Actions grouped by dependency tier — each tier can execute in parallel.
     pub tiers: Vec<Vec<PlannedAction>>,
     pub summary: PlanSummary,
+    /// Timestamp when this plan was created (for staleness detection)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    /// BLAKE3 hash of the source .smelt files used to generate this plan
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_hash: Option<String>,
 }
 
 impl Plan {
@@ -29,6 +35,8 @@ impl Plan {
             environment,
             tiers,
             summary,
+            created_at: None,
+            config_hash: None,
         }
     }
 
@@ -89,7 +97,7 @@ pub struct PlannedAction {
     /// Field-level diffs for updates (uses the unified FieldChange type from provider module)
     pub changes: Vec<FieldChange>,
     /// Whether this action forces resource replacement (destroy + recreate)
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub forces_replacement: bool,
     /// Number of downstream resources affected by this change (blast radius)
     #[serde(default, skip_serializing_if = "Option::is_none")]

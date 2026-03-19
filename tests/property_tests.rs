@@ -851,4 +851,130 @@ mod component_expansion_properties {
             }
         }
     }
+
+    // ─── for_each expansion ───────────────────────────────────────────
+
+    #[test]
+    fn for_each_expansion_count() {
+        // for_each with N items should produce exactly N instances
+        let input = r#"
+            resource subnet "az" : aws.ec2.Subnet {
+                for_each = ["a", "b", "c"]
+                identity { name = each.value }
+                network { index = each.index }
+            }
+        "#;
+        let file = smelt::parser::parse(input).unwrap();
+        let graph = smelt::graph::DependencyGraph::build(&[file]).unwrap();
+        // The graph should have 3 expanded resources, not 1 template
+        assert_eq!(
+            graph.len(),
+            3,
+            "for_each with 3 items should produce 3 resources"
+        );
+    }
+
+    #[test]
+    fn for_each_substitutes_values() {
+        let input = r#"
+            resource bucket "region" : gcp.storage.Bucket {
+                for_each = ["us", "eu"]
+                identity { name = each.value }
+            }
+        "#;
+        let file = smelt::parser::parse(input).unwrap();
+        let graph = smelt::graph::DependencyGraph::build(&[file]).unwrap();
+        let expanded = graph.expanded_resources();
+        assert_eq!(expanded.len(), 2);
+        // Check names include the for_each key
+        assert!(expanded.iter().any(|r| r.name == "region[us]"));
+        assert!(expanded.iter().any(|r| r.name == "region[eu]"));
+    }
+
+    // ─── plan serialization roundtrip ──────────────────────────────────
+
+    #[test]
+    fn plan_serialization_roundtrip() {
+        use smelt::plan::{ActionType, Plan, PlannedAction};
+        use smelt::provider::FieldChange;
+
+        let plan = Plan::new(
+            "production".to_string(),
+            vec![vec![
+                PlannedAction {
+                    resource_id: "vpc.main".to_string(),
+                    type_path: "gcp.compute.Network".to_string(),
+                    action: ActionType::Create,
+                    intent: Some("Primary VPC".to_string()),
+                    changes: vec![],
+                    forces_replacement: false,
+                    dependent_count: None,
+                },
+                PlannedAction {
+                    resource_id: "subnet.app".to_string(),
+                    type_path: "gcp.compute.Subnetwork".to_string(),
+                    action: ActionType::Update,
+                    intent: None,
+                    changes: vec![FieldChange {
+                        path: "network.cidr_block".to_string(),
+                        change_type: smelt::provider::ChangeType::Modify,
+                        old_value: Some(serde_json::json!("10.0.0.0/16")),
+                        new_value: Some(serde_json::json!("10.1.0.0/16")),
+                        forces_replacement: false,
+                    }],
+                    forces_replacement: false,
+                    dependent_count: Some(3),
+                },
+            ]],
+        );
+
+        let json = serde_json::to_string_pretty(&plan).unwrap();
+        let deserialized: Plan = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.environment, "production");
+        assert_eq!(deserialized.tiers.len(), 1);
+        assert_eq!(deserialized.tiers[0].len(), 2);
+        assert_eq!(deserialized.tiers[0][0].action, ActionType::Create);
+        assert_eq!(deserialized.tiers[0][1].action, ActionType::Update);
+        assert_eq!(deserialized.tiers[0][1].dependent_count, Some(3));
+        assert_eq!(deserialized.tiers[0][1].changes.len(), 1);
+        assert_eq!(deserialized.summary.create, 1);
+        assert_eq!(deserialized.summary.update, 1);
+    }
+
+    // ─── Levenshtein distance ──────────────────────────────────────────
+
+    #[test]
+    fn levenshtein_basic_cases() {
+        // Same string = 0
+        assert_eq!(smelt_levenshtein("hello", "hello"), 0);
+        // One insertion
+        assert_eq!(smelt_levenshtein("helo", "hello"), 1);
+        // One substitution
+        assert_eq!(smelt_levenshtein("hello", "jello"), 1);
+        // Completely different
+        assert!(smelt_levenshtein("abc", "xyz") > 0);
+    }
+}
+
+// Can't access private fn from main.rs, so replicate for testing
+fn smelt_levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut matrix = vec![vec![0usize; b.len() + 1]; a.len() + 1];
+    for i in 0..=a.len() {
+        matrix[i][0] = i;
+    }
+    for j in 0..=b.len() {
+        matrix[0][j] = j;
+    }
+    for i in 1..=a.len() {
+        for j in 1..=b.len() {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            matrix[i][j] = (matrix[i - 1][j] + 1)
+                .min(matrix[i][j - 1] + 1)
+                .min(matrix[i - 1][j - 1] + cost);
+        }
+    }
+    matrix[a.len()][b.len()]
 }

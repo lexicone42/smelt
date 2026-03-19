@@ -239,6 +239,7 @@ pub struct FieldChange {
     /// New value (None for removals)
     pub new_value: Option<serde_json::Value>,
     /// Whether this change requires resource replacement
+    #[serde(default)]
     pub forces_replacement: bool,
 }
 

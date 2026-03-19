@@ -538,7 +538,19 @@ fn cmd_plan(
 
     // Save plan to file if requested
     if let Some(path) = out {
-        let plan_json = serde_json::to_string_pretty(&p).into_diagnostic()?;
+        // Add timestamp and config hash for staleness detection
+        let mut plan_to_save = p;
+        plan_to_save.created_at = Some(chrono::Utc::now().to_rfc3339());
+        // Hash the source files so apply --plan-file can detect config drift
+        let mut hasher = blake3::Hasher::new();
+        for file_path in &files {
+            if let Ok(content) = fs::read(file_path) {
+                hasher.update(&content);
+            }
+        }
+        plan_to_save.config_hash = Some(hasher.finalize().to_hex().to_string());
+
+        let plan_json = serde_json::to_string_pretty(&plan_to_save).into_diagnostic()?;
         fs::write(path, &plan_json).into_diagnostic()?;
         eprintln!("plan saved to {}", path.display());
     }
@@ -939,7 +951,30 @@ fn cmd_apply(
                 saved_plan.environment
             ));
         }
-        eprintln!("applying saved plan from {}", plan_path.display());
+        // Check for config drift since the plan was created
+        if let Some(ref saved_hash) = saved_plan.config_hash {
+            let mut hasher = blake3::Hasher::new();
+            for file_path in &files {
+                if let Ok(content) = fs::read(file_path) {
+                    hasher.update(&content);
+                }
+            }
+            let current_hash = hasher.finalize().to_hex().to_string();
+            if current_hash != *saved_hash {
+                eprintln!(
+                    "warning: .smelt files have changed since this plan was created — \
+                     the plan may be stale. Re-run `smelt plan` to generate a fresh plan."
+                );
+            }
+        }
+        if let Some(ref created) = saved_plan.created_at {
+            eprintln!(
+                "applying saved plan from {} (created {created})",
+                plan_path.display()
+            );
+        } else {
+            eprintln!("applying saved plan from {}", plan_path.display());
+        }
         saved_plan
     } else {
         let graph = DependencyGraph::build(&parsed).map_err(|e| miette!("{e}"))?;
