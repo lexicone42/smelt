@@ -420,15 +420,15 @@ fn strip_binding_fields(
         .map(|dep| dep.binding.as_str())
         .collect();
 
-    // Remove binding fields from section objects
+    // Remove binding fields from within section objects (where apply injects them).
+    // Do NOT remove top-level keys — binding names like "network" can collide
+    // with section names.
     if let Some(obj) = stripped.as_object_mut() {
         for (_section_name, section_val) in obj.iter_mut() {
             if let Some(section_obj) = section_val.as_object_mut() {
                 section_obj.retain(|field_name, _| !binding_names.contains(field_name.as_str()));
             }
         }
-        // Also remove top-level binding fields (fallback injection path)
-        obj.retain(|key, _| !binding_names.contains(key.as_str()));
     }
 
     stripped
