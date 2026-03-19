@@ -870,9 +870,10 @@ async fn gcp_monitoring_alert_policy_crud() {
         .expect("GCP provider init");
     let name = test_name("alert");
 
+    // AlertPolicy name is auto-assigned by GCP — don't include in config.
+    // Use display_name to identify the resource.
     let config = serde_json::json!({
         "identity": {
-            "name": &name,
             "display_name": "smelt live test alert",
         },
         "config": {
@@ -2127,9 +2128,9 @@ async fn gcp_monitoring_notification_channel_crud() {
         .expect("GCP provider init");
     let name = test_name("notif-ch");
 
+    // NotificationChannel name is auto-assigned by GCP — don't include in config.
     let config = serde_json::json!({
         "identity": {
-            "name": &name,
             "display_name": "smelt test notification channel",
             "type": "email",
             "labels": {
@@ -2169,6 +2170,7 @@ async fn gcp_monitoring_uptime_check_crud() {
         .expect("GCP provider init");
     let name = test_name("uptime");
 
+    // name is required for create but auto-transformed by GCP — won't appear in read state
     let config = serde_json::json!({
         "identity": {
             "name": &name,

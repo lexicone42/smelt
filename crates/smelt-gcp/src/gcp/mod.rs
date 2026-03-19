@@ -1168,6 +1168,38 @@ pub(crate) fn strip_gcp_metadata(state: &mut serde_json::Value) {
     }
 }
 
+/// Recursively convert camelCase JSON keys to snake_case.
+///
+/// GCP proto serialization uses camelCase (e.g., `httpCheck`, `requestMethod`)
+/// but smelt configs use snake_case. This normalizes after serialization.
+pub(crate) fn camel_to_snake_keys(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut new_map = serde_json::Map::new();
+            for (key, val) in map {
+                let snake_key = camel_to_snake(key);
+                new_map.insert(snake_key, camel_to_snake_keys(val));
+            }
+            serde_json::Value::Object(new_map)
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.iter().map(camel_to_snake_keys).collect())
+        }
+        other => other.clone(),
+    }
+}
+
+fn camel_to_snake(s: &str) -> String {
+    let mut result = String::with_capacity(s.len() + 4);
+    for (i, c) in s.chars().enumerate() {
+        if c.is_uppercase() && i > 0 {
+            result.push('_');
+        }
+        result.push(c.to_lowercase().next().unwrap_or(c));
+    }
+    result
+}
+
 /// Strip the GCP API base URL prefix from resource self-links.
 ///
 /// GCP returns resource references as full URLs like

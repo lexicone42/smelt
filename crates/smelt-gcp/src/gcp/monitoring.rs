@@ -171,7 +171,8 @@ impl GcpProvider {
             serde_json::from_value::<google_cloud_monitoring_v3::model::MutationRecord>(v.clone())
                 .ok()
         });
-        let _name = config.require_str("/identity/name")?.to_string();
+        // AlertPolicy name is auto-assigned by GCP — not required in config
+        let _name = config.optional_str("/identity/name").map(String::from);
         let notification_channels = config
             .pointer("/config/notification_channels")
             .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
@@ -611,7 +612,8 @@ impl GcpProvider {
             )
             .ok()
         });
-        let name = config.require_str("/identity/name")?.to_string();
+        // NotificationChannel name is auto-assigned by GCP — not required in config
+        let _name = config.optional_str("/identity/name").map(String::from);
         let type_val = config.optional_str("/identity/type").map(String::from);
         let user_labels = config
             .pointer("/config/user_labels")
@@ -632,8 +634,7 @@ impl GcpProvider {
                     .collect()
             })
             .unwrap_or_default();
-        let _ = &name; // server-assigned name — not set on model
-        // Build SDK model
+        // Build SDK model (name is server-assigned — not set on model)
         let mut model = google_cloud_monitoring_v3::model::NotificationChannel::default();
         if let Some(v) = creation_record {
             model = model.set_creation_record(v);
@@ -721,11 +722,10 @@ impl GcpProvider {
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
 
-        let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);
+        // Don't include name in state — GCP auto-assigns a numeric ID
         let mut state = serde_json::json!({
             "identity": {
                 "display_name": notification_channel.display_name.as_str(),
-                "name": short_name,
                 "type": notification_channel.r#type.as_str(),
             },
         });
@@ -1091,11 +1091,10 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetUptimeCheckConfig", e))?;
 
-        let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);
+        // UptimeCheckConfig name is auto-assigned by GCP — don't include in state
         let mut state = serde_json::json!({
             "identity": {
                 "display_name": uptime_check_config.display_name.as_str(),
-                "name": short_name,
             },
             "config": {},
         });
@@ -1108,13 +1107,25 @@ impl GcpProvider {
             state["config"]["timeout"] = v.clone();
         }
         if let Some(v) = full.get("httpCheck").filter(|v| !v.is_null()) {
-            state["config"]["http_check"] = v.clone();
+            // Convert camelCase keys to snake_case and strip proto defaults
+            let mut clean = super::camel_to_snake_keys(v);
+            // Remove proto default fields (request_method=1 is GET, the default)
+            if let Some(obj) = clean.as_object_mut() {
+                obj.remove("request_method");
+                obj.remove("validate_ssl");
+                obj.remove("content_type");
+                obj.remove("custom_content_type");
+                obj.remove("ping_config");
+                obj.remove("accepted_response_status_codes");
+                obj.remove("service_agent_authentication");
+            }
+            state["config"]["http_check"] = clean;
         }
         if let Some(v) = full.get("tcpCheck").filter(|v| !v.is_null()) {
-            state["config"]["tcp_check"] = v.clone();
+            state["config"]["tcp_check"] = super::camel_to_snake_keys(v);
         }
         if let Some(v) = full.get("monitoredResource").filter(|v| !v.is_null()) {
-            state["config"]["monitored_resource"] = v.clone();
+            state["config"]["monitored_resource"] = super::camel_to_snake_keys(v);
         }
         // Skip defaults: checker_type, content_matchers=[], selected_regions=[], user_labels={}, resource=null
 
