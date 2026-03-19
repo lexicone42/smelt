@@ -697,6 +697,7 @@ mod config_properties {
                         default_environment,
                     },
                     environments,
+                    state: None,
                 }
             })
     }

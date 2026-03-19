@@ -181,7 +181,11 @@ pub struct CdxDependency {
 }
 
 /// Build the audit trail for an environment.
-pub fn build_audit_trail(store: &Store, environment: &str) -> AuditReport {
+pub fn build_audit_trail(
+    store: &Store,
+    environment: &str,
+    project_root: &std::path::Path,
+) -> AuditReport {
     let events = store.read_events().unwrap_or_default();
 
     let entries: Vec<AuditEntry> = events
@@ -197,7 +201,7 @@ pub fn build_audit_trail(store: &Store, environment: &str) -> AuditReport {
         })
         .collect();
 
-    let transitions = load_transitions(store.project_root());
+    let transitions = load_transitions(project_root);
 
     let transition_summaries: Vec<TransitionSummary> = transitions
         .iter()
@@ -243,7 +247,11 @@ pub fn build_audit_trail(store: &Store, environment: &str) -> AuditReport {
 }
 
 /// Verify the full integrity chain for an environment.
-pub fn verify_integrity(store: &Store, environment: &str) -> VerificationReport {
+pub fn verify_integrity(
+    store: &Store,
+    environment: &str,
+    project_root: &std::path::Path,
+) -> VerificationReport {
     let mut checks = Vec::new();
     let mut all_passed = true;
 
@@ -319,7 +327,7 @@ pub fn verify_integrity(store: &Store, environment: &str) -> VerificationReport 
     }
 
     // Check 4: Transition signatures
-    let transitions = load_transitions(store.project_root());
+    let transitions = load_transitions(project_root);
     let env_transitions: Vec<&SignedTransition> = transitions
         .iter()
         .filter(|t| t.transition.environment == environment)
@@ -459,8 +467,12 @@ pub fn verify_integrity(store: &Store, environment: &str) -> VerificationReport 
 }
 
 /// Generate in-toto attestations from signed transitions.
-pub fn export_intoto(store: &Store, environment: &str) -> Vec<InTotoAttestation> {
-    let transitions = load_transitions(store.project_root());
+pub fn export_intoto(
+    store: &Store,
+    environment: &str,
+    project_root: &std::path::Path,
+) -> Vec<InTotoAttestation> {
+    let transitions = load_transitions(project_root);
 
     transitions
         .iter()
@@ -772,7 +784,7 @@ mod tests {
         let dir = temp_dir();
         let store = Store::open(&dir).unwrap();
 
-        let report = build_audit_trail(&store, "production");
+        let report = build_audit_trail(&store, "production", &dir);
         assert_eq!(report.environment, "production");
         assert!(report.entries.is_empty());
         assert!(report.transitions.is_empty());
@@ -798,7 +810,7 @@ mod tests {
         };
         store.append_event(&event).unwrap();
 
-        let report = build_audit_trail(&store, "default");
+        let report = build_audit_trail(&store, "default", &dir);
         assert_eq!(report.entries.len(), 1);
         assert_eq!(report.entries[0].resource_id, "vpc.main");
         assert_eq!(report.entries[0].actor, "test@example.com");
@@ -809,7 +821,7 @@ mod tests {
         let dir = temp_dir();
         let store = Store::open(&dir).unwrap();
 
-        let report = verify_integrity(&store, "production");
+        let report = verify_integrity(&store, "production", &dir);
         assert!(report.chain_valid);
         assert!(!report.checks.is_empty());
     }
@@ -837,7 +849,7 @@ mod tests {
         let tree_hash = store.put_tree(&tree).unwrap();
         store.set_ref("production", &tree_hash).unwrap();
 
-        let report = verify_integrity(&store, "production");
+        let report = verify_integrity(&store, "production", &dir);
         assert!(report.chain_valid);
         assert!(report.checks.iter().all(|c| c.passed));
     }

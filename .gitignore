@@ -1,3 +1,5 @@
 /target
 .smelt/
 smelt_logo_nanobanana.png
+benchmark/tofu/.terraform/
+benchmark/tofu/terraform.tfstate*

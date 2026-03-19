@@ -13,6 +13,36 @@ use smelt::graph::{DependencyGraph, ResourceId};
 use smelt::secrets::SecretStore;
 use smelt::{apply, audit, explain, formatter, parser, plan, signing, store};
 
+/// Open a Store from project config — uses GCS backend if configured, otherwise local.
+fn open_store(project_config: &ProjectConfig) -> Result<store::Store> {
+    if let Some(state_config) = &project_config.state {
+        match state_config.backend.as_str() {
+            "gcs" => {
+                let bucket = state_config.bucket.as_deref().ok_or_else(|| {
+                    miette!("state backend 'gcs' requires 'bucket' in [state] config")
+                })?;
+                let prefix = state_config.prefix.as_deref();
+                eprintln!(
+                    "using GCS state backend: gs://{bucket}/{}",
+                    prefix.unwrap_or("smelt/")
+                );
+                store::Store::open_gcs(bucket, prefix).map_err(|e| miette!("{e}"))
+            }
+            "local" | "" => store::Store::open(Path::new(".")).map_err(|e| miette!("{e}")),
+            other => Err(miette!(
+                "unknown state backend '{other}' — expected 'local' or 'gcs'"
+            )),
+        }
+    } else {
+        store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))
+    }
+}
+
+/// Open a Store with default (local) backend.
+fn open_store_local() -> Result<store::Store> {
+    store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))
+}
+
 fn main() -> Result<()> {
     let _telemetry = smelt::telemetry::init();
     let cli = Cli::parse();
@@ -2080,7 +2110,7 @@ fn cmd_state_ls(environment: &str, json: bool) -> Result<()> {
 
 fn cmd_audit_trail(environment: &str, json: bool) -> Result<()> {
     let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
-    let report = audit::build_audit_trail(&s, environment);
+    let report = audit::build_audit_trail(&s, environment, Path::new("."));
 
     if json {
         let json_str = serde_json::to_string_pretty(&report).into_diagnostic()?;
@@ -2094,7 +2124,7 @@ fn cmd_audit_trail(environment: &str, json: bool) -> Result<()> {
 
 fn cmd_audit_verify(environment: &str, json: bool) -> Result<()> {
     let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
-    let report = audit::verify_integrity(&s, environment);
+    let report = audit::verify_integrity(&s, environment, Path::new("."));
 
     if json {
         let json_str = serde_json::to_string_pretty(&report).into_diagnostic()?;
@@ -2112,7 +2142,7 @@ fn cmd_audit_verify(environment: &str, json: bool) -> Result<()> {
 
 fn cmd_audit_attestation(environment: &str, output: Option<&Path>) -> Result<()> {
     let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
-    let attestations = audit::export_intoto(&s, environment);
+    let attestations = audit::export_intoto(&s, environment, Path::new("."));
 
     if attestations.is_empty() {
         eprintln!("no signed transitions found for environment '{environment}'");

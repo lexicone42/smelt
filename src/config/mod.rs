@@ -31,6 +31,27 @@ pub struct ProjectConfig {
     pub project: ProjectMeta,
     #[serde(default)]
     pub environments: BTreeMap<String, EnvironmentConfig>,
+    /// State backend configuration (defaults to local filesystem)
+    #[serde(default)]
+    pub state: Option<StateBackendConfig>,
+}
+
+/// State backend configuration.
+///
+/// ```toml
+/// [state]
+/// backend = "gcs"
+/// bucket = "my-smelt-state"
+/// prefix = "state/"
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateBackendConfig {
+    /// Backend type: "local" (default) or "gcs"
+    pub backend: String,
+    /// GCS bucket name (required for backend = "gcs")
+    pub bucket: Option<String>,
+    /// Key prefix within the bucket (defaults to "smelt/")
+    pub prefix: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,6 +163,7 @@ impl ProjectConfig {
                 default_environment: "default".to_string(),
             },
             environments,
+            state: None,
         }
     }
 

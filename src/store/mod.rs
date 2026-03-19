@@ -1,41 +1,18 @@
 use std::collections::BTreeMap;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+pub mod backend;
+pub mod gcs;
+pub mod local;
+
 /// Content-addressable object store for infrastructure state.
 ///
-/// Structure:
-/// ```text
-/// .smelt/
-///   store/
-///     objects/<blake3-hash>.json    # Immutable resource state snapshots
-///     trees/<blake3-hash>.json      # Merkle tree nodes
-///   refs/
-///     environments/
-///       production                  # -> tree hash
-///       staging                     # -> tree hash
-///   events/
-///     <sequence>.jsonl              # Append-only event log
-/// ```
+/// Delegates physical storage to a `StorageBackend` (local filesystem, GCS, S3, etc.)
+/// while handling content addressing, BLAKE3 hashing, and serialization.
 pub struct Store {
-    root: PathBuf,
-}
-
-/// An exclusive lock on the store, preventing concurrent mutations.
-///
-/// Acquired via `Store::lock()` before any mutating operation (set_ref, append_event).
-/// Released automatically when dropped.
-pub struct StoreLock {
-    _file: fs::File,
-    path: PathBuf,
-}
-
-impl Drop for StoreLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-    }
+    backend: Box<dyn backend::StorageBackend>,
 }
 
 /// A content-addressed hash (blake3).
@@ -186,66 +163,39 @@ fn validate_ref_name(name: &str) -> Result<(), StoreError> {
     Ok(())
 }
 
-/// Check if a process is still running (Unix: kill -0).
-fn process_alive(pid: u32) -> bool {
-    unsafe extern "C" {
-        #[link_name = "kill"]
-        safe fn libc_kill(pid: i32, sig: i32) -> i32;
-    }
-    libc_kill(pid as i32, 0) == 0
-}
-
 impl Store {
-    /// Initialize or open a store at the given project root.
+    /// Open a store with the local filesystem backend at the given project root.
     pub fn open(project_root: &Path) -> Result<Self, StoreError> {
-        let root = project_root.join(".smelt");
-        fs::create_dir_all(root.join("store/objects"))?;
-        fs::create_dir_all(root.join("store/trees"))?;
-        fs::create_dir_all(root.join("refs/environments"))?;
-        fs::create_dir_all(root.join("events"))?;
-        Ok(Self { root })
+        let backend = local::LocalBackend::new(project_root)?;
+        Ok(Self {
+            backend: Box::new(backend),
+        })
     }
 
-    /// Get the project root (parent of `.smelt/`).
-    pub fn project_root(&self) -> &Path {
-        self.root.parent().unwrap_or(&self.root)
+    /// Open a store with a GCS backend.
+    pub fn open_gcs(bucket: &str, prefix: Option<&str>) -> Result<Self, StoreError> {
+        let backend = gcs::GcsBackend::new(bucket, prefix)?;
+        Ok(Self {
+            backend: Box::new(backend),
+        })
+    }
+
+    /// Open a store with an arbitrary backend.
+    pub fn with_backend(backend: Box<dyn backend::StorageBackend>) -> Self {
+        Self { backend }
+    }
+
+    /// Get the backend name for diagnostics.
+    pub fn backend_name(&self) -> &str {
+        self.backend.name()
     }
 
     /// Acquire an exclusive lock on the store.
     ///
     /// Must be held during any mutating operation (apply, destroy, rollback).
     /// Returns `StoreError::Locked` if another process holds the lock.
-    pub fn lock(&self) -> Result<StoreLock, StoreError> {
-        let lock_path = self.root.join("lock");
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&lock_path)
-        {
-            Ok(file) => {
-                use std::io::Write;
-                // Write PID for debugging stale locks
-                let mut f = file;
-                let _ = write!(f, "{}", std::process::id());
-                Ok(StoreLock {
-                    _file: f,
-                    path: lock_path,
-                })
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                // Check if the lock is stale (process no longer running)
-                if let Ok(pid_str) = fs::read_to_string(&lock_path)
-                    && let Ok(pid) = pid_str.trim().parse::<u32>()
-                    && !process_alive(pid)
-                {
-                    // Stale lock — remove and retry
-                    let _ = fs::remove_file(&lock_path);
-                    return self.lock();
-                }
-                Err(StoreError::Locked)
-            }
-            Err(e) => Err(StoreError::Io(e)),
-        }
+    pub fn lock(&self) -> Result<Box<dyn backend::StoreLockGuard>, StoreError> {
+        self.backend.lock()
     }
 
     // --- Object operations ---
@@ -254,9 +204,9 @@ impl Store {
     pub fn put_object(&self, state: &ResourceState) -> Result<ContentHash, StoreError> {
         let data = serde_json::to_vec_pretty(state)?;
         let hash = ContentHash::of(&data);
-        let path = self.object_path(&hash);
-        if !path.exists() {
-            fs::write(&path, &data)?;
+        let path = format!("store/objects/{}.json", hash.0);
+        if !self.backend.exists(&path)? {
+            self.backend.write(&path, &data)?;
         }
         Ok(hash)
     }
@@ -267,11 +217,8 @@ impl Store {
     /// match the hash used to address the object. Returns `StoreError::HashMismatch`
     /// if the file has been tampered with.
     pub fn get_object(&self, hash: &ContentHash) -> Result<ResourceState, StoreError> {
-        let path = self.object_path(hash);
-        if !path.exists() {
-            return Err(StoreError::ObjectNotFound(hash.clone()));
-        }
-        let data = fs::read(&path)?;
+        let path = format!("store/objects/{}.json", hash.0);
+        let data = self.backend.read(&path)?;
         let actual_hash = ContentHash::of(&data);
         if actual_hash != *hash {
             return Err(StoreError::HashMismatch {
@@ -284,7 +231,8 @@ impl Store {
 
     /// Check if an object exists.
     pub fn has_object(&self, hash: &ContentHash) -> bool {
-        self.object_path(hash).exists()
+        let path = format!("store/objects/{}.json", hash.0);
+        self.backend.exists(&path).unwrap_or(false)
     }
 
     // --- Tree operations ---
@@ -293,9 +241,9 @@ impl Store {
     pub fn put_tree(&self, tree: &TreeNode) -> Result<ContentHash, StoreError> {
         let data = serde_json::to_vec_pretty(tree)?;
         let hash = ContentHash::of(&data);
-        let path = self.tree_path(&hash);
-        if !path.exists() {
-            fs::write(&path, &data)?;
+        let path = format!("store/trees/{}.json", hash.0);
+        if !self.backend.exists(&path)? {
+            self.backend.write(&path, &data)?;
         }
         Ok(hash)
     }
@@ -306,11 +254,8 @@ impl Store {
     /// match the hash used to address the tree. Returns `StoreError::HashMismatch`
     /// if the file has been tampered with.
     pub fn get_tree(&self, hash: &ContentHash) -> Result<TreeNode, StoreError> {
-        let path = self.tree_path(hash);
-        if !path.exists() {
-            return Err(StoreError::ObjectNotFound(hash.clone()));
-        }
-        let data = fs::read(&path)?;
+        let path = format!("store/trees/{}.json", hash.0);
+        let data = self.backend.read(&path)?;
         let actual_hash = ContentHash::of(&data);
         if actual_hash != *hash {
             return Err(StoreError::HashMismatch {
@@ -326,34 +271,37 @@ impl Store {
     /// Set a named ref to point to a tree hash.
     pub fn set_ref(&self, name: &str, hash: &ContentHash) -> Result<(), StoreError> {
         validate_ref_name(name)?;
-        let path = self.ref_path(name);
-        fs::write(&path, &hash.0)?;
+        let path = format!("refs/environments/{name}");
+        self.backend.write(&path, hash.0.as_bytes())?;
         Ok(())
     }
 
     /// Get the tree hash that a named ref points to.
     pub fn get_ref(&self, name: &str) -> Result<ContentHash, StoreError> {
         validate_ref_name(name)?;
-        let path = self.ref_path(name);
-        if !path.exists() {
-            return Err(StoreError::RefNotFound(name.to_string()));
+        let path = format!("refs/environments/{name}");
+        match self.backend.read(&path) {
+            Ok(data) => {
+                let s = String::from_utf8_lossy(&data);
+                Ok(ContentHash(s.trim().to_string()))
+            }
+            Err(StoreError::ObjectNotFound(_)) => Err(StoreError::RefNotFound(name.to_string())),
+            Err(e) => Err(e),
         }
-        let data = fs::read_to_string(&path)?;
-        Ok(ContentHash(data.trim().to_string()))
     }
 
     /// List all environment refs.
     pub fn list_refs(&self) -> Result<Vec<(String, ContentHash)>, StoreError> {
-        let dir = self.root.join("refs/environments");
+        let paths = self.backend.list("refs/environments")?;
         let mut refs = Vec::new();
-        if dir.exists() {
-            for entry in fs::read_dir(&dir)? {
-                let entry = entry?;
-                if entry.file_type()?.is_file() {
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    let hash_str = fs::read_to_string(entry.path())?;
-                    refs.push((name, ContentHash(hash_str.trim().to_string())));
-                }
+        for path in paths {
+            let name = path
+                .strip_prefix("refs/environments/")
+                .unwrap_or(&path)
+                .to_string();
+            if let Ok(data) = self.backend.read(&path) {
+                let hash_str = String::from_utf8_lossy(&data).trim().to_string();
+                refs.push((name, ContentHash(hash_str)));
             }
         }
         refs.sort_by(|a, b| a.0.cmp(&b.0));
@@ -364,44 +312,41 @@ impl Store {
 
     /// Append an event to the log.
     ///
-    /// Uses write-to-temp + rename for atomicity — a crash mid-write
-    /// won't leave a partial JSON line in the event log.
+    /// Uses atomic write to prevent corruption from crashes mid-write.
     pub fn append_event(&self, event: &Event) -> Result<(), StoreError> {
-        let events_dir = self.root.join("events");
         let line = serde_json::to_string(event)?;
+        let event_path = "events/events.jsonl";
 
-        let event_file = events_dir.join("events.jsonl");
-
-        // Read existing content (if any), append new line, write atomically
-        let mut content = if event_file.exists() {
-            fs::read_to_string(&event_file)?
-        } else {
-            String::new()
+        // Read existing content (if any), append new line
+        let mut content = match self.backend.read(event_path) {
+            Ok(data) => String::from_utf8_lossy(&data).to_string(),
+            Err(StoreError::ObjectNotFound(_)) => String::new(),
+            Err(e) => return Err(e),
         };
         content.push_str(&line);
         content.push('\n');
 
-        // Write to temp file, then rename atomically
-        let tmp_file = events_dir.join("events.jsonl.tmp");
-        fs::write(&tmp_file, &content)?;
-        fs::rename(&tmp_file, &event_file)?;
+        self.backend.write_atomic(event_path, content.as_bytes())?;
         Ok(())
     }
 
     /// Read all events from the log.
     pub fn read_events(&self) -> Result<Vec<Event>, StoreError> {
-        let event_file = self.root.join("events/events.jsonl");
-        if !event_file.exists() {
-            return Ok(Vec::new());
-        }
-        let data = fs::read_to_string(&event_file)?;
-        let mut events = Vec::new();
-        for line in data.lines() {
-            if !line.trim().is_empty() {
-                events.push(serde_json::from_str(line)?);
+        let event_path = "events/events.jsonl";
+        match self.backend.read(event_path) {
+            Ok(data) => {
+                let text = String::from_utf8_lossy(&data);
+                let mut events = Vec::new();
+                for line in text.lines() {
+                    if !line.trim().is_empty() {
+                        events.push(serde_json::from_str(line)?);
+                    }
+                }
+                Ok(events)
             }
+            Err(StoreError::ObjectNotFound(_)) => Ok(Vec::new()),
+            Err(e) => Err(e),
         }
-        Ok(events)
     }
 
     /// Get the next event sequence number.
@@ -458,20 +403,6 @@ impl Store {
         diffs.sort_by(|a, b| diff_name(a).cmp(diff_name(b)));
         Ok(diffs)
     }
-
-    // --- Path helpers ---
-
-    fn object_path(&self, hash: &ContentHash) -> PathBuf {
-        self.root.join(format!("store/objects/{}.json", hash.0))
-    }
-
-    fn tree_path(&self, hash: &ContentHash) -> PathBuf {
-        self.root.join(format!("store/trees/{}.json", hash.0))
-    }
-
-    fn ref_path(&self, name: &str) -> PathBuf {
-        self.root.join(format!("refs/environments/{name}"))
-    }
 }
 
 /// A diff entry between two tree nodes.
@@ -518,7 +449,7 @@ mod tests {
     fn temp_store() -> Store {
         let id = COUNTER.fetch_add(1, Ordering::Relaxed);
         let dir = env::temp_dir().join(format!("smelt-test-{}-{id}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
         Store::open(&dir).unwrap()
     }
 
@@ -648,5 +579,11 @@ mod tests {
 
         let diffs = store.diff_trees(&old_hash, &new_hash).unwrap();
         assert_eq!(diffs.len(), 3); // changed vpc, removed subnet.old, added subnet.new
+    }
+
+    #[test]
+    fn backend_name() {
+        let store = temp_store();
+        assert_eq!(store.backend_name(), "local");
     }
 }
