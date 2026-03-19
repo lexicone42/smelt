@@ -73,6 +73,7 @@ fn resource_decl() -> impl Parser<char, ResourceDecl, Error = Simple<char>> {
                 dependencies: body.dependencies,
                 sections: body.sections,
                 fields: body.fields,
+                for_each: body.for_each,
             }
         })
 }
@@ -102,6 +103,7 @@ struct ResourceBody {
     dependencies: Vec<Dependency>,
     sections: Vec<Section>,
     fields: Vec<Field>,
+    for_each: Option<Vec<Value>>,
 }
 
 /// Intermediate struct for collecting layer body elements.
@@ -110,12 +112,13 @@ struct LayerBody {
     overrides: Vec<Override>,
 }
 
-/// A resource body element — annotation, dependency, section, or field.
+/// A resource body element — annotation, dependency, section, field, or for_each.
 enum ResourceBodyItem {
     Annotation(Annotation),
     Dependency(Dependency),
     Section(Section),
     Field(Field),
+    ForEach(Vec<Value>),
 }
 
 /// Parse the body of a resource declaration.
@@ -128,6 +131,7 @@ fn resource_body() -> impl Parser<char, ResourceBody, Error = Simple<char>> {
             let mut dependencies = Vec::new();
             let mut sections = Vec::new();
             let mut fields = Vec::new();
+            let mut for_each = None;
             let mut seen_sections = std::collections::HashSet::new();
 
             for item in items {
@@ -147,6 +151,7 @@ fn resource_body() -> impl Parser<char, ResourceBody, Error = Simple<char>> {
                         sections.push(s);
                     }
                     ResourceBodyItem::Field(f) => fields.push(f),
+                    ResourceBodyItem::ForEach(items) => for_each = Some(items),
                 }
             }
 
@@ -155,15 +160,30 @@ fn resource_body() -> impl Parser<char, ResourceBody, Error = Simple<char>> {
                 dependencies,
                 sections,
                 fields,
+                for_each,
             })
         })
 }
 
 /// Parse a single resource body item.
 fn resource_body_item() -> impl Parser<char, ResourceBodyItem, Error = Simple<char>> {
+    // for_each = ["a", "b", "c"]
+    let for_each = text::keyword("for_each")
+        .padded_by(ws())
+        .ignore_then(just('=').padded())
+        .ignore_then(
+            value()
+                .padded()
+                .separated_by(just(',').padded())
+                .allow_trailing()
+                .delimited_by(just('[').padded(), just(']').padded()),
+        )
+        .map(ResourceBodyItem::ForEach);
+
     annotation()
         .map(ResourceBodyItem::Annotation)
         .or(dependency().map(ResourceBodyItem::Dependency))
+        .or(for_each)
         .or(section().map(ResourceBodyItem::Section))
         .or(field().map(ResourceBodyItem::Field))
 }
@@ -431,6 +451,19 @@ fn value() -> impl Parser<char, Value, Error = Simple<char>> {
             )
             .map(Value::EnvRef);
 
+        // each.value / each.index — for_each iteration references
+        let each_ref = text::keyword("each")
+            .ignore_then(just('.'))
+            .ignore_then(ident())
+            .try_map(|name, span| match name.as_str() {
+                "value" => Ok(Value::EachValue),
+                "index" => Ok(Value::EachIndex),
+                _ => Err(Simple::custom(
+                    span,
+                    format!("unknown each property '{name}', expected 'value' or 'index'"),
+                )),
+            });
+
         let string_val = string_literal().map(Value::String);
 
         let number_val = {
@@ -483,10 +516,11 @@ fn value() -> impl Parser<char, Value, Error = Simple<char>> {
             .delimited_by(just('{').padded(), just('}').padded())
             .map(Value::Record);
 
-        // Order matters: secret/param/env before string (these start with keywords, not quotes)
+        // Order matters: secret/param/env/each before string (these start with keywords, not quotes)
         secret_val
             .or(param_ref)
             .or(env_ref)
+            .or(each_ref)
             .or(bool_val)
             .or(string_val)
             .or(number_val)

@@ -69,6 +69,7 @@ fn arb_resource() -> impl Strategy<Value = smelt::ast::ResourceDecl> {
                 dependencies: vec![],
                 sections,
                 fields: vec![],
+                for_each: None,
             }
         })
 }
@@ -557,6 +558,7 @@ mod secret_formatter_properties {
                     ],
                 }],
                 fields: vec![],
+                for_each: None,
             }
         })
     }
@@ -618,6 +620,7 @@ mod component_formatter_properties {
                         }],
                     }],
                     fields: vec![],
+                    for_each: None,
                 }],
             },
         )
@@ -816,6 +819,7 @@ mod component_expansion_properties {
                         }],
                     }],
                     fields: vec![],
+                    for_each: None,
                 }],
             };
 

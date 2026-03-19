@@ -42,6 +42,9 @@ pub struct ResourceDecl {
     pub sections: Vec<Section>,
     /// Top-level fields (outside any section)
     pub fields: Vec<Field>,
+    /// for_each: create one instance per element in the list
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub for_each: Option<Vec<Value>>,
 }
 
 /// An environment layer declaration.
@@ -258,6 +261,12 @@ pub enum Value {
     /// An environment variable reference: `env("VAR_NAME")`
     /// Resolved at plan/apply time from the process environment.
     EnvRef(String),
+    /// `each.value` — the current element in a `for_each` iteration.
+    /// Resolved at graph expansion time.
+    EachValue,
+    /// `each.index` — the 0-based index in a `for_each` iteration.
+    /// Resolved at graph expansion time.
+    EachIndex,
 }
 
 impl Value {
@@ -272,6 +281,8 @@ impl Value {
             Self::Secret(_) => "secret",
             Self::ParamRef(_) => "param_ref",
             Self::EnvRef(_) => "env_ref",
+            Self::EachValue => "each_value",
+            Self::EachIndex => "each_index",
         }
     }
 }

@@ -392,6 +392,10 @@ fn value_to_json(value: &Value) -> serde_json::Value {
                 }
             }
         }
+        // each.value/each.index should be resolved during for_each expansion
+        // before reaching value_to_json — this is a safety fallback
+        Value::EachValue => serde_json::Value::String("{{each.value}}".to_string()),
+        Value::EachIndex => serde_json::Value::String("{{each.index}}".to_string()),
     }
 }
 

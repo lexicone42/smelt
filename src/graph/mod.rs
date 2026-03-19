@@ -109,10 +109,18 @@ impl DependencyGraph {
         // Expand use declarations into concrete resources
         let expanded = expand_components(files, &components)?;
 
+        // Expand for_each resources into concrete instances
+        let for_each_expanded = expand_for_each(files);
+
         // First pass: add all resource nodes (both direct and expanded)
         for file in files {
             for decl in &file.declarations {
                 if let Declaration::Resource(resource) = decl {
+                    // Skip resources with for_each — they've been expanded above
+                    if resource.for_each.is_some() {
+                        continue;
+                    }
+
                     // Reject param refs in top-level resources (only valid inside components)
                     let id = ResourceId::new(&resource.kind, &resource.name);
                     check_no_param_refs(resource, &id)?;
@@ -130,6 +138,22 @@ impl DependencyGraph {
                     index_map.insert(id, idx);
                 }
             }
+        }
+
+        // Add for_each expanded resources
+        for resource in &for_each_expanded {
+            let id = ResourceId::new(&resource.kind, &resource.name);
+            if index_map.contains_key(&id) {
+                return Err(GraphError::DuplicateResource(id));
+            }
+            let node = ResourceNode {
+                id: id.clone(),
+                type_path: resource.type_path.to_string(),
+                intent: find_annotation(resource, "intent"),
+                owner: find_annotation(resource, "owner"),
+            };
+            let idx = graph.add_node(node);
+            index_map.insert(id, idx);
         }
 
         // Add expanded component resources (check for unresolved param refs)
@@ -154,6 +178,10 @@ impl DependencyGraph {
         for file in files {
             for decl in &file.declarations {
                 if let Declaration::Resource(resource) = decl {
+                    // Skip for_each templates — their expanded instances handle deps
+                    if resource.for_each.is_some() {
+                        continue;
+                    }
                     let source_id = ResourceId::new(&resource.kind, &resource.name);
                     let source_idx = index_map[&source_id];
 
@@ -233,7 +261,11 @@ impl DependencyGraph {
         Ok(Self {
             graph,
             index_map,
-            expanded_resources: expanded,
+            expanded_resources: {
+                let mut all = expanded;
+                all.extend(for_each_expanded);
+                all
+            },
         })
     }
 
@@ -428,6 +460,75 @@ fn find_annotation(resource: &ResourceDecl, kind: &str) -> Option<String> {
         .iter()
         .find(|a| a.kind.as_str() == kind)
         .map(|a| a.value.clone())
+}
+
+/// Expand `for_each` resources into concrete instances.
+///
+/// A resource with `for_each = ["a", "b"]` is expanded into two resources:
+/// - `kind.name[a]` with each.value="a", each.index=0
+/// - `kind.name[b]` with each.value="b", each.index=1
+///
+/// `each.value` and `each.index` in field values are substituted with
+/// the concrete value and index for each instance.
+fn expand_for_each(files: &[SmeltFile]) -> Vec<ResourceDecl> {
+    let mut expanded = Vec::new();
+
+    for file in files {
+        for decl in &file.declarations {
+            if let Declaration::Resource(resource) = decl
+                && let Some(items) = &resource.for_each
+            {
+                for (index, item) in items.iter().enumerate() {
+                    let key = match item {
+                        Value::String(s) => s.clone(),
+                        Value::Integer(n) => n.to_string(),
+                        _ => format!("{index}"),
+                    };
+
+                    let mut instance = resource.clone();
+                    // Name includes the key: "public[us-east-1a]"
+                    instance.name = format!("{}[{}]", resource.name, key);
+                    // Clear for_each on the expanded instance
+                    instance.for_each = None;
+
+                    // Substitute each.value and each.index in all field values
+                    let value_str = key.clone();
+                    let index_val = index as i64;
+                    for section in &mut instance.sections {
+                        for field in &mut section.fields {
+                            substitute_each(&mut field.value, &value_str, index_val);
+                        }
+                    }
+                    for field in &mut instance.fields {
+                        substitute_each(&mut field.value, &value_str, index_val);
+                    }
+
+                    expanded.push(instance);
+                }
+            }
+        }
+    }
+
+    expanded
+}
+
+/// Replace `EachValue` with a string and `EachIndex` with an integer, recursively.
+fn substitute_each(value: &mut Value, each_value: &str, each_index: i64) {
+    match value {
+        Value::EachValue => *value = Value::String(each_value.to_string()),
+        Value::EachIndex => *value = Value::Integer(each_index),
+        Value::Array(items) => {
+            for item in items {
+                substitute_each(item, each_value, each_index);
+            }
+        }
+        Value::Record(fields) => {
+            for field in fields {
+                substitute_each(&mut field.value, each_value, each_index);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Expand `use` declarations into concrete resources by instantiating

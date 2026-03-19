@@ -343,15 +343,26 @@ fn format_value(out: &mut String, value: &Value, indent: usize) {
         Value::EnvRef(var) => {
             out.push_str(&format!("env(\"{}\")", escape_string(var)));
         }
+        Value::EachValue => {
+            out.push_str("each.value");
+        }
+        Value::EachIndex => {
+            out.push_str("each.index");
+        }
     }
 }
 
-/// Returns true if all items are simple scalars (string, number, integer, bool).
+/// Returns true if all items are simple scalars (string, number, integer, bool, each.value/index).
 fn is_simple_array(items: &[Value]) -> bool {
     items.iter().all(|v| {
         matches!(
             v,
-            Value::String(_) | Value::Number(_) | Value::Integer(_) | Value::Bool(_)
+            Value::String(_)
+                | Value::Number(_)
+                | Value::Integer(_)
+                | Value::Bool(_)
+                | Value::EachValue
+                | Value::EachIndex
         )
     })
 }
@@ -362,7 +373,12 @@ fn is_simple_record(fields: &[Field]) -> bool {
         && fields.iter().all(|f| {
             matches!(
                 f.value,
-                Value::String(_) | Value::Number(_) | Value::Integer(_) | Value::Bool(_)
+                Value::String(_)
+                    | Value::Number(_)
+                    | Value::Integer(_)
+                    | Value::Bool(_)
+                    | Value::EachValue
+                    | Value::EachIndex
             )
         })
 }
