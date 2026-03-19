@@ -19,9 +19,10 @@ Smelt is an opinionated IaC tool that produces canonical, machine-parseable conf
 - **Intent annotations** — Every resource can carry `@intent`, `@owner`, `@constraint`, and `@lifecycle` metadata that is validated and preserved through the toolchain.
 - **Dependency resolution** — `needs vpc.main -> vpc_id` automatically injects provider IDs from dependencies into resource configs during apply.
 - **Blast radius analysis** — `smelt explain` computes transitive dependency impact before any change is made.
-- **Content-addressable state** — Immutable objects hashed with BLAKE3 in a Merkle tree. No single-file corruption risk.
-- **Sensitive field redaction** — Fields marked `sensitive` (passwords, secrets) are automatically redacted from stored state.
-- **Signed state transitions** — Ed25519 signatures (via aws-lc-rs) on every state change for audit trail integrity.
+- **Content-addressable state** — Immutable objects hashed with BLAKE3 in a Merkle tree. No single-file corruption risk. Pluggable backends: local filesystem or GCS (with distributed locking via generation-based CAS).
+- **Built-in secrets** — AES-256-GCM encryption for `secret()` values. Key rotation with re-encryption. No external Vault required.
+- **Signed state transitions** — Ed25519 signatures (via aws-lc-rs) on every state change. SLSA attestations and CycloneDX SBOM generation built in.
+- **Safety defaults** — Refresh-before-apply (catches drift), create-before-destroy (prevents data loss), destroy halt-on-error (prevents cascades), `@lifecycle "prevent_destroy"` enforcement.
 - **Multi-cloud, honestly** — AWS, GCP, and Cloudflare providers that expose real differences between clouds rather than papering over them with lowest-common-denominator abstractions.
 
 ## Installation
@@ -114,18 +115,18 @@ resource subnet "public_a" : aws.ec2.Subnet {
 
 ## Supported Resource Types
 
-### AWS (48 resource types across 28 services)
+### AWS (52 resource types across 28 services)
 
 | Service | Resources |
 |---------|-----------|
-| EC2 | Vpc, Subnet, SecurityGroup, Instance, InternetGateway, RouteTable, NatGateway, ElasticIP, KeyPair |
+| EC2 | Vpc, Subnet, SecurityGroup, Instance, InternetGateway, RouteTable, NatGateway, ElasticIP, KeyPair, VPC Endpoint |
 | IAM | Role, Policy, InstanceProfile |
 | S3 | Bucket |
 | ELBv2 | LoadBalancer, TargetGroup, Listener |
 | ECS | Cluster, TaskDefinition, Service |
 | ECR | Repository |
 | RDS | DBInstance, DBSubnetGroup |
-| Lambda | Function |
+| Lambda | Function, Permission |
 | Route53 | HostedZone, RecordSet |
 | CloudWatch | LogGroup, Alarm |
 | SQS | Queue |
@@ -136,26 +137,46 @@ resource subnet "public_a" : aws.ec2.Subnet {
 | ACM | Certificate |
 | Secrets Manager | Secret |
 | SSM | Parameter |
-| ElastiCache | ReplicationGroup |
+| ElastiCache | ReplicationGroup, ParameterGroup |
 | EFS | FileSystem, MountTarget |
 | API Gateway | Api, Stage |
 | Step Functions | StateMachine |
-| EventBridge | Rule |
+| EventBridge | Rule, Target |
 | Auto Scaling | Group |
 | EKS | Cluster, NodeGroup |
 | WAFv2 | WebACL |
 | Cognito | UserPool |
 | SES | EmailIdentity |
 
-### GCP (stub)
+### GCP (87 resource types across 33 services, 30 tested, 23 zero-diff)
 
-Compute Instance, Network, Firewall Rule, SQL DatabaseInstance, Storage Bucket, GKE Cluster
+| Service | Resources |
+|---------|-----------|
+| Compute | Network, Subnetwork, Firewall, Instance, Route, Address, Disk, Image, and 15 more |
+| Cloud Run | Service, Job |
+| Cloud SQL | Instance, Database, User |
+| IAM | ServiceAccount, IAMBinding |
+| Pub/Sub | Topic, Subscription |
+| BigQuery | Dataset, Table |
+| Secret Manager | Secret |
+| Cloud DNS | ManagedZone, RecordSet, DnsPolicy |
+| KMS | KeyRing, CryptoKey |
+| Artifact Registry | Repository |
+| Logging | LogMetric, LogSink, LogView, LogExclusion |
+| Monitoring | AlertPolicy, NotificationChannel, UptimeCheckConfig |
+| Cloud Storage | Bucket |
+| Scheduler | Job |
+| Cloud Tasks | Queue |
+| Service Directory | Namespace, Service |
+| API Keys | Key |
+| Container (GKE) | Cluster, NodePool |
+| And more | Spanner, AlloyDB, Filestore, Workflows, Functions, etc. |
 
-### Cloudflare (stub)
+### Cloudflare (3 resource types)
 
-DNS Record, Worker Script, Worker Route
+DNS Record, DNS Zone, Worker Script
 
-### Google Workspace (stub)
+### Google Workspace (2 resource types)
 
 User, Group
 
@@ -166,18 +187,26 @@ User, Group
 | `smelt init` | Initialize project, generate signing keypair |
 | `smelt fmt [files...]` | Format files into canonical form (`--check` for CI) |
 | `smelt validate [files...]` | Parse, validate contracts, check dependency graph |
-| `smelt plan <env> [files...]` | Show what would change (`--json` for AI, color output) |
+| `smelt plan <env> [files...]` | Show what would change (refreshes live state by default, `--no-refresh` to skip) |
 | `smelt explain <resource>` | Show intent, deps, blast radius (`--json` for AI) |
 | `smelt graph [files...]` | Display dependency graph (`--dot` for Graphviz) |
-| `smelt apply <env> [files...]` | Apply planned changes (`--yes` to skip confirmation) |
-| `smelt destroy <env> [files...]` | Destroy all resources (`--yes` to skip confirmation) |
+| `smelt apply <env> [files...]` | Apply changes (`--yes`, `--target`, `--output-file`, `--no-refresh`) |
+| `smelt destroy <env> [files...]` | Destroy resources (halts on tier failure, respects `@lifecycle "prevent_destroy"`) |
 | `smelt drift <env> [files...]` | Detect drift between stored and live state (`--json`) |
-| `smelt import <resource> <id>` | Import existing cloud resource into state |
+| `smelt import resource <res> <id>` | Import existing cloud resource into state |
+| `smelt import discover <type>` | Discover existing cloud resources of a type |
+| `smelt import generate <type>` | Generate .smelt file from discovered resources |
 | `smelt query <env>` | Query stored state (`--filter`, `--json`) |
 | `smelt show <env> <resource>` | Show detailed state for a single resource (`--json`) |
 | `smelt rollback <env> <hash>` | Rollback to a previous state tree (`--yes`) |
+| `smelt recover <env> <hash>` | Recover from partial apply failure by adopting orphaned tree |
+| `smelt diff <env_a> <env_b>` | Compare resources between two environments |
 | `smelt envs` | List all environments with state |
 | `smelt history <env>` | Show event history for an environment |
+| `smelt state ls/rm/mv` | Manage stored state directly |
+| `smelt secrets init/encrypt/decrypt/rotate` | Manage AES-256-GCM encryption for secrets |
+| `smelt env create/list/delete/show` | Manage project environments |
+| `smelt audit trail/verify/attestation/sbom` | Audit trail, integrity verification, SLSA attestations, CycloneDX SBOM |
 | `smelt debug <file>` | Dump parsed AST as JSON |
 
 ## Environment Layers
@@ -240,10 +269,23 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for details on the module structure, data
 
 See [SECURITY.md](SECURITY.md) for the security policy and threat model.
 
+## Remote State
+
+Configure GCS backend in `smelt.toml` for team collaboration:
+
+```toml
+[state]
+backend = "gcs"
+bucket = "my-smelt-state"
+prefix = "state/"
+```
+
+GCS backend uses generation-based compare-and-swap for distributed locking — no DynamoDB table needed. BLAKE3 integrity verification works identically over any backend. The `StorageBackend` trait is composable: implementing S3 or Azure Blob is a single trait impl.
+
 ## Testing
 
 ```bash
-# Run all tests (84 total: 69 unit + 15 property-based)
+# Run all tests (155 total: 117 unit + 17 integration + 21 property-based)
 cargo test
 
 # Run property-based tests only
@@ -258,7 +300,8 @@ Property-based tests (via [proptest](https://docs.rs/proptest)) verify:
 - Content-addressable store integrity
 - Diff engine correctness (identity, coverage, inverse symmetry)
 - Signing roundtrip and tamper detection
-- Schema invariants across all 48 AWS resource types
+- Config roundtrip serialization
+- Secret encryption/decryption roundtrip
 
 ## License
 

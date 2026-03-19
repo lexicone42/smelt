@@ -16,22 +16,35 @@ Each stage is a separate module with clear boundaries.
 
 ```
 src/
-├── main.rs          # CLI entry point, command dispatch
-├── lib.rs           # Module declarations
-├── ast/             # Core data types (SmeltFile, ResourceDecl, Value, etc.)
-├── parser/          # chumsky 0.9 parser: .smelt text → AST
-├── formatter/       # AST → canonical .smelt text (deterministic)
-├── graph/           # petgraph-backed dependency DAG
-├── plan/            # Diff engine: desired state vs current state
-├── explain/         # AI-friendly resource analysis (blast radius, etc.)
-├── apply/           # Apply engine (plan execution, state recording, signing)
-├── provider/        # Provider trait + registry
-│   ├── aws/         # AWS provider (48 resource types across 28 services)
-│   ├── gcp/         # GCP provider stub (compute, network, firewall)
-│   ├── cloudflare/  # Cloudflare provider stub (DNS, workers)
-│   └── google_workspace/  # Google Workspace provider stub
-├── store/           # Content-addressable state (BLAKE3 Merkle tree)
-└── signing/         # Ed25519 signing via aws-lc-rs
+├── main.rs              # CLI entry point, command dispatch
+├── lib.rs               # Module declarations
+├── ast/                 # Core data types (SmeltFile, ResourceDecl, Value, etc.)
+├── parser/              # chumsky 0.9 parser: .smelt text → AST
+├── formatter/           # AST → canonical .smelt text (deterministic)
+├── graph/               # petgraph-backed dependency DAG
+├── plan/                # Diff engine: desired state vs current state
+├── explain/             # AI-friendly resource analysis (blast radius, etc.)
+├── apply/               # Apply engine (plan execution, state recording, signing)
+├── provider/            # Provider re-exports from workspace crates + mock
+├── store/               # Content-addressable state (BLAKE3 Merkle tree)
+│   ├── mod.rs           # Store API (content addressing, serialization)
+│   ├── backend.rs       # StorageBackend trait (composable storage)
+│   ├── local.rs         # Local filesystem backend
+│   └── gcs.rs           # GCS remote state backend (with distributed locking)
+├── config/              # smelt.toml project configuration
+├── secrets/             # AES-256-GCM secret encryption
+├── signing/             # Ed25519 signing via aws-lc-rs
+├── audit/               # Audit trail, integrity verification, SLSA, SBOM
+├── telemetry/           # Tracing + optional OpenTelemetry
+└── cli/                 # Clap CLI definitions
+
+crates/
+├── smelt-provider/      # Provider trait, ProviderRegistry, schema types
+├── smelt-aws/           # AWS provider (52 resource types across 28 services)
+└── smelt-gcp/           # GCP provider (87 resource types across 33 services)
+
+tools/
+└── codegen/             # Codegen tool for generating provider resource code
 ```
 
 ## Data Flow
@@ -78,19 +91,25 @@ Computes transitive dependents via BFS for blast radius analysis. Risk levels: N
 
 ### State Store
 
+The state store uses a `StorageBackend` trait that abstracts physical storage. Two backends are implemented:
+
+- **LocalBackend** — filesystem under `.smelt/` (default)
+- **GcsBackend** — GCS bucket with generation-based distributed locking
+
+Both backends store the same logical structure:
+
 ```
-.smelt/
-├── store/
-│   ├── objects/     # Content-addressed ResourceState blobs (BLAKE3 hash → JSON)
-│   └── trees/       # Merkle tree nodes (hash → children map)
-├── refs/
-│   └── environments/  # Mutable pointers: env name → tree hash
-├── events/
-│   └── log.jsonl    # Append-only event log
-└── keys/            # Ed25519 signing keys (PKCS#8)
+store/objects/<blake3-hash>.json    # Content-addressed ResourceState blobs
+store/trees/<blake3-hash>.json      # Merkle tree nodes (hash → children map)
+refs/environments/<name>            # Mutable pointers: env name → tree hash
+events/events.jsonl                 # Append-only event log (atomic writes)
 ```
 
 Objects are immutable. Trees reference objects by hash. Refs are the only mutable part — they point to the current tree for each environment. This is inspired by git's object model.
+
+State is saved per-tier during apply (not just at the end), so partial failures preserve successful resources. On partial failure, the ref is still updated with the successful subset — preventing duplicate-create on re-run.
+
+Adding a new backend (S3, Azure Blob, etc.) requires implementing the `StorageBackend` trait: `read`, `write`, `exists`, `delete`, `list`, and `lock`.
 
 ## Key Design Decisions
 
