@@ -293,6 +293,58 @@ pub enum ProviderError {
     RequiresReplacement(String),
 }
 
+impl ProviderError {
+    /// Generate an actionable fix suggestion for this error.
+    pub fn suggestion(&self) -> Option<String> {
+        match self {
+            Self::NotFound(_) => Some(
+                "resource may have been deleted outside smelt — use `smelt state rm` to clean up"
+                    .into(),
+            ),
+            Self::AlreadyExists(_) => Some(
+                "use `smelt import resource <kind.name> <provider_id>` to adopt the existing resource"
+                    .into(),
+            ),
+            Self::PermissionDenied(msg) => {
+                // Extract specific permission from GCP errors
+                if let Some(start) = msg.find("Permission '") {
+                    let rest = &msg[start + 12..];
+                    if let Some(end) = rest.find('\'') {
+                        let perm = &rest[..end];
+                        return Some(format!(
+                            "grant a role containing '{perm}' to your service account"
+                        ));
+                    }
+                }
+                Some("check that your service account has the required IAM roles".into())
+            }
+            Self::QuotaExceeded(msg) => {
+                if let Some(start) = msg.find("Quota '") {
+                    let rest = &msg[start + 7..];
+                    if let Some(end) = rest.find('\'') {
+                        let quota = &rest[..end];
+                        return Some(format!(
+                            "quota '{quota}' exceeded — request an increase or delete unused resources"
+                        ));
+                    }
+                }
+                Some("request a quota increase or delete unused resources".into())
+            }
+            Self::ApiNotEnabled { service } => Some(format!(
+                "enable the API: gcloud services enable {service} --project=YOUR_PROJECT"
+            )),
+            Self::InvalidConfig(msg) => {
+                if msg.contains("is required") {
+                    Some(format!("add the missing field to your .smelt config — run `smelt schema <type>` to see required fields"))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
 /// Registry of available providers.
 pub struct ProviderRegistry {
     providers: HashMap<String, Box<dyn Provider>>,

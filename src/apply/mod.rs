@@ -393,13 +393,16 @@ pub fn execute_plan_with_config(
                         ActionType::Create => {
                             match p.provider.create(&p.resource_type, &p.config).await {
                                 Ok(output) => CallOutcome::Output(output),
-                                Err(e) => CallOutcome::Failed {
-                                    error: format!("provider error: {e}"),
-                                    suggested_action: Some(
+                                Err(e) => {
+                                    let suggestion = e.suggestion().unwrap_or_else(|| {
                                         "check cloud permissions and resource limits, then retry"
-                                            .to_string(),
-                                    ),
-                                },
+                                            .to_string()
+                                    });
+                                    CallOutcome::Failed {
+                                        error: format!("provider error: {e}"),
+                                        suggested_action: Some(suggestion),
+                                    }
+                                }
                             }
                         }
                         ActionType::Update => {
@@ -486,12 +489,15 @@ pub fn execute_plan_with_config(
                             let pid = p.provider_id.as_deref().unwrap();
                             match p.provider.delete(&p.resource_type, pid).await {
                                 Ok(()) => CallOutcome::Deleted,
-                                Err(e) => CallOutcome::Failed {
-                                    error: format!("provider error: {e}"),
-                                    suggested_action: Some(
-                                        "verify the resource exists, or use `smelt state rm` to remove from state".to_string(),
-                                    ),
-                                },
+                                Err(e) => {
+                                    let suggestion = e.suggestion().unwrap_or_else(|| {
+                                        "verify the resource exists, or use `smelt state rm` to remove from state".to_string()
+                                    });
+                                    CallOutcome::Failed {
+                                        error: format!("provider error: {e}"),
+                                        suggested_action: Some(suggestion),
+                                    }
+                                }
                             }
                         }
                         ActionType::Unchanged => unreachable!(),
