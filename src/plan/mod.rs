@@ -91,6 +91,9 @@ pub struct PlannedAction {
     /// Whether this action forces resource replacement (destroy + recreate)
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub forces_replacement: bool,
+    /// Number of downstream resources affected by this change (blast radius)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dependent_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -233,6 +236,7 @@ pub fn build_plan_with_layers_and_registry(
                 intent,
                 changes: vec![],
                 forces_replacement: false,
+                dependent_count: None,
             },
             Some(cr) => {
                 // Inject schema defaults for unset fields — prevents false diffs
@@ -261,9 +265,19 @@ pub fn build_plan_with_layers_and_registry(
                     intent,
                     changes,
                     forces_replacement: false,
+                    dependent_count: None,
                 }
             }
         };
+
+        // Compute blast radius for non-create actions
+        let mut planned = planned;
+        if planned.action != ActionType::Create && planned.action != ActionType::Unchanged {
+            let dep_count = graph.blast_radius(&node.id).len();
+            if dep_count > 0 {
+                planned.dependent_count = Some(dep_count);
+            }
+        }
 
         tier_map.entry(tier).or_default().push(planned);
     }
@@ -283,6 +297,7 @@ pub fn build_plan_with_layers_and_registry(
                     intent: None,
                     changes: vec![],
                     forces_replacement: false,
+                    dependent_count: None,
                 });
         }
     }
@@ -580,6 +595,19 @@ pub fn format_plan(plan: &Plan) -> String {
                 "  {symbol} {} : {}{intent_str}\n",
                 action.resource_id, action.type_path
             ));
+        }
+
+        // Show blast radius for changes that affect dependents
+        if let Some(count) = action.dependent_count {
+            if count > 0 && matches!(action.action, ActionType::Update | ActionType::Delete) {
+                if color {
+                    out.push_str(&format!(
+                        "      {YELLOW}⚠ impacts {count} dependent resource(s){RESET}\n"
+                    ));
+                } else {
+                    out.push_str(&format!("      ! impacts {count} dependent resource(s)\n"));
+                }
+            }
         }
 
         for change in &action.changes {

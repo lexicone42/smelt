@@ -1331,6 +1331,7 @@ mod tests {
                 intent: Some("Test VPC".to_string()),
                 changes: vec![],
                 forces_replacement: false,
+                dependent_count: None,
             }]],
         );
 
@@ -1355,6 +1356,7 @@ mod tests {
                 intent: Some("Test VPC".to_string()),
                 changes: vec![],
                 forces_replacement: false,
+                dependent_count: None,
             }]],
         );
 
@@ -1470,6 +1472,7 @@ mod tests {
                 intent: None,
                 changes: vec![],
                 forces_replacement: false,
+                dependent_count: None,
             }]],
         );
 

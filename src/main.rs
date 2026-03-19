@@ -1105,6 +1105,7 @@ fn cmd_destroy(
                 intent: node.intent.clone(),
                 changes: vec![],
                 forces_replacement: false,
+                dependent_count: None,
             });
             seen.insert(resource_id);
         }
@@ -1137,6 +1138,7 @@ fn cmd_destroy(
                 intent: obj.intent,
                 changes: vec![],
                 forces_replacement: false,
+                dependent_count: None,
             });
         }
     }
