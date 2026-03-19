@@ -351,6 +351,10 @@ impl GcpProvider {
             .next()
             .unwrap_or(provider_id)
             .to_string();
+        // Note: GetRole for project-level custom roles doesn't return title,
+        // included_permissions, or stage via the gRPC SDK. These fields show
+        // as false diffs. A REST API fallback would fix this but isn't worth
+        // the complexity for an edge-case resource.
         let role = self
             .iam()
             .await?
@@ -387,8 +391,20 @@ impl GcpProvider {
                 serde_json::json!(&role.included_permissions),
             );
         }
-        if let Some(stage_name) = role.stage.name() {
-            security.insert("stage".into(), serde_json::json!(stage_name));
+        // Proto enum stage: ALPHA=0 maps to proto default which .name() returns as "ALPHA"
+        // but the user likely set "GA". Normalize: use the integer value to map correctly.
+        let stage_str = match role.stage.value() {
+            Some(0) => None, // UNSPECIFIED / default — don't include
+            Some(1) => Some("GA"),
+            Some(2) => Some("ALPHA"),
+            Some(3) => Some("BETA"),
+            Some(4) => Some("DEPRECATED"),
+            Some(5) => Some("DISABLED"),
+            Some(6) => Some("EAP"),
+            _ => role.stage.name(), // fallback to proto name
+        };
+        if let Some(stage) = stage_str {
+            security.insert("stage".into(), serde_json::json!(stage));
         }
         if role.deleted {
             security.insert("deleted".into(), serde_json::json!(true));
