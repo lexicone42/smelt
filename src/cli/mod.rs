@@ -53,9 +53,9 @@ pub enum Command {
         #[arg(long)]
         json: bool,
 
-        /// Read live state from cloud providers instead of stored state
+        /// Skip live refresh — use stored state only (faster, but may miss manual changes)
         #[arg(long)]
-        live: bool,
+        no_refresh: bool,
 
         /// Only plan this resource and its dependencies (kind.name, e.g., "vpc.main")
         #[arg(long)]
@@ -112,9 +112,9 @@ pub enum Command {
         #[arg(long)]
         json: bool,
 
-        /// Read live state from cloud before planning (catches manual changes)
+        /// Skip live refresh — use stored state only (faster, but may miss manual changes)
         #[arg(long)]
-        refresh: bool,
+        no_refresh: bool,
 
         /// Only apply this resource and its dependencies (kind.name, e.g., "vpc.main")
         #[arg(long)]

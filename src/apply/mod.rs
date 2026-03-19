@@ -412,32 +412,66 @@ pub fn execute_plan_with_config(
                             {
                                 Ok(output) => CallOutcome::Output(output),
                                 Err(crate::provider::ProviderError::RequiresReplacement(_)) => {
+                                    // Create-before-destroy: create the new resource first,
+                                    // then delete the old one. If create fails, the old
+                                    // resource is still intact — no data loss.
                                     tracing::info!(
                                         resource = %p.action.resource_id,
-                                        "requires replacement — deleting and recreating"
+                                        "requires replacement — creating new resource before deleting old"
                                     );
-                                    if let Err(e) =
-                                        p.provider.delete(&p.resource_type, pid).await
-                                    {
-                                        return CallOutcome::Failed {
-                                            error: format!("replacement delete failed: {e}"),
-                                            suggested_action: Some(
-                                                "resource may be in an inconsistent state — use `smelt recover`".to_string(),
-                                            ),
-                                        };
-                                    }
                                     match p
                                         .provider
                                         .create(&p.resource_type, &p.config)
                                         .await
                                     {
-                                        Ok(output) => CallOutcome::Output(output),
-                                        Err(e) => CallOutcome::Failed {
-                                            error: format!("replacement create failed: {e}"),
-                                            suggested_action: Some(
-                                                "resource may be in an inconsistent state — use `smelt recover`".to_string(),
-                                            ),
-                                        },
+                                        Ok(output) => {
+                                            // New resource created — now delete the old one
+                                            if let Err(e) =
+                                                p.provider.delete(&p.resource_type, pid).await
+                                            {
+                                                tracing::warn!(
+                                                    resource = %p.action.resource_id,
+                                                    old_id = pid,
+                                                    new_id = %output.provider_id,
+                                                    error = %e,
+                                                    "old resource cleanup failed — new resource is active, old may be orphaned"
+                                                );
+                                            }
+                                            CallOutcome::Output(output)
+                                        }
+                                        Err(create_err) => {
+                                            // Create failed — fall back to delete-then-create
+                                            // (handles unique name constraints, etc.)
+                                            tracing::info!(
+                                                resource = %p.action.resource_id,
+                                                "create-before-destroy failed, falling back to delete-then-create"
+                                            );
+                                            if let Err(e) =
+                                                p.provider.delete(&p.resource_type, pid).await
+                                            {
+                                                return CallOutcome::Failed {
+                                                    error: format!(
+                                                        "replacement failed: create error: {create_err}; then delete also failed: {e}"
+                                                    ),
+                                                    suggested_action: Some(
+                                                        "resource may be in an inconsistent state — use `smelt recover`".to_string(),
+                                                    ),
+                                                };
+                                            }
+                                            match p
+                                                .provider
+                                                .create(&p.resource_type, &p.config)
+                                                .await
+                                            {
+                                                Ok(output) => CallOutcome::Output(output),
+                                                Err(e) => CallOutcome::Failed {
+                                                    error: format!("replacement create failed after delete: {e}"),
+                                                    suggested_action: Some(
+                                                        "resource was deleted but recreation failed — use `smelt recover` or recreate manually".to_string(),
+                                                    ),
+                                                },
+                                            }
+                                        }
                                     }
                                 }
                                 Err(e) => CallOutcome::Failed {
@@ -606,22 +640,49 @@ pub fn execute_plan_with_config(
         }
 
         results.extend(early_results);
+
+        // Save tree and update ref after each tier — prevents partial apply corruption.
+        // If a later tier fails, earlier tiers' state is already committed.
+        let tier_has_success = results.iter().any(|r| {
+            matches!(
+                (&r.action, &r.outcome),
+                (
+                    ActionType::Create | ActionType::Update | ActionType::Delete,
+                    ApplyOutcome::Success { .. }
+                )
+            )
+        });
+        if tier_has_success {
+            match store.put_tree(&current_tree) {
+                Ok(hash) => {
+                    if let Err(e) = store.set_ref(&plan.environment, &hash) {
+                        tracing::warn!(error = %e, "failed to update environment ref after tier");
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to save tree after tier");
+                }
+            }
+        }
     }
 
-    // Build new tree and update ref
+    // Final tree for signing
     let new_tree_hash = store
         .put_tree(&current_tree)
         .unwrap_or_else(|_| ContentHash("error".to_string()));
 
+    // Update ref one final time (idempotent if last tier already saved it)
     let has_failures = results
         .iter()
         .any(|r| matches!(r.outcome, ApplyOutcome::Failed { .. }));
 
     if has_failures {
-        tracing::warn!(
-            tree_hash = %new_tree_hash.short(),
-            "partial failure — environment ref NOT updated to preserve consistent state"
-        );
+        // Still update the ref on partial failure — the tree contains all successful
+        // resources. NOT updating was the old behavior that caused duplicate creates.
+        tracing::warn!("partial failure — tree updated with successful resources only");
+        if let Err(e) = store.set_ref(&plan.environment, &new_tree_hash) {
+            tracing::warn!(error = %e, "failed to update environment ref");
+        }
     } else if let Err(e) = store.set_ref(&plan.environment, &new_tree_hash) {
         tracing::warn!(error = %e, "failed to update environment ref");
     }

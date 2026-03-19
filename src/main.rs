@@ -25,9 +25,9 @@ fn main() -> Result<()> {
             environment,
             files,
             json,
-            live,
+            no_refresh,
             target,
-        } => cmd_plan(&environment, &files, json, live, target.as_deref()),
+        } => cmd_plan(&environment, &files, json, !no_refresh, target.as_deref()),
         Command::Explain {
             resource,
             files,
@@ -39,9 +39,16 @@ fn main() -> Result<()> {
             files,
             yes,
             json,
-            refresh,
+            no_refresh,
             target,
-        } => cmd_apply(&environment, &files, yes, json, refresh, target.as_deref()),
+        } => cmd_apply(
+            &environment,
+            &files,
+            yes,
+            json,
+            !no_refresh,
+            target.as_deref(),
+        ),
         Command::Destroy {
             environment,
             files,
@@ -384,7 +391,7 @@ fn cmd_plan(
     environment: &str,
     files: &[std::path::PathBuf],
     json: bool,
-    live: bool,
+    refresh: bool,
     target: Option<&str>,
 ) -> Result<()> {
     let files = resolve_files(files)?;
@@ -400,13 +407,11 @@ fn cmd_plan(
         .ok()
         .filter(|s| s.has_key());
 
-    let registry_for_plan;
-    let current_state = if live {
-        eprintln!("reading live state from cloud providers...");
-        registry_for_plan = Some(build_registry());
-        load_live_state(environment, &graph, registry_for_plan.as_ref().unwrap())?
+    let registry = build_registry();
+    let current_state = if refresh {
+        eprintln!("refreshing live state from cloud providers...");
+        load_live_state(environment, &graph, &registry)?
     } else {
-        registry_for_plan = Some(build_registry());
         load_current_state(environment, secret_store.as_ref())
     };
 
@@ -416,7 +421,7 @@ fn cmd_plan(
         &current_state,
         &graph,
         &layers,
-        registry_for_plan.as_ref(),
+        Some(&registry),
     );
 
     if let Some(target) = target {
@@ -427,7 +432,7 @@ fn cmd_plan(
         let json_str = serde_json::to_string_pretty(&p).into_diagnostic()?;
         println!("{json_str}");
     } else {
-        if live {
+        if refresh {
             eprintln!();
         }
         print!("{}", plan::format_plan(&p));
