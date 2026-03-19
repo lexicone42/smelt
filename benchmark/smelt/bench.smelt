@@ -1,0 +1,83 @@
+resource vpc "main" : gcp.compute.Network {
+  @intent "Primary VPC for the benchmark stack"
+
+  identity {
+    name = "bench-smelt-vpc"
+  }
+
+  network {
+    auto_create_subnetworks = false
+    routing_mode = "REGIONAL"
+  }
+}
+
+resource subnet "app" : gcp.compute.Subnetwork {
+  @intent "Application subnet"
+
+  needs vpc.main -> network
+
+  identity {
+    name = "bench-smelt-app-subnet"
+  }
+
+  network {
+    ip_cidr_range = "10.0.0.0/24"
+  }
+}
+
+resource sa "app" : gcp.iam.ServiceAccount {
+  @intent "Service account for application workloads"
+
+  identity {
+    display_name = "Benchmark application SA"
+    name = "bench-smelt-app"
+  }
+}
+
+resource topic "events" : gcp.pubsub.Topic {
+  @intent "Application event bus"
+
+  identity {
+    name = "bench-smelt-events"
+  }
+}
+
+resource registry "app" : gcp.artifactregistry.Repository {
+  @intent "Container registry for application images"
+
+  config {
+    format = "DOCKER"
+  }
+
+  identity {
+    description = "Application container images"
+    name = "bench-smelt-app"
+  }
+}
+
+resource dataset "analytics" : gcp.bigquery.Dataset {
+  @intent "Analytics data warehouse"
+
+  config {
+    location = "US"
+  }
+
+  identity {
+    description = "Analytics and reporting data"
+    friendly_name = "Analytics"
+    name = "bench_smelt_analytics"
+  }
+}
+
+resource log "app-errors" : gcp.logging.LogMetric {
+  @intent "Track application error rate"
+
+  config {
+    filter = "severity >= ERROR"
+  }
+
+  identity {
+    description = "Count of application errors"
+    name = "bench-smelt-app-errors"
+  }
+}
