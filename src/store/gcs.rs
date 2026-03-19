@@ -32,34 +32,33 @@ pub struct GcsBackend {
 }
 
 /// GCS-based distributed lock using generation preconditions.
+///
+/// Stores the auth token at acquisition time so the Drop impl doesn't need
+/// a tokio runtime (the credentials' background refresh task is bound to the
+/// backend's runtime, not the lock's).
 struct GcsLock {
     bucket: String,
     key: String,
     generation: String,
-    http: reqwest::Client,
-    creds: google_cloud_auth::credentials::AccessTokenCredentials,
-    rt: Option<tokio::runtime::Runtime>,
+    /// Auth token captured at lock acquisition — valid ~1 hour, locks are held for minutes
+    token: String,
 }
 
 impl StoreLockGuard for GcsLock {}
 
 impl Drop for GcsLock {
     fn drop(&mut self) {
-        if let Some(rt) = self.rt.take() {
-            let http = self.http.clone();
-            let creds = self.creds.clone();
-            let bucket = self.bucket.clone();
-            let key = self.key.clone();
-            let generation = self.generation.clone();
-            let _ = rt.block_on(async {
-                let token = get_token(&creds).await.ok()?;
-                let url = format!(
-                    "{GCS_BASE}/b/{bucket}/o/{key}?ifGenerationMatch={generation}",
-                    key = urlencoding::encode(&key)
-                );
-                http.delete(&url).bearer_auth(&token).send().await.ok()
-            });
-        }
+        // Use a blocking HTTP client for the cleanup — no tokio needed
+        let url = format!(
+            "{GCS_BASE}/b/{}/o/{}?ifGenerationMatch={}",
+            self.bucket,
+            urlencoding::encode(&self.key),
+            self.generation
+        );
+        let _ = reqwest::blocking::Client::new()
+            .delete(&url)
+            .bearer_auth(&self.token)
+            .send();
     }
 }
 
@@ -81,10 +80,14 @@ impl GcsBackend {
             .build()
             .map_err(|e| StoreError::Io(std::io::Error::other(format!("tokio: {e}"))))?;
 
-        let creds = google_cloud_auth::credentials::Builder::default()
-            .with_scopes(&["https://www.googleapis.com/auth/devstorage.read_write".to_string()])
-            .build_access_token_credentials()
-            .map_err(|e| StoreError::Io(std::io::Error::other(format!("GCS auth: {e}"))))?;
+        // Build credentials inside the runtime context — the token cache
+        // spawns a background refresh task that requires a tokio reactor.
+        let creds = rt.block_on(async {
+            google_cloud_auth::credentials::Builder::default()
+                .with_scopes(&["https://www.googleapis.com/auth/devstorage.read_write".to_string()])
+                .build_access_token_credentials()
+                .map_err(|e| StoreError::Io(std::io::Error::other(format!("GCS auth: {e}"))))
+        })?;
 
         Ok(Self {
             bucket: bucket.to_string(),
@@ -255,7 +258,7 @@ impl StorageBackend for GcsBackend {
             chrono::Utc::now().to_rfc3339()
         );
 
-        let generation = self.rt.block_on(async {
+        let (generation, token) = self.rt.block_on(async {
             let token = get_token(&self.creds).await?;
             // ifGenerationMatch=0 → only create if object doesn't exist
             let url = format!(
@@ -288,22 +291,15 @@ impl StorageBackend for GcsBackend {
                 .await
                 .map_err(|e| StoreError::Io(std::io::Error::other(format!("GCS: {e}"))))?;
 
-            Ok(body["generation"].as_str().unwrap_or("0").to_string())
+            let generation = body["generation"].as_str().unwrap_or("0").to_string();
+            Ok::<_, StoreError>((generation, token))
         })?;
-
-        // Separate runtime for the lock drop
-        let drop_rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| StoreError::Io(std::io::Error::other(format!("tokio: {e}"))))?;
 
         Ok(Box::new(GcsLock {
             bucket: self.bucket.clone(),
             key,
             generation,
-            http: self.http.clone(),
-            creds: self.creds.clone(),
-            rt: Some(drop_rt),
+            token,
         }))
     }
 

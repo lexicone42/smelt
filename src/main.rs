@@ -13,9 +13,13 @@ use smelt::graph::{DependencyGraph, ResourceId};
 use smelt::secrets::SecretStore;
 use smelt::{apply, audit, explain, formatter, parser, plan, signing, store};
 
-/// Open a Store from project config — uses GCS backend if configured, otherwise local.
-fn open_store(project_config: &ProjectConfig) -> Result<store::Store> {
-    if let Some(state_config) = &project_config.state {
+/// Open a Store based on project config — uses GCS backend if configured, otherwise local.
+///
+/// Loads `smelt.toml` to check for `[state]` backend configuration.
+/// Falls back to local filesystem if no config exists.
+fn open_store_from_config() -> Result<store::Store> {
+    let config = ProjectConfig::load_or_default(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    if let Some(state_config) = &config.state {
         match state_config.backend.as_str() {
             "gcs" => {
                 let bucket = state_config.bucket.as_deref().ok_or_else(|| {
@@ -36,11 +40,6 @@ fn open_store(project_config: &ProjectConfig) -> Result<store::Store> {
     } else {
         store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))
     }
-}
-
-/// Open a Store with default (local) backend.
-fn open_store_local() -> Result<store::Store> {
-    store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))
 }
 
 fn main() -> Result<()> {
@@ -285,7 +284,7 @@ fn parse_files(files: &[std::path::PathBuf]) -> Result<Vec<SmeltFile>> {
 }
 
 fn cmd_init(identity: &str) -> Result<()> {
-    let store = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let store = open_store_from_config()?;
     let _ = store;
 
     let key_store = signing::SigningKeyStore::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
@@ -482,7 +481,7 @@ fn load_current_state(
     environment: &str,
     secret_store: Option<&SecretStore>,
 ) -> BTreeMap<String, plan::CurrentResource> {
-    let store = match store::Store::open(Path::new(".")) {
+    let store = match open_store_from_config() {
         Ok(s) => s,
         Err(_) => return BTreeMap::new(),
     };
@@ -531,7 +530,7 @@ fn load_live_state(
     graph: &DependencyGraph,
     registry: &smelt::provider::ProviderRegistry,
 ) -> Result<BTreeMap<String, plan::CurrentResource>> {
-    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let s = open_store_from_config()?;
 
     let tree_hash = match s.get_ref(environment) {
         Ok(h) => h,
@@ -893,7 +892,7 @@ fn cmd_apply(
         }
     }
 
-    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let s = open_store_from_config()?;
     let _lock = s.lock().map_err(|e| miette!("{e}"))?;
 
     let summary = apply::execute_plan_with_config(
@@ -951,7 +950,7 @@ fn cmd_destroy(environment: &str, files: &[std::path::PathBuf], yes: bool) -> Re
     let parsed = parse_files(&files)?;
     let graph = DependencyGraph::build(&parsed).map_err(|e| miette!("{e}"))?;
 
-    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let s = open_store_from_config()?;
     let _lock = s.lock().map_err(|e| miette!("{e}"))?;
 
     // Load the stored state tree for this environment
@@ -1102,7 +1101,7 @@ fn cmd_drift(environment: &str, files: &[std::path::PathBuf], json: bool) -> Res
         .build()
         .expect("tokio runtime");
 
-    let store = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let store = open_store_from_config()?;
 
     // Load the tree to get provider IDs
     let tree_hash = store.get_ref(environment).map_err(|e| miette!("{e}"))?;
@@ -1301,7 +1300,7 @@ fn cmd_import(
         .map_err(|e| miette!("failed to read resource: {e}"))?;
 
     // Store it
-    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let s = open_store_from_config()?;
     let _lock = s.lock().map_err(|e| miette!("{e}"))?;
 
     // Load or create current tree
@@ -1357,7 +1356,7 @@ fn cmd_import(
 }
 
 fn cmd_query(environment: &str, filter: Option<&str>, json: bool) -> Result<()> {
-    let store = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let store = open_store_from_config()?;
 
     let tree_hash = store
         .get_ref(environment)
@@ -1438,7 +1437,7 @@ fn format_json_compact(value: &serde_json::Value) -> String {
 }
 
 fn cmd_rollback(environment: &str, target: &str, yes: bool) -> Result<()> {
-    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let s = open_store_from_config()?;
     let _lock = s.lock().map_err(|e| miette!("{e}"))?;
 
     // Verify the target tree exists
@@ -1505,7 +1504,7 @@ fn find_tree_by_prefix(store: &store::Store, prefix: &str) -> Result<store::Cont
 }
 
 fn cmd_show(environment: &str, resource: &str, json: bool) -> Result<()> {
-    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let s = open_store_from_config()?;
 
     let tree_hash = s
         .get_ref(environment)
@@ -1575,7 +1574,7 @@ fn cmd_show(environment: &str, resource: &str, json: bool) -> Result<()> {
 }
 
 fn cmd_recover(environment: &str, tree_hash: &str, yes: bool) -> Result<()> {
-    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let s = open_store_from_config()?;
     let _lock = s.lock().map_err(|e| miette!("{e}"))?;
 
     // Resolve by full hash or short-hash prefix
@@ -1717,7 +1716,7 @@ fn diff_env_json(path: &str, a: &serde_json::Value, b: &serde_json::Value) -> Ve
 }
 
 fn cmd_diff(env_a: &str, env_b: &str, json: bool) -> Result<()> {
-    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let s = open_store_from_config()?;
 
     // Load tree for env_a
     let tree_hash_a = s
@@ -1833,7 +1832,7 @@ fn cmd_diff(env_a: &str, env_b: &str, json: bool) -> Result<()> {
 }
 
 fn cmd_envs() -> Result<()> {
-    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let s = open_store_from_config()?;
     let refs = s.list_refs().map_err(|e| miette!("{e}"))?;
 
     if refs.is_empty() {
@@ -1856,7 +1855,7 @@ fn cmd_envs() -> Result<()> {
 }
 
 fn cmd_history(environment: &str) -> Result<()> {
-    let store = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let store = open_store_from_config()?;
     let events = store.read_events().map_err(|e| miette!("{e}"))?;
 
     if events.is_empty() {
@@ -1885,7 +1884,7 @@ fn cmd_history(environment: &str) -> Result<()> {
 }
 
 fn cmd_state_rm(environment: &str, resource: &str, yes: bool) -> Result<()> {
-    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let s = open_store_from_config()?;
     let _lock = s.lock().map_err(|e| miette!("{e}"))?;
 
     let tree_hash = s
@@ -1961,7 +1960,7 @@ fn cmd_state_rm(environment: &str, resource: &str, yes: bool) -> Result<()> {
 }
 
 fn cmd_state_mv(environment: &str, from: &str, to: &str) -> Result<()> {
-    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let s = open_store_from_config()?;
     let _lock = s.lock().map_err(|e| miette!("{e}"))?;
 
     let tree_hash = s
@@ -2035,7 +2034,7 @@ fn cmd_state_mv(environment: &str, from: &str, to: &str) -> Result<()> {
 }
 
 fn cmd_state_ls(environment: &str, json: bool) -> Result<()> {
-    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let s = open_store_from_config()?;
 
     let tree_hash = s
         .get_ref(environment)
@@ -2109,7 +2108,7 @@ fn cmd_state_ls(environment: &str, json: bool) -> Result<()> {
 }
 
 fn cmd_audit_trail(environment: &str, json: bool) -> Result<()> {
-    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let s = open_store_from_config()?;
     let report = audit::build_audit_trail(&s, environment, Path::new("."));
 
     if json {
@@ -2123,7 +2122,7 @@ fn cmd_audit_trail(environment: &str, json: bool) -> Result<()> {
 }
 
 fn cmd_audit_verify(environment: &str, json: bool) -> Result<()> {
-    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let s = open_store_from_config()?;
     let report = audit::verify_integrity(&s, environment, Path::new("."));
 
     if json {
@@ -2141,7 +2140,7 @@ fn cmd_audit_verify(environment: &str, json: bool) -> Result<()> {
 }
 
 fn cmd_audit_attestation(environment: &str, output: Option<&Path>) -> Result<()> {
-    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let s = open_store_from_config()?;
     let attestations = audit::export_intoto(&s, environment, Path::new("."));
 
     if attestations.is_empty() {
@@ -2167,7 +2166,7 @@ fn cmd_audit_attestation(environment: &str, output: Option<&Path>) -> Result<()>
 }
 
 fn cmd_audit_sbom(environment: &str, output: Option<&Path>) -> Result<()> {
-    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let s = open_store_from_config()?;
 
     let bom = audit::export_cyclonedx(&s, environment).ok_or_else(|| {
         miette!("no state found for environment '{environment}' — run apply first")
@@ -2244,7 +2243,7 @@ fn cmd_secrets_rotate(environment: &str) -> Result<()> {
     let old_key_bytes = secret_store.rotate_key().map_err(|e| miette!("{e}"))?;
 
     // Re-encrypt all secrets in the state store
-    let s = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let s = open_store_from_config()?;
     let _lock = s.lock().map_err(|e| miette!("{e}"))?;
 
     let tree_hash = match s.get_ref(environment) {
@@ -2354,7 +2353,7 @@ fn cmd_env_create(
 
 fn cmd_env_list() -> Result<()> {
     let config = ProjectConfig::load_or_default(Path::new(".")).map_err(|e| miette!("{e}"))?;
-    let store = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let store = open_store_from_config()?;
     let refs = store.list_refs().unwrap_or_default();
     let ref_map: BTreeMap<String, _> = refs.into_iter().collect();
 
@@ -2403,7 +2402,7 @@ fn cmd_env_delete(name: &str, yes: bool) -> Result<()> {
     let mut config = ProjectConfig::load_or_default(Path::new(".")).map_err(|e| miette!("{e}"))?;
 
     // Check if there's state
-    let store = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let store = open_store_from_config()?;
     if let Ok(hash) = store.get_ref(name) {
         let tree = store.get_tree(&hash).unwrap_or_default();
         if !tree.children.is_empty() && !yes {
@@ -2444,7 +2443,7 @@ fn cmd_env_show(name: &str) -> Result<()> {
     }
 
     // Show state info
-    let store = store::Store::open(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    let store = open_store_from_config()?;
     if let Ok(hash) = store.get_ref(name) {
         let tree = store.get_tree(&hash).unwrap_or_default();
         println!(

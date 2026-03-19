@@ -34,7 +34,7 @@ base64 = "0.22"
 blake3 = "1"
 
 # GCS state backend
-reqwest = { version = "0.13", features = ["json"] }
+reqwest = { version = "0.13", features = ["json", "blocking"] }
 urlencoding = "2"
 gethostname = "1"
 google-cloud-auth = "1"
