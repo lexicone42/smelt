@@ -1091,21 +1091,32 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetUptimeCheckConfig", e))?;
 
-        let state = serde_json::json!({
+        let short_name = provider_id.rsplit('/').next().unwrap_or(provider_id);
+        let mut state = serde_json::json!({
             "identity": {
                 "display_name": uptime_check_config.display_name.as_str(),
-                "name": uptime_check_config.name.as_str(),
+                "name": short_name,
             },
-            "config": {
-                "checker_type": &uptime_check_config.checker_type,
-                "content_matchers": &uptime_check_config.content_matchers,
-                "period": &uptime_check_config.period,
-                "resource": serde_json::Value::Null,
-                "selected_regions": &uptime_check_config.selected_regions,
-                "timeout": &uptime_check_config.timeout,
-                "user_labels": &uptime_check_config.user_labels,
-            },
+            "config": {},
         });
+        // Serialize the whole struct and pick user-relevant fields
+        let full = serde_json::to_value(&uptime_check_config).unwrap_or_default();
+        if let Some(v) = full.get("period").filter(|v| !v.is_null()) {
+            state["config"]["period"] = v.clone();
+        }
+        if let Some(v) = full.get("timeout").filter(|v| !v.is_null()) {
+            state["config"]["timeout"] = v.clone();
+        }
+        if let Some(v) = full.get("httpCheck").filter(|v| !v.is_null()) {
+            state["config"]["http_check"] = v.clone();
+        }
+        if let Some(v) = full.get("tcpCheck").filter(|v| !v.is_null()) {
+            state["config"]["tcp_check"] = v.clone();
+        }
+        if let Some(v) = full.get("monitoredResource").filter(|v| !v.is_null()) {
+            state["config"]["monitored_resource"] = v.clone();
+        }
+        // Skip defaults: checker_type, content_matchers=[], selected_regions=[], user_labels={}, resource=null
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&uptime_check_config.name));

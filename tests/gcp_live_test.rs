@@ -2171,7 +2171,8 @@ async fn gcp_monitoring_uptime_check_crud() {
 
     let config = serde_json::json!({
         "identity": {
-            "display_name": &name,
+            "name": &name,
+            "display_name": "smelt uptime test",
         },
         "config": {
             "monitored_resource": {
