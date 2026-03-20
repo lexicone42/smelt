@@ -284,7 +284,7 @@ impl GcpProvider {
         model = model.set_labels(labels);
 
         // Make API call
-        let parent = format!("projects/{}", self.project_id);
+        let parent = format!("projects/{}/locations/global", self.project_id);
         self.certificate_manager()
             .await?
             .create_certificate_map()
@@ -296,7 +296,10 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_certificate_map CertificateMap", e))?;
 
-        let provider_id = format!("projects/{}/certificateMaps/{}", self.project_id, name);
+        let provider_id = format!(
+            "projects/{}/locations/global/certificateMaps/{}",
+            self.project_id, name
+        );
         self.read_certificatemanager_certificatemap(&provider_id)
             .await
     }

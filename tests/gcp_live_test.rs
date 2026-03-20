@@ -3411,3 +3411,539 @@ async fn gcp_eventarc_channel_crud() {
         }
     }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Compute Instance — ~$0.007/hr for e2-micro
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_compute_instance_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("inst");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test instance",
+        },
+        "config": {
+            "disks": [{
+                "auto_delete": true,
+                "boot": true,
+                "initialize_params": {
+                    "source_image": "projects/debian-cloud/global/images/family/debian-12",
+                    "disk_size_gb": 10,
+                    "disk_type": format!("projects/{project}/zones/{REGION}-a/diskTypes/pd-standard"),
+                },
+            }],
+        },
+        "network": {
+            "network_interfaces": [{
+                "network": format!("projects/{project}/global/networks/default"),
+            }],
+        },
+        "sizing": {
+            "machine_type": format!("projects/{project}/zones/{REGION}-a/machineTypes/e2-micro"),
+            "zone": format!("{REGION}-a"),
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "compute.Instance", &config, &name).await;
+
+    println!("\n[DELETE] compute.Instance...");
+    provider
+        .delete("compute.Instance", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Compute Router — free, depends on Network
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_compute_router_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("rtr");
+
+    // Create network first
+    let net_name = format!("{name}-net");
+    println!("[SETUP] Creating VPC network...");
+    let net = provider
+        .create(
+            "compute.Network",
+            &serde_json::json!({
+                "identity": { "name": &net_name },
+                "network": { "auto_create_subnetworks": false, "routing_mode": "REGIONAL" }
+            }),
+        )
+        .await
+        .expect("Network create failed");
+    println!("  network = {}", net.provider_id);
+
+    // VPC propagation can take 15-35s
+    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test router",
+        },
+        "network": {
+            "network": format!("projects/{project}/global/networks/{net_name}"),
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "compute.Router", &config, &name).await;
+
+    // Cleanup: delete router then network
+    println!("\n[DELETE] compute.Router...");
+    provider
+        .delete("compute.Router", &created.provider_id)
+        .await
+        .expect("Router DELETE failed");
+    println!("  Deleted router.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    println!("[DELETE] compute.Network...");
+    provider
+        .delete("compute.Network", &net.provider_id)
+        .await
+        .expect("Network DELETE failed");
+    println!("  Deleted network.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Compute Snapshot — free (storage cost minimal), depends on Disk
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_compute_snapshot_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("snap");
+
+    // Create a disk first
+    let disk_name = format!("{name}-disk");
+    println!("[SETUP] Creating disk...");
+    let disk = provider
+        .create(
+            "compute.Disk",
+            &serde_json::json!({
+                "identity": {
+                    "name": &disk_name,
+                    "description": "smelt snapshot test disk",
+                },
+                "sizing": {
+                    "size_gb": 10,
+                    "type": format!("projects/{project}/zones/{REGION}-a/diskTypes/pd-standard"),
+                    "zone": format!("{REGION}-a"),
+                },
+            }),
+        )
+        .await
+        .expect("Disk create failed");
+    println!("  disk = {}", disk.provider_id);
+
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test snapshot",
+        },
+        "config": {
+            "source_disk": format!("projects/{project}/zones/{REGION}-a/disks/{disk_name}"),
+            "snapshot_type": "STANDARD",
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "compute.Snapshot", &config, &name).await;
+
+    // Cleanup: delete snapshot then disk
+    println!("\n[DELETE] compute.Snapshot...");
+    provider
+        .delete("compute.Snapshot", &created.provider_id)
+        .await
+        .expect("Snapshot DELETE failed");
+    println!("  Deleted snapshot.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    println!("[DELETE] compute.Disk...");
+    provider
+        .delete("compute.Disk", &disk.provider_id)
+        .await
+        .expect("Disk DELETE failed");
+    println!("  Deleted disk.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Compute Image — free (storage cost minimal), depends on Disk
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_compute_image_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("img");
+
+    // Create a disk first
+    let disk_name = format!("{name}-disk");
+    println!("[SETUP] Creating disk...");
+    let disk = provider
+        .create(
+            "compute.Disk",
+            &serde_json::json!({
+                "identity": {
+                    "name": &disk_name,
+                    "description": "smelt image test disk",
+                },
+                "sizing": {
+                    "size_gb": 10,
+                    "type": format!("projects/{project}/zones/{REGION}-a/diskTypes/pd-standard"),
+                    "zone": format!("{REGION}-a"),
+                },
+            }),
+        )
+        .await
+        .expect("Disk create failed");
+    println!("  disk = {}", disk.provider_id);
+
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test image",
+        },
+        "config": {
+            "source_disk": format!("projects/{project}/zones/{REGION}-a/disks/{disk_name}"),
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "compute.Image", &config, &name).await;
+
+    // Cleanup: delete image then disk
+    println!("\n[DELETE] compute.Image...");
+    provider
+        .delete("compute.Image", &created.provider_id)
+        .await
+        .expect("Image DELETE failed");
+    println!("  Deleted image.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    println!("[DELETE] compute.Disk...");
+    provider
+        .delete("compute.Disk", &disk.provider_id)
+        .await
+        .expect("Disk DELETE failed");
+    println!("  Deleted disk.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Compute ResourcePolicy — free (metadata only)
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_compute_resourcepolicy_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("rpol");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test resource policy",
+        },
+        "config": {
+            "workload_policy": {
+                "type": "HIGH_AVAILABILITY"
+            },
+        },
+        "sizing": {
+            "region": REGION,
+        },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "compute.ResourcePolicy", &config, &name).await;
+
+    println!("\n[DELETE] compute.ResourcePolicy...");
+    provider
+        .delete("compute.ResourcePolicy", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Load Balancing ForwardingRule — free
+// Uses HealthCheck -> BackendService -> ForwardingRule chain
+// (regional pattern; global TargetHttpProxy not available in provider)
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_loadbalancing_forwardingrule_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("fwdr");
+
+    // 1. Create HealthCheck
+    let hc_name = format!("{name}-hc");
+    println!("[SETUP] Creating HealthCheck...");
+    let hc = provider
+        .create(
+            "loadbalancing.HealthCheck",
+            &serde_json::json!({
+                "identity": { "name": &hc_name },
+                "config": {
+                    "check_interval_sec": 10,
+                    "timeout_sec": 5,
+                    "tcp_health_check": { "port": 8080 },
+                },
+            }),
+        )
+        .await
+        .expect("HealthCheck create failed");
+    println!("  health_check = {}", hc.provider_id);
+
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    // 2. Create BackendService
+    let bs_name = format!("{name}-bs");
+    println!("[SETUP] Creating BackendService...");
+    let bs = provider
+        .create(
+            "loadbalancing.BackendService",
+            &serde_json::json!({
+                "identity": {
+                    "name": &bs_name,
+                    "description": "smelt forwarding rule test backend",
+                },
+                "config": {
+                    "protocol": "TCP",
+                    "health_checks": [
+                        format!("projects/{project}/global/healthChecks/{hc_name}"),
+                    ],
+                    "timeout_sec": 30,
+                },
+            }),
+        )
+        .await
+        .expect("BackendService create failed");
+    println!("  backend_service = {}", bs.provider_id);
+
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+
+    // 3. Create ForwardingRule targeting the BackendService
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test forwarding rule",
+        },
+        "config": {
+            "backend_service": format!("projects/{project}/global/backendServices/{bs_name}"),
+            "port_range": "8080",
+            "ip_protocol": "TCP",
+        },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "loadbalancing.ForwardingRule", &config, &name).await;
+
+    // Cleanup: reverse order with propagation delays
+    println!("\n[DELETE] loadbalancing.ForwardingRule...");
+    provider
+        .delete("loadbalancing.ForwardingRule", &created.provider_id)
+        .await
+        .expect("ForwardingRule DELETE failed");
+    println!("  Deleted forwarding rule.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    println!("[DELETE] loadbalancing.BackendService...");
+    provider
+        .delete("loadbalancing.BackendService", &bs.provider_id)
+        .await
+        .expect("BackendService DELETE failed");
+    println!("  Deleted backend service.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    println!("[DELETE] loadbalancing.HealthCheck...");
+    provider
+        .delete("loadbalancing.HealthCheck", &hc.provider_id)
+        .await
+        .expect("HealthCheck DELETE failed");
+    println!("  Deleted health check.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Certificate Manager Certificate — free (scope-only)
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_certificatemanager_certificate_crud() {
+    // SKIP: Certificate Manager Certificate requires self-managed PEM cert/key
+    // fields (self_managed.pem_certificate + self_managed.pem_private_key), but
+    // these are not exposed in the codegen schema. This is a known codegen gap.
+    println!(
+        "SKIPPED: certificatemanager.Certificate requires self_managed PEM fields not in schema (codegen gap)"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Certificate Manager CertificateMap — free (metadata only)
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_certificatemanager_certificatemap_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("cmmap");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test certificate map",
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(
+        &provider,
+        "certificatemanager.CertificateMap",
+        &config,
+        &name,
+    )
+    .await;
+
+    println!("\n[DELETE] certificatemanager.CertificateMap...");
+    provider
+        .delete("certificatemanager.CertificateMap", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Certificate Manager DnsAuthorization — free
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_certificatemanager_dnsauthorization_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("cmdns");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test dns authorization",
+        },
+        "config": {
+            "domain": "smelt-test.example.com",
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(
+        &provider,
+        "certificatemanager.DnsAuthorization",
+        &config,
+        &name,
+    )
+    .await;
+
+    println!("\n[DELETE] certificatemanager.DnsAuthorization...");
+    provider
+        .delete("certificatemanager.DnsAuthorization", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
