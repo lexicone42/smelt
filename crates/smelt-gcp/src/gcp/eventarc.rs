@@ -158,7 +158,10 @@ impl GcpProvider {
         if let Some(v) = event_filters {
             model = model.set_event_filters(v);
         }
-        // Do NOT set model.name on create — name passed via set_trigger_id on request
+        model = model.set_name(format!(
+            "projects/{}/locations/{}/triggers/{}",
+            self.project_id, self.region, name
+        ));
         if let Some(v) = retry_policy {
             model = model.set_retry_policy(v);
         }

@@ -3482,52 +3482,25 @@ async fn gcp_compute_router_crud() {
         .expect("GCP provider init");
     let name = test_name("rtr");
 
-    // Create network first
-    let net_name = format!("{name}-net");
-    println!("[SETUP] Creating VPC network...");
-    let net = provider
-        .create(
-            "compute.Network",
-            &serde_json::json!({
-                "identity": { "name": &net_name },
-                "network": { "auto_create_subnetworks": false, "routing_mode": "REGIONAL" }
-            }),
-        )
-        .await
-        .expect("Network create failed");
-    println!("  network = {}", net.provider_id);
-
-    // VPC propagation can take 15-35s
-    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-
+    // Use the default network (avoids VPC propagation delays)
     let config = serde_json::json!({
         "identity": {
             "name": &name,
             "description": "smelt live test router",
         },
         "network": {
-            "network": format!("projects/{project}/global/networks/{net_name}"),
+            "network": format!("projects/{project}/global/networks/default"),
         },
     });
 
     let (created, _read, changes) = crud_cycle(&provider, "compute.Router", &config, &name).await;
 
-    // Cleanup: delete router then network
     println!("\n[DELETE] compute.Router...");
     provider
         .delete("compute.Router", &created.provider_id)
         .await
         .expect("Router DELETE failed");
-    println!("  Deleted router.");
-
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-
-    println!("[DELETE] compute.Network...");
-    provider
-        .delete("compute.Network", &net.provider_id)
-        .await
-        .expect("Network DELETE failed");
-    println!("  Deleted network.");
+    println!("  Deleted.");
 
     if !changes.is_empty() {
         println!("\n** DRIFT: {} diff(s)", changes.len());
@@ -3943,6 +3916,418 @@ async fn gcp_certificatemanager_dnsauthorization_crud() {
     if !changes.is_empty() {
         println!("\n** DRIFT: {} diff(s)", changes.len());
         for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Private CA — CaPool (DEVOPS tier, cheapest)
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_privateca_capool_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("capool");
+
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+        "config": {
+            "tier": "DEVOPS",
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "privateca.CaPool", &config, &name).await;
+
+    println!("\n[DELETE] privateca.CaPool...");
+    provider
+        .delete("privateca.CaPool", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Private CA — CertificateAuthority (SELF_SIGNED root CA in DEVOPS pool)
+// Depends on CaPool. CA creation is an LRO (~30s).
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_privateca_certificateauthority_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let pool_name = format!("smelt-test-capool-{ts}");
+    let ca_name = format!("smelt-test-ca-{ts}");
+
+    // ── 1. Create CaPool ──
+    println!("[SETUP] Creating CaPool...");
+    let pool = provider
+        .create(
+            "privateca.CaPool",
+            &serde_json::json!({
+                "identity": { "name": &pool_name },
+                "config": { "tier": "DEVOPS" },
+            }),
+        )
+        .await
+        .expect("CaPool create failed");
+    println!("  pool = {}", pool.provider_id);
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    // ── 2. Create CertificateAuthority ──
+    // The CA config needs: type SELF_SIGNED, a config with subject + x509 ca_options,
+    // a key_spec with algorithm, and a lifetime.
+    // All nested objects use camelCase (SDK serde convention).
+    let ca_config = serde_json::json!({
+        "identity": {
+            "name": &ca_name,
+            "ca_pool_id": &pool.provider_id,
+        },
+        "config": {
+            "type": "SELF_SIGNED",
+            "lifetime": "315360000s",
+            "config": {
+                "subjectConfig": {
+                    "subject": {
+                        "organization": "Smelt Test",
+                        "commonName": "smelt-test-ca",
+                    },
+                },
+                "x509Config": {
+                    "caOptions": {
+                        "isCa": true,
+                    },
+                },
+            },
+            "key_spec": {
+                "algorithm": "EC_P256_SHA256",
+            },
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(
+        &provider,
+        "privateca.CertificateAuthority",
+        &ca_config,
+        &ca_name,
+    )
+    .await;
+
+    // ── Cleanup (reverse order) ──
+    // CA must be disabled before deletion — but the provider's delete handles this.
+    println!("\n[DELETE] privateca.CertificateAuthority...");
+    provider
+        .delete("privateca.CertificateAuthority", &created.provider_id)
+        .await
+        .expect("DELETE CA failed");
+    println!("  Deleted CA.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    println!("[DELETE] privateca.CaPool...");
+    provider
+        .delete("privateca.CaPool", &pool.provider_id)
+        .await
+        .expect("DELETE CaPool failed");
+    println!("  Deleted CaPool.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Eventarc Trigger — Cloud Audit Log trigger with Cloud Run destination
+// NOTE: Eventarc triggers require a real Cloud Run service for the
+// destination. This test creates a minimal Cloud Run service first.
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_eventarc_trigger_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let run_name = format!("smelt-test-evarc-{}", ts % 1_000_000);
+    let trigger_name = format!("smelt-test-trig-{ts}");
+
+    // ── 1. Create a Cloud Run service as destination ──
+    println!("[SETUP] Creating Cloud Run service for trigger destination...");
+    let run_svc = provider
+        .create(
+            "run.Service",
+            &serde_json::json!({
+                "identity": { "name": &run_name },
+                "config": {
+                    "template": {
+                        "containers": [{
+                            "image": "us-docker.pkg.dev/cloudrun/container/hello:latest",
+                        }],
+                    },
+                },
+            }),
+        )
+        .await
+        .expect("Cloud Run service create failed");
+    println!("  run service = {}", run_svc.provider_id);
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    // ── 2. Create Eventarc Trigger ──
+    // Destination uses camelCase SDK serialization: "cloudRun" with "service" and "region".
+    // Event filters: audit log for Cloud Run admin activity.
+    let trigger_config = serde_json::json!({
+        "identity": {
+            "name": &trigger_name,
+        },
+        "config": {
+            "destination": {
+                "cloudRun": {
+                    "service": &run_name,
+                    "region": REGION,
+                },
+            },
+            "event_filters": [
+                { "attribute": "type", "value": "google.cloud.audit.log.v1.written" },
+                { "attribute": "serviceName", "value": "run.googleapis.com" },
+                { "attribute": "methodName", "value": "google.cloud.run.v2.Services.CreateService", "operator": "match-path-pattern" },
+            ],
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(
+        &provider,
+        "eventarc.Trigger",
+        &trigger_config,
+        &trigger_name,
+    )
+    .await;
+
+    // ── Cleanup (reverse order) ──
+    println!("\n[DELETE] eventarc.Trigger...");
+    provider
+        .delete("eventarc.Trigger", &created.provider_id)
+        .await
+        .expect("DELETE trigger failed");
+    println!("  Deleted trigger.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    println!("[DELETE] run.Service...");
+    provider
+        .delete("run.Service", &run_svc.provider_id)
+        .await
+        .expect("DELETE run service failed");
+    println!("  Deleted run service.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Cloud Functions (Gen2) — SKIPPED
+// Requires a GCS bucket with actual source code (zip archive) uploaded.
+// The build_config.source.storageSource needs a real object in GCS.
+// Too complex for a minimal CRUD test — would need to create a bucket,
+// upload a zip with function source, then create the function.
+// ═══════════════════════════════════════════════════════════════
+
+// #[tokio::test]
+// #[ignore]
+// async fn gcp_functions_function_crud() {
+//     // SKIPPED: Cloud Functions Gen2 requires a GCS bucket with uploaded source
+//     // code archive. The build_config.source.storageSource.bucket and
+//     // build_config.source.storageSource.object fields must point to a real
+//     // zip file containing function source code. This makes it impractical
+//     // for a simple CRUD test without a pre-existing test fixture.
+// }
+
+// ═══════════════════════════════════════════════════════════════
+// Compute VpnGateway — uses default network to avoid VPC propagation delay
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_compute_vpngateway_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("vpngw");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test vpn gateway",
+        },
+        "config": {
+            "stack_type": "IPV4_ONLY",
+        },
+        "network": {
+            "network": format!("projects/{project}/global/networks/default"),
+        },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "compute.VpnGateway", &config, &name).await;
+
+    // VPN Gateway needs time to become ready before delete
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    println!("\n[DELETE] compute.VpnGateway...");
+    provider
+        .delete("compute.VpnGateway", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Network Connectivity Hub + Spoke — Spoke links a VPC to a Hub
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_networkconnectivity_hub_spoke_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let hub_name = format!("smelt-test-hub-{ts}");
+    let spoke_name = format!("smelt-test-spoke-{ts}");
+    let net_name = format!("smelt-test-nchub-{}", ts % 1_000_000);
+
+    // ── 1. Create VPC Network for the spoke ──
+    println!("[SETUP] Creating VPC network...");
+    let net = provider
+        .create(
+            "compute.Network",
+            &serde_json::json!({
+                "identity": { "name": &net_name },
+                "network": { "auto_create_subnetworks": false, "routing_mode": "REGIONAL" },
+            }),
+        )
+        .await
+        .expect("Network create failed");
+    println!("  network = {}", net.provider_id);
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    // ── 2. Create Hub ──
+    println!("\n[SETUP] Creating Hub...");
+    let hub_config = serde_json::json!({
+        "identity": {
+            "name": &hub_name,
+            "description": "smelt live test hub",
+        },
+    });
+    let (hub_created, _hub_read, hub_changes) =
+        crud_cycle(&provider, "networkconnectivity.Hub", &hub_config, &hub_name).await;
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    // ── 3. Create Spoke (linked VPC network) ──
+    // linked_vpc_network uses camelCase SDK serialization: "uri" for the VPC self-link.
+    let spoke_config = serde_json::json!({
+        "identity": {
+            "name": &spoke_name,
+            "description": "smelt live test spoke",
+        },
+        "config": {
+            "hub": &hub_created.provider_id,
+            "linked_vpc_network": {
+                "uri": format!("projects/{project}/global/networks/{net_name}"),
+            },
+        },
+    });
+
+    let (spoke_created, _spoke_read, spoke_changes) = crud_cycle(
+        &provider,
+        "networkconnectivity.Spoke",
+        &spoke_config,
+        &spoke_name,
+    )
+    .await;
+
+    // ── Cleanup (reverse order: spoke -> hub -> network) ──
+    println!("\n[DELETE] networkconnectivity.Spoke...");
+    provider
+        .delete("networkconnectivity.Spoke", &spoke_created.provider_id)
+        .await
+        .expect("DELETE spoke failed");
+    println!("  Deleted spoke.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    println!("[DELETE] networkconnectivity.Hub...");
+    provider
+        .delete("networkconnectivity.Hub", &hub_created.provider_id)
+        .await
+        .expect("DELETE hub failed");
+    println!("  Deleted hub.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    println!("[DELETE] compute.Network...");
+    provider
+        .delete("compute.Network", &net.provider_id)
+        .await
+        .expect("DELETE network failed");
+    println!("  Deleted network.");
+
+    println!("\n=== Hub diffs ===");
+    if !hub_changes.is_empty() {
+        println!("** DRIFT: {} diff(s)", hub_changes.len());
+        for c in &hub_changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+    println!("=== Spoke diffs ===");
+    if !spoke_changes.is_empty() {
+        println!("** DRIFT: {} diff(s)", spoke_changes.len());
+        for c in &spoke_changes {
             println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
         }
     }

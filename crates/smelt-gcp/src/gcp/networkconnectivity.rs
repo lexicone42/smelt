@@ -450,7 +450,7 @@ impl GcpProvider {
         model = model.set_labels(labels);
 
         // Make API call
-        let parent = format!("projects/{}/locations/{}", self.project_id, self.region);
+        let parent = format!("projects/{}/locations/global", self.project_id);
         self.hub_service()
             .await?
             .create_spoke()
@@ -463,8 +463,8 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("Create_spoke Spoke", e))?;
 
         let provider_id = format!(
-            "projects/{}/locations/{}/spokes/{}",
-            self.project_id, self.region, name
+            "projects/{}/locations/global/spokes/{}",
+            self.project_id, name
         );
         self.read_networkconnectivity_spoke(&provider_id).await
     }
