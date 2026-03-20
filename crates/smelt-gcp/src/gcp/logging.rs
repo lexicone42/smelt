@@ -160,7 +160,7 @@ impl GcpProvider {
             .map_err(|e| super::classify_gcp_error("Create_bucket LogBucket", e))?;
 
         let provider_id = format!(
-            "projects/{}/locations/{}/log_buckets/{}",
+            "projects/{}/locations/{}/buckets/{}",
             self.project_id, self.region, name
         );
         self.read_logging_logbucket(&provider_id).await

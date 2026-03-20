@@ -898,11 +898,11 @@ fn build_registry() -> smelt::provider::ProviderRegistry {
         .block_on(GcpProvider::from_env(&gcp_project, &gcp_region))
         .expect("Failed to initialize GCP provider");
     registry.register(TracingProvider::wrap(Box::new(gcp_provider)));
-    registry.register(TracingProvider::wrap(Box::new(CloudflareProvider::new(
-        "default",
-    ))));
     registry.register(TracingProvider::wrap(Box::new(
-        GoogleWorkspaceProvider::new("default"),
+        CloudflareProvider::from_env(),
+    )));
+    registry.register(TracingProvider::wrap(Box::new(
+        GoogleWorkspaceProvider::from_env(),
     )));
     registry
 }

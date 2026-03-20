@@ -565,7 +565,7 @@ impl GcpProvider {
         model = model.set_labels(labels);
 
         // Make API call
-        let parent = format!("projects/{}", self.project_id);
+        let parent = format!("projects/{}/locations/global", self.project_id);
         self.network_services()
             .await?
             .create_mesh()
@@ -577,7 +577,10 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_mesh Mesh", e))?;
 
-        let provider_id = format!("projects/{}/meshes/{}", self.project_id, name);
+        let provider_id = format!(
+            "projects/{}/locations/global/meshes/{}",
+            self.project_id, name
+        );
         self.read_networkservices_mesh(&provider_id).await
     }
 
@@ -835,7 +838,7 @@ impl GcpProvider {
         model = model.set_labels(labels);
 
         // Make API call
-        let parent = format!("projects/{}", self.project_id);
+        let parent = format!("projects/{}/locations/global", self.project_id);
         self.network_services()
             .await?
             .create_http_route()
@@ -1120,7 +1123,7 @@ impl GcpProvider {
         model = model.set_labels(labels);
 
         // Make API call
-        let parent = format!("projects/{}", self.project_id);
+        let parent = format!("projects/{}/locations/global", self.project_id);
         self.network_services()
             .await?
             .create_grpc_route()

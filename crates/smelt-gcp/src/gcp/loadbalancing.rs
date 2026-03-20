@@ -1135,11 +1135,30 @@ impl GcpProvider {
             serde_json::from_value::<google_cloud_compute_v1::model::TCPHealthCheck>(v.clone()).ok()
         });
         let timeout_sec = config.optional_i64("/config/timeout_sec");
-        let type_val = config.optional_str("/config/type").map(String::from);
+        let _type_val = config.optional_str("/config/type").map(String::from);
         let unhealthy_threshold = config.optional_i64("/config/unhealthy_threshold");
+
+        // Determine type from which check config is provided (before values are moved).
+        // The SDK default is "INVALID" which GCP rejects.
+        let hc_type = if tcp_health_check.is_some() {
+            "TCP"
+        } else if http_health_check.is_some() {
+            "HTTP"
+        } else if https_health_check.is_some() {
+            "HTTPS"
+        } else if grpc_health_check.is_some() {
+            "GRPC"
+        } else if ssl_health_check.is_some() {
+            "SSL"
+        } else if http_2_health_check.is_some() {
+            "HTTP2"
+        } else {
+            "TCP" // default
+        };
 
         // Build SDK model
         let mut model = google_cloud_compute_v1::model::HealthCheck::default();
+        model = model.set_type(hc_type);
         if let Some(v) = check_interval_sec {
             model = model.set_check_interval_sec(i32::try_from(v).map_err(|_| {
                 ProviderError::InvalidConfig(format!(
@@ -1189,11 +1208,6 @@ impl GcpProvider {
             model = model.set_timeout_sec(i32::try_from(v).map_err(|_| {
                 ProviderError::InvalidConfig(format!("timeout_sec: value {v} out of range for i32"))
             })?);
-        }
-        if let Some(ref s) = type_val {
-            model = model.set_type(google_cloud_compute_v1::model::health_check::Type::from(
-                s.as_str(),
-            ));
         }
         if let Some(v) = unhealthy_threshold {
             model = model.set_unhealthy_threshold(i32::try_from(v).map_err(|_| {
@@ -1320,10 +1334,28 @@ impl GcpProvider {
             serde_json::from_value::<google_cloud_compute_v1::model::TCPHealthCheck>(v.clone()).ok()
         });
         let timeout_sec = config.optional_i64("/config/timeout_sec");
-        let type_val = config.optional_str("/config/type").map(String::from);
+        let _type_val = config.optional_str("/config/type").map(String::from);
         let unhealthy_threshold = config.optional_i64("/config/unhealthy_threshold");
 
+        // Determine type before values are moved into the model
+        let hc_type = if tcp_health_check.is_some() {
+            "TCP"
+        } else if http_health_check.is_some() {
+            "HTTP"
+        } else if https_health_check.is_some() {
+            "HTTPS"
+        } else if grpc_health_check.is_some() {
+            "GRPC"
+        } else if ssl_health_check.is_some() {
+            "SSL"
+        } else if http_2_health_check.is_some() {
+            "HTTP2"
+        } else {
+            "TCP"
+        };
+
         let mut model = google_cloud_compute_v1::model::HealthCheck::default();
+        model = model.set_type(hc_type);
         if let Some(v) = check_interval_sec {
             model = model.set_check_interval_sec(i32::try_from(v).map_err(|_| {
                 ProviderError::InvalidConfig(format!(
@@ -1372,11 +1404,6 @@ impl GcpProvider {
             model = model.set_timeout_sec(i32::try_from(v).map_err(|_| {
                 ProviderError::InvalidConfig(format!("timeout_sec: value {v} out of range for i32"))
             })?);
-        }
-        if let Some(ref s) = type_val {
-            model = model.set_type(google_cloud_compute_v1::model::health_check::Type::from(
-                s.as_str(),
-            ));
         }
         if let Some(v) = unhealthy_threshold {
             model = model.set_unhealthy_threshold(i32::try_from(v).map_err(|_| {

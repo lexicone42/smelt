@@ -1,0 +1,55 @@
+resource zone "main" : cloudflare.dns.Zone {
+  @intent "DNS zone for example.com"
+
+  identity {
+    name = "example.com"
+  }
+}
+
+resource record "www" : cloudflare.dns.Record {
+  @intent "A record for www.example.com"
+
+  needs zone.main -> zone_id
+
+  dns {
+    content = "93.184.216.34"
+    proxied = true
+    ttl = 300
+    type = "A"
+  }
+
+  identity {
+    name = "www.example.com"
+  }
+}
+
+resource record "api" : cloudflare.dns.Record {
+  @intent "CNAME record for api.example.com"
+
+  needs zone.main -> zone_id
+
+  dns {
+    content = "api-lb.example.com"
+    proxied = true
+    type = "CNAME"
+  }
+
+  identity {
+    name = "api.example.com"
+  }
+}
+
+resource record "mail" : cloudflare.dns.Record {
+  @intent "MX record for mail delivery"
+
+  needs zone.main -> zone_id
+
+  dns {
+    content = "10 mail.example.com"
+    type = "MX"
+  }
+
+  identity {
+    name = "example.com"
+  }
+}

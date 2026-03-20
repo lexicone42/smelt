@@ -1,0 +1,49 @@
+resource group "engineering" : google_workspace.directory.Group {
+  @intent "Engineering team group"
+
+  identity {
+    description = "Engineering team distribution group"
+    email = "engineering@example.com"
+    name = "Engineering"
+  }
+}
+
+resource group "devops" : google_workspace.directory.Group {
+  @intent "DevOps team group"
+
+  identity {
+    description = "DevOps and infrastructure team"
+    email = "devops@example.com"
+    name = "DevOps"
+  }
+}
+
+resource user "alice" : google_workspace.directory.User {
+  @intent "Alice - engineering lead"
+
+  access {
+    is_admin = false
+    org_unit_path = "/Engineering"
+  }
+
+  identity {
+    family_name = "Smith"
+    given_name = "Alice"
+    primary_email = "alice@example.com"
+  }
+}
+
+resource user "bob" : google_workspace.directory.User {
+  @intent "Bob - platform admin"
+
+  access {
+    is_admin = true
+    org_unit_path = "/Engineering/Platform"
+  }
+
+  identity {
+    family_name = "Jones"
+    given_name = "Bob"
+    primary_email = "bob@example.com"
+  }
+}

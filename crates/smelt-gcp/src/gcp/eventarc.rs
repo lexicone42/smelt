@@ -423,7 +423,10 @@ impl GcpProvider {
         if let Some(v) = crypto_key_name {
             model = model.set_crypto_key_name(v);
         }
-        // Do NOT set model.name on create — name passed via set_channel_id on request
+        model = model.set_name(format!(
+            "projects/{}/locations/{}/channels/{}",
+            self.project_id, self.region, name
+        ));
         if let Some(v) = provider {
             model = model.set_provider(v);
         }

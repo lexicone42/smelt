@@ -138,7 +138,7 @@ impl GcpProvider {
         model = model.set_labels(labels);
 
         // Make API call
-        let parent = format!("projects/{}", self.project_id);
+        let parent = format!("projects/{}/locations/global", self.project_id);
         self.hub_service()
             .await?
             .create_hub()
@@ -150,7 +150,10 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_hub Hub", e))?;
 
-        let provider_id = format!("projects/{}/hubs/{}", self.project_id, name);
+        let provider_id = format!(
+            "projects/{}/locations/global/hubs/{}",
+            self.project_id, name
+        );
         self.read_networkconnectivity_hub(&provider_id).await
     }
 

@@ -1329,7 +1329,7 @@ impl GcpProvider {
             .map(String::from);
         let filter = config.optional_str("/config/filter").map(String::from);
         let is_cluster = config.optional_bool("/config/is_cluster");
-        let name = config.require_str("/identity/name")?.to_string();
+        let _name = config.require_str("/identity/name")?.to_string();
         let parent_name = config.optional_str("/config/parent_name").map(String::from);
 
         // Build SDK model
@@ -1343,14 +1343,14 @@ impl GcpProvider {
         if let Some(v) = is_cluster {
             model = model.set_is_cluster(v);
         }
-        model = model.set_name(name.clone());
         if let Some(v) = parent_name {
             model = model.set_parent_name(v);
         }
 
-        // Make API call
+        // Make API call — do NOT set name on model; it is assigned by the API
         let parent = format!("projects/{}", self.project_id);
-        self.monitoring_groups()
+        let created = self
+            .monitoring_groups()
             .await?
             .create_group()
             .set_name(&parent)
@@ -1359,7 +1359,7 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_group Group", e))?;
 
-        let provider_id = format!("projects/{}/groups/{}", self.project_id, name);
+        let provider_id = created.name.clone();
         self.read_monitoring_group(&provider_id).await
     }
 
