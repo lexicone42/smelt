@@ -1241,6 +1241,72 @@ pub(crate) fn strip_gcp_metadata(state: &mut serde_json::Value) {
             }
         }
     }
+
+    // Recursively strip nulls, empty arrays, empty objects, and empty strings.
+    // These are server-added defaults that carry no semantic meaning
+    // and cause false diffs when compared against user configs.
+    strip_empty_values(state);
+
+    // Recursively strip `kind` fields (GCP adds "compute#attachedDisk" etc.
+    // to every nested object) and normalize GCP API URLs to short paths.
+    strip_server_noise(state);
+}
+
+/// Recursively remove null values, empty arrays `[]`, and empty objects `{}`
+/// from a JSON value. This prevents false diffs from GCP's habit of returning
+/// all optional fields as null and all list fields as empty arrays.
+fn strip_empty_values(value: &mut serde_json::Value) {
+    if let Some(obj) = value.as_object_mut() {
+        // Recurse into children first
+        for val in obj.values_mut() {
+            strip_empty_values(val);
+        }
+        // Then remove keys whose values are null, empty array, empty object,
+        // or empty string (GCP returns "" for unset optional string fields).
+        // Note: we do NOT strip false booleans here — the user may have explicitly
+        // set false (e.g., auto_create_subnetworks: false). False-default stripping
+        // is handled by schema default injection in the plan engine instead.
+        obj.retain(|_, v| {
+            !v.is_null()
+                && !matches!(v, serde_json::Value::Array(a) if a.is_empty())
+                && !matches!(v, serde_json::Value::Object(o) if o.is_empty())
+                && !matches!(v, serde_json::Value::String(s) if s.is_empty())
+        });
+    } else if let Some(arr) = value.as_array_mut() {
+        for item in arr.iter_mut() {
+            strip_empty_values(item);
+        }
+    }
+}
+
+/// Recursively strip server-only noise fields and normalize URLs.
+///
+/// - Removes `kind` keys at all levels (e.g., `"kind": "compute#attachedDisk"`)
+/// - Normalizes GCP API URLs to short resource paths
+/// - Strips `false` boolean defaults that GCP adds but users don't specify
+fn strip_server_noise(value: &mut serde_json::Value) {
+    // Server-only fields that appear at any nesting level
+    const NOISE_FIELDS: &[&str] = &["kind"];
+
+    if let Some(obj) = value.as_object_mut() {
+        for field in NOISE_FIELDS {
+            obj.remove(*field);
+        }
+        // Normalize URL strings and recurse
+        for val in obj.values_mut() {
+            if let Some(s) = val.as_str() {
+                let normalized = normalize_gcp_url(s);
+                if normalized != s {
+                    *val = serde_json::Value::String(normalized.to_string());
+                }
+            }
+            strip_server_noise(val);
+        }
+    } else if let Some(arr) = value.as_array_mut() {
+        for item in arr.iter_mut() {
+            strip_server_noise(item);
+        }
+    }
 }
 
 /// Recursively convert camelCase JSON keys to snake_case.
