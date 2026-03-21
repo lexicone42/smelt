@@ -5056,24 +5056,7 @@ async fn gcp_filestore_backup_crud() {
         .expect("GCP provider init");
     let name = test_name("fsbak");
 
-    // 1. Create VPC for filestore
-    let net_name = format!("{name}-net");
-    println!("[SETUP] Creating VPC network...");
-    let net = provider
-        .create(
-            "compute.Network",
-            &serde_json::json!({
-                "identity": { "name": &net_name },
-                "network": { "auto_create_subnetworks": true, "routing_mode": "REGIONAL" }
-            }),
-        )
-        .await
-        .expect("Network create failed");
-    println!("  network = {}", net.provider_id);
-
-    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-
-    // 2. Create Filestore Instance (BASIC_HDD, 1 TiB min, zone-aware)
+    // 1. Create Filestore Instance (BASIC_HDD, 1 TiB min, zone-aware) using default network
     let inst_name = format!("{name}-inst");
     println!("[SETUP] Creating Filestore Instance (this takes ~5-10 minutes)...");
     let inst = provider
@@ -5091,7 +5074,7 @@ async fn gcp_filestore_backup_crud() {
                         "capacity_gb": 1024,
                     }],
                     "networks": [{
-                        "network": format!("projects/{project}/global/networks/{net_name}"),
+                        "network": format!("projects/{project}/global/networks/default"),
                         "modes": ["MODE_IPV4"],
                     }],
                 },
@@ -5120,7 +5103,7 @@ async fn gcp_filestore_backup_crud() {
 
     let (created, _read, changes) = crud_cycle(&provider, "filestore.Backup", &config, &name).await;
 
-    // Cleanup: backup -> instance -> network
+    // Cleanup: backup -> instance
     println!("\n[DELETE] filestore.Backup...");
     provider
         .delete("filestore.Backup", &created.provider_id)
@@ -5136,15 +5119,6 @@ async fn gcp_filestore_backup_crud() {
         .await
         .expect("Filestore Instance DELETE failed");
     println!("  Deleted filestore instance.");
-
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-
-    println!("[DELETE] compute.Network...");
-    provider
-        .delete("compute.Network", &net.provider_id)
-        .await
-        .expect("Network DELETE failed");
-    println!("  Deleted network.");
 
     if !changes.is_empty() {
         println!("\n** DRIFT: {} diff(s)", changes.len());
@@ -5179,24 +5153,7 @@ async fn gcp_alloydb_cluster_instance_crud() {
         .expect("GCP provider init");
     let name = test_name("adb");
 
-    // 1. Create VPC network (AlloyDB needs a VPC)
-    let net_name = format!("{name}-net");
-    println!("[SETUP] Creating VPC network...");
-    let net = provider
-        .create(
-            "compute.Network",
-            &serde_json::json!({
-                "identity": { "name": &net_name },
-                "network": { "auto_create_subnetworks": true, "routing_mode": "REGIONAL" }
-            }),
-        )
-        .await
-        .expect("Network create failed");
-    println!("  network = {}", net.provider_id);
-
-    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-
-    // 2. Create AlloyDB Cluster
+    // 1. Create AlloyDB Cluster (using default network)
     let cluster_name = format!("{name}-cl");
     println!("\n[SETUP] Creating AlloyDB Cluster (this takes ~5-10 minutes)...");
     let cluster_config = serde_json::json!({
@@ -5207,7 +5164,7 @@ async fn gcp_alloydb_cluster_instance_crud() {
         "config": {
             "database_version": "POSTGRES_15",
             "network_config": {
-                "network": format!("projects/{project}/global/networks/{net_name}"),
+                "network": format!("projects/{project}/global/networks/default"),
             },
             "initial_user": {
                 "user": "postgres",
@@ -5275,7 +5232,7 @@ async fn gcp_alloydb_cluster_instance_crud() {
         println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
     }
 
-    // Cleanup: instance -> cluster -> network
+    // Cleanup: instance -> cluster
     println!("\n[DELETE] alloydb.Instance...");
     provider
         .delete("alloydb.Instance", &instance.provider_id)
@@ -5291,15 +5248,6 @@ async fn gcp_alloydb_cluster_instance_crud() {
         .await
         .expect("Cluster DELETE failed");
     println!("  Deleted cluster.");
-
-    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-
-    println!("[DELETE] compute.Network...");
-    provider
-        .delete("compute.Network", &net.provider_id)
-        .await
-        .expect("Network DELETE failed");
-    println!("  Deleted network.");
 
     println!("\n=== AlloyDB Cluster diffs: {} ===", cluster_changes.len());
     println!("=== AlloyDB Instance diffs: {} ===", inst_changes.len());
@@ -5320,44 +5268,7 @@ async fn gcp_workstations_cluster_config_crud() {
         .expect("GCP provider init");
     let name = test_name("wscl");
 
-    // 1. Create VPC
-    let net_name = format!("{name}-net");
-    println!("[SETUP] Creating VPC network...");
-    let net = provider
-        .create(
-            "compute.Network",
-            &serde_json::json!({
-                "identity": { "name": &net_name },
-                "network": { "auto_create_subnetworks": false, "routing_mode": "REGIONAL" }
-            }),
-        )
-        .await
-        .expect("Network create failed");
-    println!("  network = {}", net.provider_id);
-
-    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-
-    // 2. Create Subnet
-    let sub_name = format!("{name}-sub");
-    println!("[SETUP] Creating Subnet...");
-    let sub = provider
-        .create(
-            "compute.Subnetwork",
-            &serde_json::json!({
-                "identity": { "name": &sub_name },
-                "network": {
-                    "network": format!("projects/{project}/global/networks/{net_name}"),
-                    "ip_cidr_range": "10.0.0.0/24",
-                },
-            }),
-        )
-        .await
-        .expect("Subnet create failed");
-    println!("  subnet = {}", sub.provider_id);
-
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-
-    // 3. Create WorkstationCluster
+    // 1. Create WorkstationCluster (using default network + subnet)
     let cluster_name = format!("{name}-cl");
     println!("\n[SETUP] Creating WorkstationCluster (this takes ~10-15 minutes)...");
     let cluster_config = serde_json::json!({
@@ -5366,8 +5277,8 @@ async fn gcp_workstations_cluster_config_crud() {
             "display_name": "smelt workstation cluster test",
         },
         "network": {
-            "network": format!("projects/{project}/global/networks/{net_name}"),
-            "subnetwork": format!("projects/{project}/regions/{REGION}/subnetworks/{sub_name}"),
+            "network": format!("projects/{project}/global/networks/default"),
+            "subnetwork": format!("projects/{project}/regions/{REGION}/subnetworks/default"),
         },
     });
 
@@ -5436,7 +5347,7 @@ async fn gcp_workstations_cluster_config_crud() {
         println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
     }
 
-    // Cleanup: config -> cluster -> subnet -> network
+    // Cleanup: config -> cluster
     println!("\n[DELETE] workstations.WorkstationConfig...");
     provider
         .delete("workstations.WorkstationConfig", &ws_config.provider_id)
@@ -5452,24 +5363,6 @@ async fn gcp_workstations_cluster_config_crud() {
         .await
         .expect("WorkstationCluster DELETE failed");
     println!("  Deleted cluster.");
-
-    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-
-    println!("[DELETE] compute.Subnetwork...");
-    provider
-        .delete("compute.Subnetwork", &sub.provider_id)
-        .await
-        .expect("Subnet DELETE failed");
-    println!("  Deleted subnet.");
-
-    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-
-    println!("[DELETE] compute.Network...");
-    provider
-        .delete("compute.Network", &net.provider_id)
-        .await
-        .expect("Network DELETE failed");
-    println!("  Deleted network.");
 
     println!(
         "\n=== WorkstationCluster diffs: {} ===",
