@@ -159,17 +159,28 @@ impl GcpProvider {
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
 
-        let state = serde_json::json!({
+        // Convert action proto enum integer to string
+        let action_str = match authorization_policy.action.value() {
+            Some(1) => "ALLOW",
+            Some(2) => "DENY",
+            _ => "ACTION_UNSPECIFIED",
+        };
+
+        let mut state = serde_json::json!({
             "identity": {
                 "description": authorization_policy.description.as_str(),
-                "labels": user_labels,
                 "name": authorization_policy.name.as_str(),
             },
             "config": {
-                "action": &authorization_policy.action,
-                "rules": &authorization_policy.rules,
+                "action": action_str,
             },
         });
+        if !user_labels.is_empty() {
+            state["identity"]["labels"] = serde_json::Value::Object(user_labels);
+        }
+        if !authorization_policy.rules.is_empty() {
+            state["config"]["rules"] = serde_json::json!(&authorization_policy.rules);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&authorization_policy.name));

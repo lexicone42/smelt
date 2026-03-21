@@ -743,18 +743,28 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetPolicy", e))?;
 
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "identity": {
-                "description": policy.description.as_deref().unwrap_or(""),
                 "name": policy.name.as_deref().unwrap_or(""),
             },
-            "config": {
-                "dns_64_config": &policy.dns_64_config,
-                "enable_inbound_forwarding": policy.enable_inbound_forwarding.unwrap_or(false),
-                "enable_logging": policy.enable_logging.unwrap_or(false),
-                "networks": &policy.networks,
-            },
         });
+        // Conditionally include optional fields — skip defaults
+        if let Some(desc) = policy.description.as_deref().filter(|s| !s.is_empty()) {
+            state["identity"]["description"] = serde_json::json!(desc);
+        }
+        // Only include boolean config fields when true (false is the default)
+        if policy.enable_inbound_forwarding.unwrap_or(false) {
+            state["config"]["enable_inbound_forwarding"] = serde_json::json!(true);
+        }
+        if policy.enable_logging.unwrap_or(false) {
+            state["config"]["enable_logging"] = serde_json::json!(true);
+        }
+        // dns_64_config: server always adds {scope: {allQueries: false}} which after
+        // strip_empty_values becomes {scope: {}} — a non-empty diff. Never include it
+        // since users don't specify it directly (it's a server-added default).
+        if !policy.networks.is_empty() {
+            state["config"]["networks"] = serde_json::json!(&policy.networks);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&policy.name));

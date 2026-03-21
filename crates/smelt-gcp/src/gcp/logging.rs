@@ -184,20 +184,34 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetLogBucket", e))?;
 
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "identity": {
-                "description": log_bucket.description.as_str(),
                 "name": log_bucket.name.as_str(),
             },
             "config": {
-                "analytics_enabled": log_bucket.analytics_enabled,
-                "cmek_settings": &log_bucket.cmek_settings,
-                "index_configs": &log_bucket.index_configs,
-                "locked": log_bucket.locked,
-                "restricted_fields": &log_bucket.restricted_fields,
                 "retention_days": log_bucket.retention_days,
             },
         });
+        // Conditionally include optional fields — skip defaults
+        let desc = log_bucket.description.as_str();
+        if !desc.is_empty() {
+            state["identity"]["description"] = serde_json::json!(desc);
+        }
+        if log_bucket.analytics_enabled {
+            state["config"]["analytics_enabled"] = serde_json::json!(true);
+        }
+        if log_bucket.locked {
+            state["config"]["locked"] = serde_json::json!(true);
+        }
+        if log_bucket.cmek_settings.is_some() {
+            state["config"]["cmek_settings"] = serde_json::json!(&log_bucket.cmek_settings);
+        }
+        if !log_bucket.index_configs.is_empty() {
+            state["config"]["index_configs"] = serde_json::json!(&log_bucket.index_configs);
+        }
+        if !log_bucket.restricted_fields.is_empty() {
+            state["config"]["restricted_fields"] = serde_json::json!(&log_bucket.restricted_fields);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&log_bucket.name));

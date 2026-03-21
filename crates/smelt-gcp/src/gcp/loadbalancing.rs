@@ -1246,28 +1246,59 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetHealthCheck", e))?;
 
-        let state = serde_json::json!({
+        // Helper: strip proxyHeader "NONE" (the default) from health check sub-objects
+        let strip_proxy_header_none = |v: &serde_json::Value| -> serde_json::Value {
+            let mut cleaned = v.clone();
+            if let Some(obj) = cleaned.as_object_mut() {
+                if obj.get("proxyHeader").and_then(|v| v.as_str()) == Some("NONE") {
+                    obj.remove("proxyHeader");
+                }
+            }
+            cleaned
+        };
+
+        let mut state = serde_json::json!({
             "identity": {
                 "description": health_check.description.as_deref().unwrap_or(""),
                 "name": health_check.name.as_deref().unwrap_or(""),
             },
             "config": {
                 "check_interval_sec": health_check.check_interval_sec.unwrap_or(0),
-                "grpc_health_check": &health_check.grpc_health_check,
-                "grpc_tls_health_check": &health_check.grpc_tls_health_check,
                 "healthy_threshold": health_check.healthy_threshold.unwrap_or(0),
-                "http_2_health_check": &health_check.http_2_health_check,
-                "http_health_check": &health_check.http_health_check,
-                "https_health_check": &health_check.https_health_check,
-                "log_config": &health_check.log_config,
-                "source_regions": &health_check.source_regions,
-                "ssl_health_check": &health_check.ssl_health_check,
-                "tcp_health_check": &health_check.tcp_health_check,
                 "timeout_sec": health_check.timeout_sec.unwrap_or(0),
-                "type": &health_check.r#type,
                 "unhealthy_threshold": health_check.unhealthy_threshold.unwrap_or(0),
             },
         });
+        // Skip: type (determined by which check config is present — server-generated)
+        // Conditionally include health check sub-objects, stripping proxyHeader defaults
+        if let Some(ref v) = health_check.grpc_health_check {
+            state["config"]["grpc_health_check"] = strip_proxy_header_none(&serde_json::json!(v));
+        }
+        if let Some(ref v) = health_check.grpc_tls_health_check {
+            state["config"]["grpc_tls_health_check"] =
+                strip_proxy_header_none(&serde_json::json!(v));
+        }
+        if let Some(ref v) = health_check.http_2_health_check {
+            state["config"]["http_2_health_check"] = strip_proxy_header_none(&serde_json::json!(v));
+        }
+        if let Some(ref v) = health_check.http_health_check {
+            state["config"]["http_health_check"] = strip_proxy_header_none(&serde_json::json!(v));
+        }
+        if let Some(ref v) = health_check.https_health_check {
+            state["config"]["https_health_check"] = strip_proxy_header_none(&serde_json::json!(v));
+        }
+        if let Some(ref v) = health_check.log_config {
+            state["config"]["log_config"] = serde_json::json!(v);
+        }
+        if !health_check.source_regions.is_empty() {
+            state["config"]["source_regions"] = serde_json::json!(&health_check.source_regions);
+        }
+        if let Some(ref v) = health_check.ssl_health_check {
+            state["config"]["ssl_health_check"] = strip_proxy_header_none(&serde_json::json!(v));
+        }
+        if let Some(ref v) = health_check.tcp_health_check {
+            state["config"]["tcp_health_check"] = strip_proxy_header_none(&serde_json::json!(v));
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert(

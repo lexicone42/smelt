@@ -2450,9 +2450,6 @@ async fn gcp_dns_policy_crud() {
             "name": &name,
             "description": "smelt live test dns policy",
         },
-        "config": {
-            "enable_logging": false,
-        },
     });
 
     let (created, _read, changes) = crud_cycle(&provider, "dns.Policy", &config, &name).await;

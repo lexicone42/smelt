@@ -1381,17 +1381,23 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetGroup", e))?;
 
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "identity": {
                 "display_name": group.display_name.as_str(),
                 "name": group.name.as_str(),
             },
             "config": {
                 "filter": group.filter.as_str(),
-                "is_cluster": group.is_cluster,
-                "parent_name": group.parent_name.as_str(),
             },
         });
+        // Only include is_cluster if true (default is false)
+        if group.is_cluster {
+            state["config"]["is_cluster"] = serde_json::json!(true);
+        }
+        let parent = group.parent_name.as_str();
+        if !parent.is_empty() {
+            state["config"]["parent_name"] = serde_json::json!(parent);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert("name".into(), serde_json::json!(&group.name));

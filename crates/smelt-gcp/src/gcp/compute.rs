@@ -1606,10 +1606,8 @@ impl GcpProvider {
         }
 
         // config: only include user-facing fields that are non-empty/non-default
+        // Note: `address` (the IP) is server-assigned and goes in outputs, not config
         let mut config = serde_json::Map::new();
-        if let Some(addr) = address.address.as_deref().filter(|s| !s.is_empty()) {
-            config.insert("address".into(), serde_json::json!(addr));
-        }
         if let Some(at) = address.address_type.as_ref().and_then(|e| e.name()) {
             if at != "EXTERNAL" {
                 config.insert("address_type".into(), serde_json::json!(at));
@@ -1653,6 +1651,9 @@ impl GcpProvider {
             "self_link".into(),
             serde_json::json!(address.self_link.as_deref().unwrap_or("")),
         );
+        if let Some(addr) = address.address.as_deref().filter(|s| !s.is_empty()) {
+            outputs.insert("address".into(), serde_json::json!(addr));
+        }
 
         Ok(ResourceOutput {
             provider_id: provider_id.to_string(),
@@ -4577,17 +4578,59 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetInstanceTemplate", e))?;
 
-        let state = serde_json::json!({
+        // Clean properties: strip server-added fields from disks and networkInterfaces
+        let mut properties_json = serde_json::json!(&instance_template.properties);
+        if let Some(props) = properties_json.as_object_mut() {
+            // Strip server-added fields from disk items
+            if let Some(disks) = props.get_mut("disks").and_then(|v| v.as_array_mut()) {
+                for disk in disks.iter_mut() {
+                    if let Some(obj) = disk.as_object_mut() {
+                        obj.remove("deviceName");
+                        obj.remove("index");
+                        obj.remove("mode");
+                        obj.remove("type");
+                    }
+                }
+            }
+            // Strip server-added fields from networkInterfaces items
+            if let Some(nics) = props
+                .get_mut("networkInterfaces")
+                .and_then(|v| v.as_array_mut())
+            {
+                for nic in nics.iter_mut() {
+                    if let Some(obj) = nic.as_object_mut() {
+                        obj.remove("name");
+                    }
+                }
+            }
+        }
+
+        let mut state = serde_json::json!({
             "identity": {
-                "description": instance_template.description.as_deref().unwrap_or(""),
                 "name": instance_template.name.as_deref().unwrap_or(""),
             },
             "config": {
-                "properties": &instance_template.properties,
-                "source_instance": instance_template.source_instance.as_deref().unwrap_or(""),
-                "source_instance_params": &instance_template.source_instance_params,
+                "properties": properties_json,
             },
         });
+        if let Some(desc) = instance_template
+            .description
+            .as_deref()
+            .filter(|s| !s.is_empty())
+        {
+            state["identity"]["description"] = serde_json::json!(desc);
+        }
+        if let Some(si) = instance_template
+            .source_instance
+            .as_deref()
+            .filter(|s| !s.is_empty())
+        {
+            state["config"]["source_instance"] = serde_json::json!(si);
+        }
+        if instance_template.source_instance_params.is_some() {
+            state["config"]["source_instance_params"] =
+                serde_json::json!(&instance_template.source_instance_params);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert(
@@ -4732,7 +4775,7 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetInstanceGroup", e))?;
 
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "identity": {
                 "description": instance_group.description.as_deref().unwrap_or(""),
                 "name": instance_group.name.as_deref().unwrap_or(""),
@@ -4740,7 +4783,16 @@ impl GcpProvider {
             "config": {
                 "named_ports": &instance_group.named_ports,
             },
+            "sizing": {
+                "zone": zone,
+            },
         });
+        // Remove empty named_ports array to avoid diff with configs that omit it
+        if instance_group.named_ports.is_empty() {
+            if let Some(cfg) = state.get_mut("config").and_then(|v| v.as_object_mut()) {
+                cfg.remove("named_ports");
+            }
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert(
@@ -5311,20 +5363,37 @@ impl GcpProvider {
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
 
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "identity": {
-                "description": security_policy.description.as_deref().unwrap_or(""),
-                "labels": user_labels,
                 "name": security_policy.name.as_deref().unwrap_or(""),
             },
-            "config": {
-                "associations": &security_policy.associations,
-                "rules": &security_policy.rules,
-                "short_name": security_policy.short_name.as_deref().unwrap_or(""),
-                "type": &security_policy.r#type,
-                "user_defined_fields": &security_policy.user_defined_fields,
-            },
         });
+        // Conditionally include optional fields — skip server-generated defaults
+        if let Some(desc) = security_policy
+            .description
+            .as_deref()
+            .filter(|s| !s.is_empty())
+        {
+            state["identity"]["description"] = serde_json::json!(desc);
+        }
+        if !user_labels.is_empty() {
+            state["identity"]["labels"] = serde_json::Value::Object(user_labels);
+        }
+        // Skip: rules (server-generated default rule), type (server-set "CLOUD_ARMOR"),
+        // associations (server-managed). Only include user_defined_fields and short_name
+        // if they have meaningful content.
+        state["config"] = serde_json::json!({});
+        if let Some(sn) = security_policy
+            .short_name
+            .as_deref()
+            .filter(|s| !s.is_empty())
+        {
+            state["config"]["short_name"] = serde_json::json!(sn);
+        }
+        if !security_policy.user_defined_fields.is_empty() {
+            state["config"]["user_defined_fields"] =
+                serde_json::json!(&security_policy.user_defined_fields);
+        }
 
         let mut outputs = HashMap::new();
         outputs.insert(

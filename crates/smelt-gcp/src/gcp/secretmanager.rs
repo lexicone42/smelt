@@ -255,12 +255,20 @@ impl GcpProvider {
             "identity": {
                 "name": short_name,
             },
-            "reliability": {
-                "replication": &secret.replication,
-            },
         });
         if !user_labels.is_empty() {
             state["identity"]["labels"] = serde_json::Value::Object(user_labels);
+        }
+        // Only include replication if user-managed (non-default).
+        // GCP always returns automatic replication as the default;
+        // only user_managed replication is user-configurable state.
+        if let Some(ref repl) = secret.replication {
+            let repl_json = serde_json::to_value(repl).unwrap_or_default();
+            if repl_json.get("user_managed").is_some() || repl_json.get("userManaged").is_some() {
+                state["reliability"] = serde_json::json!({
+                    "replication": repl_json,
+                });
+            }
         }
 
         let mut outputs = HashMap::new();
