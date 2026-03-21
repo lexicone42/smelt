@@ -4258,3 +4258,391 @@ async fn gcp_networkconnectivity_hub_spoke_crud() {
         }
     }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Memorystore Instance — ~$0.05/hr (SHARED_CORE_NANO, STANDALONE)
+// New Memorystore v1 API (Valkey/Redis). Provisions in ~5-10 min.
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_memorystore_instance_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("memstore");
+
+    // STANDALONE mode with SHARED_CORE_NANO is the cheapest option.
+    // shard_count=1 is required for STANDALONE mode.
+    // replica_count=0 means no replicas (cheapest).
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+        },
+        "config": {
+            "mode": "STANDALONE",
+            "node_type": "SHARED_CORE_NANO",
+            "shard_count": 1,
+            "replica_count": 0,
+            "engine_version": "VALKEY_8_0",
+            "deletion_protection_enabled": false,
+            "transit_encryption_mode": "TRANSIT_ENCRYPTION_DISABLED",
+            "authorization_mode": "AUTH_DISABLED",
+        },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "memorystore.Instance", &config, &name).await;
+
+    println!("\n[DELETE] memorystore.Instance...");
+    provider
+        .delete("memorystore.Instance", &created.provider_id)
+        .await
+        .expect("DELETE memorystore.Instance failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Spanner Instance — ~$0.09/hr (100 processing units, smallest)
+// Provisions in ~1-2 min.
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_spanner_instance_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("spanner");
+
+    // 100 processing units is the smallest provisioned Spanner instance.
+    // config points to a regional instance config.
+    // display_name is in the identity section per the schema.
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "display_name": "smelt live test spanner",
+        },
+        "config": {
+            "config": format!("projects/{project}/instanceConfigs/regional-us-central1"),
+            "node_count": 1,
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "spanner.Instance", &config, &name).await;
+
+    println!("\n[DELETE] spanner.Instance...");
+    provider
+        .delete("spanner.Instance", &created.provider_id)
+        .await
+        .expect("DELETE spanner.Instance failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Filestore Instance — ~$0.20/hr (BASIC_HDD, 1 TiB minimum)
+// Provisions in ~5-10 min. Needs a VPC network.
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_filestore_instance_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("fstore");
+
+    // Create a VPC for the filestore instance to attach to
+    println!("[SETUP] Creating VPC network...");
+    let net_name = format!("{name}-net");
+    let net = provider
+        .create(
+            "compute.Network",
+            &serde_json::json!({
+                "identity": { "name": &net_name },
+                "network": { "auto_create_subnetworks": true, "routing_mode": "REGIONAL" }
+            }),
+        )
+        .await
+        .expect("Network create failed");
+    println!("  network = {}", net.provider_id);
+
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+
+    // BASIC_HDD tier, 1 TiB (1024 GiB) is the minimum capacity.
+    // file_shares requires name + capacity_gb.
+    // networks requires network name + modes.
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test filestore",
+        },
+        "config": {
+            "tier": "BASIC_HDD",
+            "file_shares": [{
+                "name": "vol1",
+                "capacity_gb": 1024,
+            }],
+            "networks": [{
+                "network": net_name,
+                "modes": ["MODE_IPV4"],
+            }],
+        },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "filestore.Instance", &config, &name).await;
+
+    // ── Cleanup (reverse order: filestore -> network) ──
+    println!("\n[DELETE] filestore.Instance...");
+    provider
+        .delete("filestore.Instance", &created.provider_id)
+        .await
+        .expect("DELETE filestore.Instance failed");
+    println!("  Deleted filestore instance.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    println!("[DELETE] compute.Network...");
+    provider
+        .delete("compute.Network", &net.provider_id)
+        .await
+        .expect("DELETE network failed");
+    println!("  Deleted network.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Container NodePool — requires a running GKE cluster (~$0.10/hr)
+// Creates a minimal standard cluster, adds a node pool, then cleans up.
+// Time: ~15-20 min total (cluster create + node pool + cleanup).
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test(flavor = "current_thread")]
+#[ignore]
+async fn gcp_container_nodepool_crud() {
+    // GKE Cluster/NodePool models are deeply nested — needs extra stack
+    const STACK_SIZE: usize = 16 * 1024 * 1024; // 16 MB
+    std::thread::Builder::new()
+        .stack_size(STACK_SIZE)
+        .spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(nodepool_test_inner())
+        })
+        .unwrap()
+        .join()
+        .unwrap()
+}
+
+async fn nodepool_test_inner() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let prefix = format!("smelt-np-{}", ts % 1_000_000);
+
+    // ── 1. Create VPC Network ──
+    println!("\n=== STEP 1: VPC Network ===");
+    let net_name = format!("{prefix}-net");
+    let net = provider
+        .create(
+            "compute.Network",
+            &serde_json::json!({
+                "identity": { "name": &net_name },
+                "network": { "auto_create_subnetworks": false, "routing_mode": "REGIONAL" }
+            }),
+        )
+        .await
+        .expect("Network create failed");
+    println!("  network = {}", net.provider_id);
+
+    // ── 2. Create Subnet ──
+    println!("\n=== STEP 2: Subnet ===");
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+    let subnet_name = format!("{prefix}-sub");
+    let subnet = provider
+        .create(
+            "compute.Subnetwork",
+            &serde_json::json!({
+                "identity": { "name": &subnet_name },
+                "network": {
+                    "network": format!("projects/{project}/global/networks/{net_name}"),
+                    "ip_cidr_range": "10.0.0.0/20",
+                }
+            }),
+        )
+        .await
+        .expect("Subnet create failed");
+    println!("  subnet = {}", subnet.provider_id);
+
+    // ── 3. Create minimal GKE Cluster (with default-pool) ──
+    println!("\n=== STEP 3: GKE Cluster (this takes ~5-10 minutes) ===");
+    let cluster_name = format!("{prefix}-cl");
+    let cluster_config = serde_json::json!({
+        "identity": {
+            "name": &cluster_name,
+            "description": "smelt nodepool test cluster",
+        },
+        "config": {
+            "initial_cluster_version": "latest",
+            "node_pools": [{
+                "name": "default-pool",
+                "initial_node_count": 1,
+                "config": {
+                    "machine_type": "e2-small",
+                    "disk_size_gb": 20,
+                }
+            }],
+        },
+        "network": {
+            "network": format!("projects/{project}/global/networks/{net_name}"),
+            "subnetwork": format!("projects/{project}/regions/{REGION}/subnetworks/{subnet_name}"),
+        }
+    });
+
+    let cluster_result = provider.create("container.Cluster", &cluster_config).await;
+    if let Err(e) = &cluster_result {
+        println!("  CLUSTER CREATE FAILED: {e:?}");
+        println!("[CLEANUP] Destroying subnet, network...");
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        let _ = provider
+            .delete("compute.Subnetwork", &subnet.provider_id)
+            .await;
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        let _ = provider.delete("compute.Network", &net.provider_id).await;
+        panic!("GKE cluster creation failed: {e:?}");
+    }
+    let cluster = cluster_result.unwrap();
+    println!("  cluster = {}", cluster.provider_id);
+
+    // ── 4. Add a NodePool ──
+    println!("\n=== STEP 4: NodePool CRUD ===");
+    let np_name = format!("{prefix}-np");
+    let np_config = serde_json::json!({
+        "identity": {
+            "name": &np_name,
+            "cluster_id": &cluster.provider_id,
+        },
+        "config": {
+            "initial_node_count": 1,
+            "config": {
+                "machine_type": "e2-small",
+                "disk_size_gb": 20,
+            },
+        },
+    });
+
+    let np_result = provider.create("container.NodePool", &np_config).await;
+    let np_changes = match &np_result {
+        Ok(np_created) => {
+            println!("  nodepool = {}", np_created.provider_id);
+
+            // Read back and diff
+            let np_read = provider
+                .read("container.NodePool", &np_created.provider_id)
+                .await;
+            let changes = match &np_read {
+                Ok(r) => {
+                    let c = provider.diff("container.NodePool", &np_config, &r.state);
+                    println!("[DIFF] container.NodePool: {} change(s)", c.len());
+                    for ch in &c {
+                        println!("  {}: {:?} -> {:?}", ch.path, ch.old_value, ch.new_value);
+                    }
+                    c
+                }
+                Err(e) => {
+                    println!("  READ FAILED: {e:?}");
+                    vec![]
+                }
+            };
+
+            // Delete NodePool
+            println!("\n[DELETE] container.NodePool...");
+            match provider
+                .delete("container.NodePool", &np_created.provider_id)
+                .await
+            {
+                Ok(()) => println!("  NodePool deleted."),
+                Err(e) => println!("  NodePool delete failed: {e:?}"),
+            }
+            // Wait for node pool deletion before deleting cluster
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+
+            changes
+        }
+        Err(e) => {
+            println!("  NODEPOOL CREATE FAILED: {e:?}");
+            vec![]
+        }
+    };
+
+    // ── 5. Cleanup: cluster -> subnet -> network ──
+    println!("\n=== STEP 5: Cleanup ===");
+
+    println!("[DELETE] container.Cluster (this takes ~5 minutes)...");
+    match provider
+        .delete("container.Cluster", &cluster.provider_id)
+        .await
+    {
+        Ok(()) => println!("  Cluster deleted."),
+        Err(e) => println!("  Cluster delete failed: {e:?}"),
+    }
+
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+
+    println!("[DELETE] compute.Subnetwork...");
+    match provider
+        .delete("compute.Subnetwork", &subnet.provider_id)
+        .await
+    {
+        Ok(()) => println!("  Subnet deleted."),
+        Err(e) => println!("  Subnet delete failed: {e:?}"),
+    }
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    println!("[DELETE] compute.Network...");
+    match provider.delete("compute.Network", &net.provider_id).await {
+        Ok(()) => println!("  Network deleted."),
+        Err(e) => println!("  Network delete failed: {e:?}"),
+    }
+
+    if !np_changes.is_empty() {
+        println!("\n** NodePool DRIFT: {} diff(s)", np_changes.len());
+        for c in &np_changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+
+    println!("\n=== NodePool Test Complete ===");
+}

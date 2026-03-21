@@ -208,7 +208,8 @@ impl GcpProvider {
                 ),
             );
         }
-        model = model.set_name(name.clone());
+        // Spanner requires the full resource path in the model name
+        model = model.set_name(format!("projects/{}/instances/{}", self.project_id, name));
         if let Some(v) = node_count {
             model = model.set_node_count(i32::try_from(v).map_err(|_| {
                 ProviderError::InvalidConfig(format!("node_count: value {v} out of range for i32"))
