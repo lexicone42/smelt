@@ -5091,7 +5091,7 @@ async fn gcp_filestore_backup_crud() {
                         "capacity_gb": 1024,
                     }],
                     "networks": [{
-                        "network": net_name,
+                        "network": format!("projects/{project}/global/networks/{net_name}"),
                         "modes": ["MODE_IPV4"],
                     }],
                 },
