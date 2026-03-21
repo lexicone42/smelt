@@ -213,7 +213,7 @@ impl GcpProvider {
         if let Some(v) = kms_key_name {
             model = model.set_kms_key_name(v);
         }
-        model = model.set_name(name.clone());
+        // Do NOT set name on model — Filestore infers it from instance_id
         if let Some(v) = networks {
             model = model.set_networks(v);
         }
