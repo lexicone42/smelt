@@ -553,7 +553,7 @@ impl GcpProvider {
         if let Some(v) = kms_key {
             model = model.set_kms_key(v);
         }
-        model = model.set_name(name.clone());
+        // Do NOT set name on model — Filestore infers it from backup_id
         if let Some(v) = source_file_share {
             model = model.set_source_file_share(v);
         }
