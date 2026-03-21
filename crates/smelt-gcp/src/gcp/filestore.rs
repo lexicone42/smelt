@@ -238,8 +238,9 @@ impl GcpProvider {
         }
         model = model.set_labels(labels);
 
-        // Make API call
-        let parent = format!("projects/{}/locations/{}", self.project_id, self.region);
+        // Make API call — BASIC tiers need a zone, not a region
+        let location = config.str_or("/sizing/zone", &self.region).to_string();
+        let parent = format!("projects/{}/locations/{}", self.project_id, location);
         self.cloud_filestore_manager()
             .await?
             .create_instance()
@@ -253,7 +254,7 @@ impl GcpProvider {
 
         let provider_id = format!(
             "projects/{}/locations/{}/instances/{}",
-            self.project_id, self.region, name
+            self.project_id, location, name
         );
         self.read_filestore_instance(&provider_id).await
     }

@@ -4405,6 +4405,9 @@ async fn gcp_filestore_instance_crud() {
                 "modes": ["MODE_IPV4"],
             }],
         },
+        "sizing": {
+            "zone": "us-central1-b",
+        },
     });
 
     let (created, _read, changes) =
