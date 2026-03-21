@@ -1250,6 +1250,22 @@ pub(crate) fn strip_gcp_metadata(state: &mut serde_json::Value) {
     // Recursively strip `kind` fields (GCP adds "compute#attachedDisk" etc.
     // to every nested object) and normalize GCP API URLs to short paths.
     strip_server_noise(state);
+
+    // Normalize identity.name: GCP returns fully-qualified resource paths
+    // (e.g., "projects/my-proj/locations/us-central1/buckets/my-bucket")
+    // but users configure short names ("my-bucket"). Extract the last
+    // path component so diffs compare short name to short name.
+    if let Some(name_val) = state
+        .pointer_mut("/identity/name")
+        .filter(|v| v.is_string())
+    {
+        let name_str = name_val.as_str().unwrap_or_default();
+        if name_str.contains('/') {
+            if let Some(short) = name_str.rsplit('/').next() {
+                *name_val = serde_json::Value::String(short.to_string());
+            }
+        }
+    }
 }
 
 /// Recursively remove null values, empty arrays `[]`, and empty objects `{}`
