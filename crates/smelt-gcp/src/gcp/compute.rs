@@ -5133,20 +5133,29 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetRouter", e))?;
 
+        let mut config = serde_json::Map::new();
+        config.insert("bgp".into(), serde_json::json!(&router.bgp));
+        config.insert("bgp_peers".into(), serde_json::json!(&router.bgp_peers));
+        if router.encrypted_interconnect_router.unwrap_or(false) {
+            config.insert(
+                "encrypted_interconnect_router".into(),
+                serde_json::json!(true),
+            );
+        }
+        config.insert("interfaces".into(), serde_json::json!(&router.interfaces));
+        config.insert(
+            "md_5_authentication_keys".into(),
+            serde_json::json!(&router.md_5_authentication_keys),
+        );
+        config.insert("nats".into(), serde_json::json!(&router.nats));
+        config.insert("params".into(), serde_json::json!(&router.params));
+
         let state = serde_json::json!({
             "identity": {
                 "description": router.description.as_deref().unwrap_or(""),
                 "name": router.name.as_deref().unwrap_or(""),
             },
-            "config": {
-                "bgp": &router.bgp,
-                "bgp_peers": &router.bgp_peers,
-                "encrypted_interconnect_router": router.encrypted_interconnect_router.unwrap_or(false),
-                "interfaces": &router.interfaces,
-                "md_5_authentication_keys": &router.md_5_authentication_keys,
-                "nats": &router.nats,
-                "params": &router.params,
-            },
+            "config": config,
             "network": {
                 "network": router.network.as_deref().unwrap_or(""),
             },
@@ -6069,9 +6078,6 @@ impl GcpProvider {
             "config": {
                 "certificate": ssl_certificate.certificate.as_deref().unwrap_or(""),
                 "managed": &ssl_certificate.managed,
-                "private_key": ssl_certificate.private_key.as_deref().unwrap_or(""),
-                "self_managed": &ssl_certificate.self_managed,
-                "type": &ssl_certificate.r#type,
             },
         });
 
@@ -8898,6 +8904,14 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetResourcePolicy", e))?;
 
+        // Normalize region — strip projects/{}/regions/ prefix
+        let region_raw = resource_policy.region.as_deref().unwrap_or("");
+        let region_short = if let Some(pos) = region_raw.rfind("/regions/") {
+            &region_raw[pos + "/regions/".len()..]
+        } else {
+            super::normalize_gcp_url(region_raw)
+        };
+
         let state = serde_json::json!({
             "identity": {
                 "description": resource_policy.description.as_deref().unwrap_or(""),
@@ -8907,7 +8921,7 @@ impl GcpProvider {
                 "workload_policy": &resource_policy.workload_policy,
             },
             "sizing": {
-                "region": resource_policy.region.as_deref().unwrap_or(""),
+                "region": region_short,
             },
         });
 

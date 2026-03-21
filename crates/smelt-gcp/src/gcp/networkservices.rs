@@ -301,23 +301,52 @@ impl GcpProvider {
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
 
+        let mut config = serde_json::Map::new();
+        config.insert("addresses".into(), serde_json::json!(&gateway.addresses));
+        config.insert(
+            "certificate_urls".into(),
+            serde_json::json!(&gateway.certificate_urls),
+        );
+        config.insert(
+            "envoy_headers".into(),
+            serde_json::json!(&gateway.envoy_headers),
+        );
+        // ip_version: strip 0 (default/unspecified)
+        let ip_version_val = serde_json::json!(&gateway.ip_version);
+        if ip_version_val.as_i64() != Some(0) {
+            config.insert("ip_version".into(), ip_version_val);
+        }
+        config.insert("ports".into(), serde_json::json!(&gateway.ports));
+        // routing_mode: strip 0 (default/unspecified)
+        let routing_mode_val = serde_json::json!(&gateway.routing_mode);
+        if routing_mode_val.as_i64() != Some(0) {
+            config.insert("routing_mode".into(), routing_mode_val);
+        }
+        config.insert("scope".into(), serde_json::json!(gateway.scope.as_str()));
+        config.insert(
+            "server_tls_policy".into(),
+            serde_json::json!(gateway.server_tls_policy.as_str()),
+        );
+        // type: map enum int to string (1="OPEN_MESH", 2="SECURE_WEB_GATEWAY")
+        let type_val = serde_json::json!(&gateway.r#type);
+        let type_str = match type_val.as_i64() {
+            Some(1) => Some("OPEN_MESH"),
+            Some(2) => Some("SECURE_WEB_GATEWAY"),
+            _ => None,
+        };
+        if let Some(s) = type_str {
+            config.insert("type".into(), serde_json::json!(s));
+        } else if !type_val.is_null() && type_val.as_i64() != Some(0) {
+            config.insert("type".into(), type_val);
+        }
+
         let state = serde_json::json!({
             "identity": {
                 "description": gateway.description.as_str(),
                 "labels": user_labels,
                 "name": gateway.name.as_str(),
             },
-            "config": {
-                "addresses": &gateway.addresses,
-                "certificate_urls": &gateway.certificate_urls,
-                "envoy_headers": &gateway.envoy_headers,
-                "ip_version": &gateway.ip_version,
-                "ports": &gateway.ports,
-                "routing_mode": &gateway.routing_mode,
-                "scope": gateway.scope.as_str(),
-                "server_tls_policy": gateway.server_tls_policy.as_str(),
-                "type": &gateway.r#type,
-            },
+            "config": config,
             "network": {
                 "network": gateway.network.as_str(),
                 "subnetwork": gateway.subnetwork.as_str(),
@@ -609,16 +638,26 @@ impl GcpProvider {
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
 
+        let mut config = serde_json::Map::new();
+        config.insert(
+            "envoy_headers".into(),
+            serde_json::json!(&mesh.envoy_headers),
+        );
+        // Strip interception_port when 0 (default/unset)
+        if mesh.interception_port != 0 {
+            config.insert(
+                "interception_port".into(),
+                serde_json::json!(mesh.interception_port),
+            );
+        }
+
         let state = serde_json::json!({
             "identity": {
                 "description": mesh.description.as_str(),
                 "labels": user_labels,
                 "name": mesh.name.as_str(),
             },
-            "config": {
-                "envoy_headers": &mesh.envoy_headers,
-                "interception_port": mesh.interception_port,
-            },
+            "config": config,
         });
 
         let mut outputs = HashMap::new();
@@ -850,7 +889,10 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_http_route HttpRoute", e))?;
 
-        let provider_id = format!("projects/{}/httpRoutes/{}", self.project_id, name);
+        let provider_id = format!(
+            "projects/{}/locations/global/httpRoutes/{}",
+            self.project_id, name
+        );
         self.read_networkservices_httproute(&provider_id).await
     }
 
@@ -1135,7 +1177,10 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("Create_grpc_route GrpcRoute", e))?;
 
-        let provider_id = format!("projects/{}/grpcRoutes/{}", self.project_id, name);
+        let provider_id = format!(
+            "projects/{}/locations/global/grpcRoutes/{}",
+            self.project_id, name
+        );
         self.read_networkservices_grpcroute(&provider_id).await
     }
 

@@ -161,6 +161,15 @@ impl GcpProvider {
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
 
+        // Map tier enum int to string
+        let tier_val = serde_json::json!(&ca_pool.tier);
+        let tier = match tier_val.as_i64() {
+            Some(1) => serde_json::json!("ENTERPRISE"),
+            Some(2) => serde_json::json!("DEVOPS"),
+            Some(3) => serde_json::json!("BASIC"),
+            _ => tier_val,
+        };
+
         let state = serde_json::json!({
             "identity": {
                 "labels": user_labels,
@@ -169,7 +178,7 @@ impl GcpProvider {
             "config": {
                 "issuance_policy": &ca_pool.issuance_policy,
                 "publishing_options": &ca_pool.publishing_options,
-                "tier": &ca_pool.tier,
+                "tier": tier,
             },
         });
 

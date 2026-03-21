@@ -218,6 +218,17 @@ impl GcpProvider {
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
 
+        // Strip server-assigned subscription from transport.pubsub
+        let transport_val = {
+            let mut tv = serde_json::json!(&trigger.transport);
+            if let Some(obj) = tv.as_object_mut() {
+                if let Some(pubsub) = obj.get_mut("pubsub").and_then(|p| p.as_object_mut()) {
+                    pubsub.remove("subscription");
+                }
+            }
+            tv
+        };
+
         let state = serde_json::json!({
             "identity": {
                 "labels": user_labels,
@@ -229,7 +240,7 @@ impl GcpProvider {
                 "event_data_content_type": trigger.event_data_content_type.as_str(),
                 "event_filters": &trigger.event_filters,
                 "retry_policy": &trigger.retry_policy,
-                "transport": &trigger.transport,
+                "transport": transport_val,
             },
             "runtime": {
                 "service_account": trigger.service_account.as_str(),
@@ -484,19 +495,23 @@ impl GcpProvider {
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
 
+        let mut config = serde_json::Map::new();
+        config.insert(
+            "crypto_key_name".into(),
+            serde_json::json!(channel.crypto_key_name.as_str()),
+        );
+        config.insert(
+            "provider".into(),
+            serde_json::json!(channel.provider.as_str()),
+        );
+        // Strip transport.pubsub_topic — server-assigned, not user-specified
+
         let state = serde_json::json!({
             "identity": {
                 "labels": user_labels,
                 "name": channel.name.as_str(),
             },
-            "config": {
-                "crypto_key_name": channel.crypto_key_name.as_str(),
-                "provider": channel.provider.as_str(),
-                "transport": match &channel.transport {
-                    Some(google_cloud_eventarc_v1::model::channel::Transport::PubsubTopic(t)) => serde_json::json!({"pubsub_topic": t}),
-                    None | Some(_) => serde_json::Value::Null,
-                },
-            },
+            "config": config,
         });
 
         let mut outputs = HashMap::new();

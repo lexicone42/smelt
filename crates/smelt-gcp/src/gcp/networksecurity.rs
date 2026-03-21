@@ -431,6 +431,10 @@ impl GcpProvider {
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
 
+        // Apply camel_to_snake_keys to mtls_policy to fix camelCase vs snake_case mismatch
+        let mtls_policy_val =
+            super::camel_to_snake_keys(&serde_json::json!(&server_tls_policy.mtls_policy));
+
         let state = serde_json::json!({
             "identity": {
                 "description": server_tls_policy.description.as_str(),
@@ -439,7 +443,7 @@ impl GcpProvider {
             },
             "config": {
                 "allow_open": server_tls_policy.allow_open,
-                "mtls_policy": &server_tls_policy.mtls_policy,
+                "mtls_policy": mtls_policy_val,
                 "server_certificate": &server_tls_policy.server_certificate,
             },
         });

@@ -597,45 +597,144 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetBackendService", e))?;
 
+        let mut config = serde_json::Map::new();
+        if let Some(v) = backend_service.affinity_cookie_ttl_sec.filter(|&v| v != 0) {
+            config.insert("affinity_cookie_ttl_sec".into(), serde_json::json!(v));
+        }
+        config.insert(
+            "backends".into(),
+            serde_json::json!(&backend_service.backends),
+        );
+        config.insert(
+            "cdn_policy".into(),
+            serde_json::json!(&backend_service.cdn_policy),
+        );
+        config.insert(
+            "circuit_breakers".into(),
+            serde_json::json!(&backend_service.circuit_breakers),
+        );
+        config.insert(
+            "compression_mode".into(),
+            serde_json::json!(&backend_service.compression_mode),
+        );
+        // Strip connection_draining when it's the default (draining_timeout_sec == 0 or absent)
+        if let Some(ref cd) = backend_service.connection_draining {
+            let is_default = cd.draining_timeout_sec.map_or(true, |v| v == 0);
+            if !is_default {
+                config.insert("connection_draining".into(), serde_json::json!(cd));
+            }
+        }
+        config.insert(
+            "consistent_hash".into(),
+            serde_json::json!(&backend_service.consistent_hash),
+        );
+        config.insert(
+            "custom_metrics".into(),
+            serde_json::json!(&backend_service.custom_metrics),
+        );
+        config.insert(
+            "custom_request_headers".into(),
+            serde_json::json!(&backend_service.custom_request_headers),
+        );
+        config.insert(
+            "custom_response_headers".into(),
+            serde_json::json!(&backend_service.custom_response_headers),
+        );
+        if backend_service.enable_cdn.unwrap_or(false) {
+            config.insert("enable_cdn".into(), serde_json::json!(true));
+        }
+        if let Some(v) = backend_service
+            .external_managed_migration_testing_percentage
+            .filter(|&v| v != 0.0)
+        {
+            config.insert(
+                "external_managed_migration_testing_percentage".into(),
+                serde_json::json!(v),
+            );
+        }
+        config.insert(
+            "failover_policy".into(),
+            serde_json::json!(&backend_service.failover_policy),
+        );
+        config.insert(
+            "ha_policy".into(),
+            serde_json::json!(&backend_service.ha_policy),
+        );
+        if !backend_service.health_checks.is_empty() {
+            config.insert(
+                "health_checks".into(),
+                serde_json::json!(&backend_service.health_checks),
+            );
+        }
+        config.insert("iap".into(), serde_json::json!(&backend_service.iap));
+        config.insert(
+            "locality_lb_policy".into(),
+            serde_json::json!(&backend_service.locality_lb_policy),
+        );
+        config.insert(
+            "log_config".into(),
+            serde_json::json!(&backend_service.log_config),
+        );
+        config.insert(
+            "max_stream_duration".into(),
+            serde_json::json!(&backend_service.max_stream_duration),
+        );
+        config.insert(
+            "metadatas".into(),
+            serde_json::json!(&backend_service.metadatas),
+        );
+        config.insert(
+            "outlier_detection".into(),
+            serde_json::json!(&backend_service.outlier_detection),
+        );
+        config.insert("params".into(), serde_json::json!(&backend_service.params));
+        config.insert(
+            "port_name".into(),
+            serde_json::json!(backend_service.port_name.as_deref().unwrap_or("")),
+        );
+        config.insert(
+            "protocol".into(),
+            serde_json::json!(&backend_service.protocol),
+        );
+        config.insert(
+            "security_settings".into(),
+            serde_json::json!(&backend_service.security_settings),
+        );
+        config.insert(
+            "service_bindings".into(),
+            serde_json::json!(&backend_service.service_bindings),
+        );
+        config.insert(
+            "service_lb_policy".into(),
+            serde_json::json!(backend_service.service_lb_policy.as_deref().unwrap_or("")),
+        );
+        config.insert(
+            "session_affinity".into(),
+            serde_json::json!(&backend_service.session_affinity),
+        );
+        config.insert(
+            "strong_session_affinity_cookie".into(),
+            serde_json::json!(&backend_service.strong_session_affinity_cookie),
+        );
+        config.insert(
+            "subsetting".into(),
+            serde_json::json!(&backend_service.subsetting),
+        );
+        config.insert(
+            "timeout_sec".into(),
+            serde_json::json!(backend_service.timeout_sec.unwrap_or(0)),
+        );
+        config.insert(
+            "tls_settings".into(),
+            serde_json::json!(&backend_service.tls_settings),
+        );
+
         let state = serde_json::json!({
             "identity": {
                 "description": backend_service.description.as_deref().unwrap_or(""),
                 "name": backend_service.name.as_deref().unwrap_or(""),
             },
-            "config": {
-                "affinity_cookie_ttl_sec": backend_service.affinity_cookie_ttl_sec.unwrap_or(0),
-                "backends": &backend_service.backends,
-                "cdn_policy": &backend_service.cdn_policy,
-                "circuit_breakers": &backend_service.circuit_breakers,
-                "compression_mode": &backend_service.compression_mode,
-                "connection_draining": &backend_service.connection_draining,
-                "consistent_hash": &backend_service.consistent_hash,
-                "custom_metrics": &backend_service.custom_metrics,
-                "custom_request_headers": &backend_service.custom_request_headers,
-                "custom_response_headers": &backend_service.custom_response_headers,
-                "enable_cdn": backend_service.enable_cdn.unwrap_or(false),
-                "external_managed_migration_testing_percentage": backend_service.external_managed_migration_testing_percentage.unwrap_or(0.0),
-                "failover_policy": &backend_service.failover_policy,
-                "ha_policy": &backend_service.ha_policy,
-                "health_checks": &backend_service.health_checks,
-                "iap": &backend_service.iap,
-                "locality_lb_policy": &backend_service.locality_lb_policy,
-                "log_config": &backend_service.log_config,
-                "max_stream_duration": &backend_service.max_stream_duration,
-                "metadatas": &backend_service.metadatas,
-                "outlier_detection": &backend_service.outlier_detection,
-                "params": &backend_service.params,
-                "port_name": backend_service.port_name.as_deref().unwrap_or(""),
-                "protocol": &backend_service.protocol,
-                "security_settings": &backend_service.security_settings,
-                "service_bindings": &backend_service.service_bindings,
-                "service_lb_policy": backend_service.service_lb_policy.as_deref().unwrap_or(""),
-                "session_affinity": &backend_service.session_affinity,
-                "strong_session_affinity_cookie": &backend_service.strong_session_affinity_cookie,
-                "subsetting": &backend_service.subsetting,
-                "timeout_sec": backend_service.timeout_sec.unwrap_or(0),
-                "tls_settings": &backend_service.tls_settings,
-            },
+            "config": config,
             "network": {
                 "network": backend_service.network.as_deref().unwrap_or(""),
             },

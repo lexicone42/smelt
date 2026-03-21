@@ -4649,3 +4649,831 @@ async fn nodepool_test_inner() {
 
     println!("\n=== NodePool Test Complete ===");
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Compute Autoscaler — free, depends on InstanceGroup
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_compute_autoscaler_crud() {
+    println!("SKIPPED: Autoscaler requires a ManagedInstanceGroup (InstanceTemplate + MIG chain)");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Compute Reservation — free (reserves e2-micro capacity)
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_compute_reservation_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("resv");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test reservation",
+        },
+        "config": {
+            "specific_reservation": {
+                "count": 1,
+                "instanceProperties": {
+                    "machineType": "e2-micro",
+                },
+            },
+            "specific_reservation_required": false,
+        },
+        "sizing": {
+            "zone": "us-central1-a",
+        },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "compute.Reservation", &config, &name).await;
+
+    println!("\n[DELETE] compute.Reservation...");
+    provider
+        .delete("compute.Reservation", &created.provider_id)
+        .await
+        .expect("DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Compute TargetHttpsProxy — free, depends on UrlMap + SslCertificate
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_compute_targethttpsproxy_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("thps");
+
+    // 1. Create UrlMap
+    let urlmap_name = format!("{name}-um");
+    println!("[SETUP] Creating UrlMap...");
+    let urlmap = provider
+        .create(
+            "compute.UrlMap",
+            &serde_json::json!({
+                "identity": { "name": &urlmap_name },
+                "config": {
+                    "default_url_redirect": {
+                        "httpsRedirect": true,
+                        "stripQuery": false,
+                    },
+                }
+            }),
+        )
+        .await
+        .expect("UrlMap create failed");
+    println!("  urlmap = {}", urlmap.provider_id);
+
+    // 2. Generate self-signed cert+key
+    let key_output = std::process::Command::new("openssl")
+        .args([
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-keyout",
+            "/dev/stdout",
+            "-out",
+            "/dev/stdout",
+            "-days",
+            "1",
+            "-nodes",
+            "-subj",
+            "/CN=smelt-thps-test.example.com",
+        ])
+        .output()
+        .expect("openssl not found");
+    let pem = String::from_utf8(key_output.stdout).expect("invalid UTF-8 from openssl");
+
+    let cert_start = pem
+        .find("-----BEGIN CERTIFICATE-----")
+        .expect("no cert in PEM");
+    let cert_end = pem.find("-----END CERTIFICATE-----").expect("no cert end")
+        + "-----END CERTIFICATE-----".len();
+    let certificate = &pem[cert_start..cert_end];
+
+    let key_start = pem
+        .find("-----BEGIN PRIVATE KEY-----")
+        .expect("no key in PEM");
+    let key_end = pem.find("-----END PRIVATE KEY-----").expect("no key end")
+        + "-----END PRIVATE KEY-----".len();
+    let private_key = &pem[key_start..key_end];
+
+    // 3. Create SslCertificate
+    let ssl_name = format!("{name}-ssl");
+    println!("[SETUP] Creating SslCertificate...");
+    let ssl = provider
+        .create(
+            "compute.SslCertificate",
+            &serde_json::json!({
+                "identity": { "name": &ssl_name },
+                "config": {
+                    "certificate": certificate,
+                    "private_key": private_key,
+                }
+            }),
+        )
+        .await
+        .expect("SslCertificate create failed");
+    println!("  ssl_certificate = {}", ssl.provider_id);
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    // 4. Create TargetHttpsProxy
+    let config = serde_json::json!({
+        "identity": { "name": &name },
+        "config": {
+            "url_map": format!("projects/{project}/global/urlMaps/{urlmap_name}"),
+            "ssl_certificates": [
+                format!("projects/{project}/global/sslCertificates/{ssl_name}"),
+            ],
+        }
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "compute.TargetHttpsProxy", &config, &name).await;
+
+    // Cleanup: proxy -> ssl -> urlmap
+    println!("\n[DELETE] compute.TargetHttpsProxy...");
+    provider
+        .delete("compute.TargetHttpsProxy", &created.provider_id)
+        .await
+        .expect("TargetHttpsProxy DELETE failed");
+    println!("  Deleted.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    println!("[DELETE] compute.SslCertificate...");
+    provider
+        .delete("compute.SslCertificate", &ssl.provider_id)
+        .await
+        .expect("SslCertificate DELETE failed");
+    println!("  Deleted.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    println!("[DELETE] compute.UrlMap...");
+    provider
+        .delete("compute.UrlMap", &urlmap.provider_id)
+        .await
+        .expect("UrlMap DELETE failed");
+    println!("  Deleted.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Compute VpnTunnel — free, depends on VpnGateway + Router + VPC
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_compute_vpntunnel_crud() {
+    println!("SKIPPED: HA VPN tunnels require peerExternalGateway setup");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Compute InterconnectAttachment — SKIPPED
+// Requires a physical Interconnect or a PARTNER provisioning flow.
+// There is no free/simple type that can be created standalone.
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_compute_interconnectattachment_crud() {
+    // InterconnectAttachment requires either:
+    // 1. A physical Interconnect (DEDICATED type) — needs a cross-connect in a colo
+    // 2. A PARTNER attachment — requires completing a provisioning flow with a partner
+    // Neither can be created in a simple automated test.
+    println!(
+        "SKIPPED: compute.InterconnectAttachment requires a physical Interconnect or PARTNER provisioning flow — cannot be tested simply"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// NetworkServices HttpRoute — free, depends on Mesh
+// Uses redirect action to avoid needing a backend service.
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_networkservices_httproute_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("htrt");
+
+    // 1. Create Mesh
+    let mesh_name = format!("{name}-mesh");
+    println!("[SETUP] Creating Mesh...");
+    let mesh = provider
+        .create(
+            "networkservices.Mesh",
+            &serde_json::json!({
+                "identity": {
+                    "name": &mesh_name,
+                    "description": "httproute test mesh",
+                },
+            }),
+        )
+        .await
+        .expect("Mesh create failed");
+    println!("  mesh = {}", mesh.provider_id);
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    // 2. Create HttpRoute with redirect action (no backend service needed)
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test http route",
+        },
+        "config": {
+            "hostnames": ["test.example.com"],
+            "meshes": [
+                format!("projects/{project}/locations/global/meshes/{mesh_name}"),
+            ],
+            "rules": [{
+                "action": {
+                    "redirect": {
+                        "hostRedirect": "redirect.example.com",
+                        "responseCode": "MOVED_PERMANENTLY_DEFAULT",
+                    },
+                },
+            }],
+        },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "networkservices.HttpRoute", &config, &name).await;
+
+    // Cleanup: route -> mesh
+    println!("\n[DELETE] networkservices.HttpRoute...");
+    provider
+        .delete("networkservices.HttpRoute", &created.provider_id)
+        .await
+        .expect("HttpRoute DELETE failed");
+    println!("  Deleted http route.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    println!("[DELETE] networkservices.Mesh...");
+    provider
+        .delete("networkservices.Mesh", &mesh.provider_id)
+        .await
+        .expect("Mesh DELETE failed");
+    println!("  Deleted mesh.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// NetworkServices GrpcRoute — free, depends on Mesh
+// Uses a fault injection action to avoid needing a backend service.
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_networkservices_grpcroute_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("grrt");
+
+    // 1. Create Mesh
+    let mesh_name = format!("{name}-mesh");
+    println!("[SETUP] Creating Mesh...");
+    let mesh = provider
+        .create(
+            "networkservices.Mesh",
+            &serde_json::json!({
+                "identity": {
+                    "name": &mesh_name,
+                    "description": "grpcroute test mesh",
+                },
+            }),
+        )
+        .await
+        .expect("Mesh create failed");
+    println!("  mesh = {}", mesh.provider_id);
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    // 2. Create GrpcRoute — rules with a faultInjectionPolicy (no backend needed)
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test grpc route",
+        },
+        "config": {
+            "hostnames": ["grpc.example.com"],
+            "meshes": [
+                format!("projects/{project}/locations/global/meshes/{mesh_name}"),
+            ],
+            "rules": [{
+                "action": {
+                    "faultInjectionPolicy": {
+                        "abort": {
+                            "httpStatus": 503,
+                            "percentage": 100,
+                        },
+                    },
+                },
+            }],
+        },
+    });
+
+    let (created, _read, changes) =
+        crud_cycle(&provider, "networkservices.GrpcRoute", &config, &name).await;
+
+    // Cleanup: route -> mesh
+    println!("\n[DELETE] networkservices.GrpcRoute...");
+    provider
+        .delete("networkservices.GrpcRoute", &created.provider_id)
+        .await
+        .expect("GrpcRoute DELETE failed");
+    println!("  Deleted grpc route.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    println!("[DELETE] networkservices.Mesh...");
+    provider
+        .delete("networkservices.Mesh", &mesh.provider_id)
+        .await
+        .expect("Mesh DELETE failed");
+    println!("  Deleted mesh.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Filestore Backup — expensive (~$0.20/hr for BASIC_HDD instance)
+// Depends on a Filestore Instance
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_filestore_backup_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("fsbak");
+
+    // 1. Create VPC for filestore
+    let net_name = format!("{name}-net");
+    println!("[SETUP] Creating VPC network...");
+    let net = provider
+        .create(
+            "compute.Network",
+            &serde_json::json!({
+                "identity": { "name": &net_name },
+                "network": { "auto_create_subnetworks": true, "routing_mode": "REGIONAL" }
+            }),
+        )
+        .await
+        .expect("Network create failed");
+    println!("  network = {}", net.provider_id);
+
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+
+    // 2. Create Filestore Instance (BASIC_HDD, 1 TiB min, zone-aware)
+    let inst_name = format!("{name}-inst");
+    println!("[SETUP] Creating Filestore Instance (this takes ~5-10 minutes)...");
+    let inst = provider
+        .create(
+            "filestore.Instance",
+            &serde_json::json!({
+                "identity": {
+                    "name": &inst_name,
+                    "description": "backup test filestore",
+                },
+                "config": {
+                    "tier": "BASIC_HDD",
+                    "file_shares": [{
+                        "name": "vol1",
+                        "capacity_gb": 1024,
+                    }],
+                    "networks": [{
+                        "network": net_name,
+                        "modes": ["MODE_IPV4"],
+                    }],
+                },
+                "sizing": {
+                    "zone": "us-central1-b",
+                },
+            }),
+        )
+        .await
+        .expect("Filestore Instance create failed");
+    println!("  filestore_instance = {}", inst.provider_id);
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    // 3. Create Backup
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test filestore backup",
+        },
+        "config": {
+            "source_instance": &inst.provider_id,
+            "source_file_share": "vol1",
+        },
+    });
+
+    let (created, _read, changes) = crud_cycle(&provider, "filestore.Backup", &config, &name).await;
+
+    // Cleanup: backup -> instance -> network
+    println!("\n[DELETE] filestore.Backup...");
+    provider
+        .delete("filestore.Backup", &created.provider_id)
+        .await
+        .expect("Backup DELETE failed");
+    println!("  Deleted backup.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    println!("[DELETE] filestore.Instance...");
+    provider
+        .delete("filestore.Instance", &inst.provider_id)
+        .await
+        .expect("Filestore Instance DELETE failed");
+    println!("  Deleted filestore instance.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    println!("[DELETE] compute.Network...");
+    provider
+        .delete("compute.Network", &net.provider_id)
+        .await
+        .expect("Network DELETE failed");
+    println!("  Deleted network.");
+
+    if !changes.is_empty() {
+        println!("\n** DRIFT: {} diff(s)", changes.len());
+        for c in &changes {
+            println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Certificate Manager Certificate — SKIPPED (codegen gap)
+// The create function only extracts description, labels, name, scope.
+// Self-managed certs need self_managed.pem_certificate + pem_private_key
+// which are not exposed. Managed certs need DNS authorization.
+// ═══════════════════════════════════════════════════════════════
+
+// Already tested above as gcp_certificatemanager_certificate_crud (line 3718).
+// That test correctly prints SKIPPED.
+
+// ═══════════════════════════════════════════════════════════════
+// AlloyDB Cluster + Instance — expensive (~$0.10/hr)
+// Cluster create takes ~5-10 minutes, instance another ~5-10 minutes.
+// Requires alloydb.googleapis.com to be enabled.
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_alloydb_cluster_instance_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("adb");
+
+    // 1. Create VPC network (AlloyDB needs a VPC)
+    let net_name = format!("{name}-net");
+    println!("[SETUP] Creating VPC network...");
+    let net = provider
+        .create(
+            "compute.Network",
+            &serde_json::json!({
+                "identity": { "name": &net_name },
+                "network": { "auto_create_subnetworks": true, "routing_mode": "REGIONAL" }
+            }),
+        )
+        .await
+        .expect("Network create failed");
+    println!("  network = {}", net.provider_id);
+
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+
+    // 2. Create AlloyDB Cluster
+    let cluster_name = format!("{name}-cl");
+    println!("\n[SETUP] Creating AlloyDB Cluster (this takes ~5-10 minutes)...");
+    let cluster_config = serde_json::json!({
+        "identity": {
+            "name": &cluster_name,
+            "display_name": "smelt alloydb test cluster",
+        },
+        "config": {
+            "database_version": "POSTGRES_15",
+            "network_config": {
+                "network": format!("projects/{project}/global/networks/{net_name}"),
+            },
+            "initial_user": {
+                "user": "postgres",
+                "password": "smelt-test-pw-2024",
+            },
+        },
+    });
+
+    let cluster = provider
+        .create("alloydb.Cluster", &cluster_config)
+        .await
+        .expect("AlloyDB Cluster create failed");
+    println!("  cluster = {}", cluster.provider_id);
+
+    // Read + diff the cluster
+    let cluster_read = provider
+        .read("alloydb.Cluster", &cluster.provider_id)
+        .await
+        .expect("Cluster READ failed");
+    let cluster_changes = provider.diff("alloydb.Cluster", &cluster_config, &cluster_read.state);
+    println!(
+        "[DIFF] alloydb.Cluster: {} change(s)",
+        cluster_changes.len()
+    );
+    for c in &cluster_changes {
+        println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+    }
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    // 3. Create AlloyDB Instance inside the cluster
+    let inst_name = format!("{name}-inst");
+    println!("\n[SETUP] Creating AlloyDB Instance (this takes ~5-10 minutes)...");
+    let inst_config = serde_json::json!({
+        "identity": {
+            "name": &inst_name,
+            "display_name": "smelt alloydb test instance",
+            "cluster_id": &cluster.provider_id,
+        },
+        "config": {
+            "availability_type": "ZONAL",
+            "machine_config": {
+                "cpuCount": 2,
+            },
+        },
+        "sizing": {
+            "instance_type": "PRIMARY",
+        },
+    });
+
+    let instance = provider
+        .create("alloydb.Instance", &inst_config)
+        .await
+        .expect("AlloyDB Instance create failed");
+    println!("  instance = {}", instance.provider_id);
+
+    // Read + diff the instance
+    let inst_read = provider
+        .read("alloydb.Instance", &instance.provider_id)
+        .await
+        .expect("Instance READ failed");
+    let inst_changes = provider.diff("alloydb.Instance", &inst_config, &inst_read.state);
+    println!("[DIFF] alloydb.Instance: {} change(s)", inst_changes.len());
+    for c in &inst_changes {
+        println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+    }
+
+    // Cleanup: instance -> cluster -> network
+    println!("\n[DELETE] alloydb.Instance...");
+    provider
+        .delete("alloydb.Instance", &instance.provider_id)
+        .await
+        .expect("Instance DELETE failed");
+    println!("  Deleted instance.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+
+    println!("[DELETE] alloydb.Cluster...");
+    provider
+        .delete("alloydb.Cluster", &cluster.provider_id)
+        .await
+        .expect("Cluster DELETE failed");
+    println!("  Deleted cluster.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+
+    println!("[DELETE] compute.Network...");
+    provider
+        .delete("compute.Network", &net.provider_id)
+        .await
+        .expect("Network DELETE failed");
+    println!("  Deleted network.");
+
+    println!("\n=== AlloyDB Cluster diffs: {} ===", cluster_changes.len());
+    println!("=== AlloyDB Instance diffs: {} ===", inst_changes.len());
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Workstations WorkstationCluster + WorkstationConfig
+// Cluster create takes ~10-15 minutes. Requires a VPC + Subnet.
+// Cost: The cluster itself is free; cost comes from actual workstations.
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_workstations_cluster_config_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("wscl");
+
+    // 1. Create VPC
+    let net_name = format!("{name}-net");
+    println!("[SETUP] Creating VPC network...");
+    let net = provider
+        .create(
+            "compute.Network",
+            &serde_json::json!({
+                "identity": { "name": &net_name },
+                "network": { "auto_create_subnetworks": false, "routing_mode": "REGIONAL" }
+            }),
+        )
+        .await
+        .expect("Network create failed");
+    println!("  network = {}", net.provider_id);
+
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+
+    // 2. Create Subnet
+    let sub_name = format!("{name}-sub");
+    println!("[SETUP] Creating Subnet...");
+    let sub = provider
+        .create(
+            "compute.Subnetwork",
+            &serde_json::json!({
+                "identity": { "name": &sub_name },
+                "network": {
+                    "network": format!("projects/{project}/global/networks/{net_name}"),
+                    "ip_cidr_range": "10.0.0.0/24",
+                },
+            }),
+        )
+        .await
+        .expect("Subnet create failed");
+    println!("  subnet = {}", sub.provider_id);
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    // 3. Create WorkstationCluster
+    let cluster_name = format!("{name}-cl");
+    println!("\n[SETUP] Creating WorkstationCluster (this takes ~10-15 minutes)...");
+    let cluster_config = serde_json::json!({
+        "identity": {
+            "name": &cluster_name,
+            "display_name": "smelt workstation cluster test",
+        },
+        "network": {
+            "network": format!("projects/{project}/global/networks/{net_name}"),
+            "subnetwork": format!("projects/{project}/regions/{REGION}/subnetworks/{sub_name}"),
+        },
+    });
+
+    let cluster = provider
+        .create("workstations.WorkstationCluster", &cluster_config)
+        .await
+        .expect("WorkstationCluster create failed");
+    println!("  cluster = {}", cluster.provider_id);
+
+    // Read + diff the cluster
+    let cluster_read = provider
+        .read("workstations.WorkstationCluster", &cluster.provider_id)
+        .await
+        .expect("Cluster READ failed");
+    let cluster_changes = provider.diff(
+        "workstations.WorkstationCluster",
+        &cluster_config,
+        &cluster_read.state,
+    );
+    println!(
+        "[DIFF] workstations.WorkstationCluster: {} change(s)",
+        cluster_changes.len()
+    );
+    for c in &cluster_changes {
+        println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+    }
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    // 4. Create WorkstationConfig
+    let cfg_name = format!("{name}-cfg");
+    println!("\n[SETUP] Creating WorkstationConfig...");
+    let wsc_config = serde_json::json!({
+        "identity": {
+            "name": &cfg_name,
+            "display_name": "smelt workstation config test",
+            "workstation_cluster_id": &cluster.provider_id,
+        },
+        "config": {
+            "idle_timeout": "1800s",
+            "running_timeout": "7200s",
+        },
+    });
+
+    let ws_config = provider
+        .create("workstations.WorkstationConfig", &wsc_config)
+        .await
+        .expect("WorkstationConfig create failed");
+    println!("  config = {}", ws_config.provider_id);
+
+    // Read + diff the config
+    let cfg_read = provider
+        .read("workstations.WorkstationConfig", &ws_config.provider_id)
+        .await
+        .expect("Config READ failed");
+    let cfg_changes = provider.diff(
+        "workstations.WorkstationConfig",
+        &wsc_config,
+        &cfg_read.state,
+    );
+    println!(
+        "[DIFF] workstations.WorkstationConfig: {} change(s)",
+        cfg_changes.len()
+    );
+    for c in &cfg_changes {
+        println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+    }
+
+    // Cleanup: config -> cluster -> subnet -> network
+    println!("\n[DELETE] workstations.WorkstationConfig...");
+    provider
+        .delete("workstations.WorkstationConfig", &ws_config.provider_id)
+        .await
+        .expect("WorkstationConfig DELETE failed");
+    println!("  Deleted config.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+
+    println!("[DELETE] workstations.WorkstationCluster...");
+    provider
+        .delete("workstations.WorkstationCluster", &cluster.provider_id)
+        .await
+        .expect("WorkstationCluster DELETE failed");
+    println!("  Deleted cluster.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+
+    println!("[DELETE] compute.Subnetwork...");
+    provider
+        .delete("compute.Subnetwork", &sub.provider_id)
+        .await
+        .expect("Subnet DELETE failed");
+    println!("  Deleted subnet.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    println!("[DELETE] compute.Network...");
+    provider
+        .delete("compute.Network", &net.provider_id)
+        .await
+        .expect("Network DELETE failed");
+    println!("  Deleted network.");
+
+    println!(
+        "\n=== WorkstationCluster diffs: {} ===",
+        cluster_changes.len()
+    );
+    println!("=== WorkstationConfig diffs: {} ===", cfg_changes.len());
+}
