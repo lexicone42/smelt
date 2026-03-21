@@ -2959,51 +2959,137 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetInstance", e))?;
 
+        // -- identity --
+        let mut identity = serde_json::Map::new();
+        identity.insert(
+            "name".into(),
+            serde_json::json!(instance.name.as_deref().unwrap_or("")),
+        );
+        if let Some(desc) = instance.description.as_deref().filter(|s| !s.is_empty()) {
+            identity.insert("description".into(), serde_json::json!(desc));
+        }
         let user_labels: serde_json::Map<String, serde_json::Value> = instance
             .labels
             .iter()
             .filter(|(k, _)| k.as_str() != "managed_by")
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
+        if !user_labels.is_empty() {
+            identity.insert("labels".into(), serde_json::Value::Object(user_labels));
+        }
+        // tags: only include if there are user-specified items (not just fingerprint)
+        if let Some(tags) = &instance.tags {
+            let items_json = serde_json::json!(&tags.items);
+            if let Some(arr) = items_json.as_array() {
+                if !arr.is_empty() {
+                    let mut tags_obj = serde_json::Map::new();
+                    tags_obj.insert("items".into(), items_json);
+                    identity.insert("tags".into(), serde_json::Value::Object(tags_obj));
+                }
+            }
+        }
 
-        let state = serde_json::json!({
-            "identity": {
-                "description": instance.description.as_deref().unwrap_or(""),
-                "labels": user_labels,
-                "name": instance.name.as_deref().unwrap_or(""),
-                "tags": &instance.tags,
-            },
-            "config": {
-                "advanced_machine_features": &instance.advanced_machine_features,
-                "can_ip_forward": instance.can_ip_forward.unwrap_or(false),
-                "confidential_instance_config": &instance.confidential_instance_config,
-                "deletion_protection": instance.deletion_protection.unwrap_or(false),
-                "disks": &instance.disks,
-                "display_device": &instance.display_device,
-                "guest_accelerators": &instance.guest_accelerators,
-                "hostname": instance.hostname.as_deref().unwrap_or(""),
-                "instance_encryption_key": &instance.instance_encryption_key,
-                "min_cpu_platform": instance.min_cpu_platform.as_deref().unwrap_or(""),
-                "network_performance_config": &instance.network_performance_config,
-                "params": &instance.params,
-                "reservation_affinity": &instance.reservation_affinity,
-                "resource_policies": &instance.resource_policies,
-                "scheduling": &instance.scheduling,
-                "service_accounts": &instance.service_accounts,
-                "shielded_instance_config": &instance.shielded_instance_config,
-                "source_machine_image": instance.source_machine_image.as_deref().unwrap_or(""),
-                "workload_identity_config": &instance.workload_identity_config,
-            },
-            "network": {
-                "network_interfaces": &instance.network_interfaces,
-            },
-            "runtime": {
-                "metadata": &instance.metadata,
-            },
-            "sizing": {
-                "machine_type": instance.machine_type.as_deref().unwrap_or(""),
-            },
-        });
+        // -- config --
+        let mut config = serde_json::Map::new();
+        // disks: only keep user-specified fields, convert camelCase → snake_case
+        if !instance.disks.is_empty() {
+            let mut clean_disks = Vec::new();
+            for disk in &instance.disks {
+                let mut d = serde_json::Map::new();
+                if let Some(auto_delete) = disk.auto_delete {
+                    d.insert("auto_delete".into(), serde_json::json!(auto_delete));
+                }
+                if let Some(boot) = disk.boot {
+                    d.insert("boot".into(), serde_json::json!(boot));
+                }
+                // initialize_params: only keep source_image, disk_size_gb, disk_type
+                if let Some(ref params) = disk.initialize_params {
+                    let mut ip = serde_json::Map::new();
+                    if let Some(ref img) = params.source_image {
+                        if !img.is_empty() {
+                            ip.insert("source_image".into(), serde_json::json!(img));
+                        }
+                    }
+                    if let Some(size) = params.disk_size_gb {
+                        ip.insert("disk_size_gb".into(), serde_json::json!(size));
+                    }
+                    if let Some(ref dt) = params.disk_type {
+                        if !dt.is_empty() {
+                            ip.insert("disk_type".into(), serde_json::json!(dt));
+                        }
+                    }
+                    if !ip.is_empty() {
+                        d.insert("initialize_params".into(), serde_json::Value::Object(ip));
+                    }
+                }
+                if !d.is_empty() {
+                    clean_disks.push(serde_json::Value::Object(d));
+                }
+            }
+            if !clean_disks.is_empty() {
+                config.insert("disks".into(), serde_json::Value::Array(clean_disks));
+            }
+        }
+        // can_ip_forward: only include if true
+        if instance.can_ip_forward.unwrap_or(false) {
+            config.insert("can_ip_forward".into(), serde_json::json!(true));
+        }
+        // deletion_protection: only include if true
+        if instance.deletion_protection.unwrap_or(false) {
+            config.insert("deletion_protection".into(), serde_json::json!(true));
+        }
+        // Skip scheduling, shielded_instance_config — server-populated defaults
+
+        // -- network --
+        let mut network = serde_json::Map::new();
+        if !instance.network_interfaces.is_empty() {
+            let mut clean_nics = Vec::new();
+            for nic in &instance.network_interfaces {
+                let mut n = serde_json::Map::new();
+                if let Some(ref net) = nic.network {
+                    if !net.is_empty() {
+                        n.insert("network".into(), serde_json::json!(net));
+                    }
+                }
+                // Skip subnetwork — auto-assigned by GCP when user only specifies network
+                // access_configs: keep but convert to snake_case
+                if !nic.access_configs.is_empty() {
+                    let ac_json = serde_json::json!(&nic.access_configs);
+                    let ac_snake = super::camel_to_snake_keys(&ac_json);
+                    n.insert("access_configs".into(), ac_snake);
+                }
+                if !n.is_empty() {
+                    clean_nics.push(serde_json::Value::Object(n));
+                }
+            }
+            if !clean_nics.is_empty() {
+                network.insert(
+                    "network_interfaces".into(),
+                    serde_json::Value::Array(clean_nics),
+                );
+            }
+        }
+
+        // -- sizing --
+        let mut sizing = serde_json::Map::new();
+        if let Some(mt) = instance.machine_type.as_deref().filter(|s| !s.is_empty()) {
+            sizing.insert("machine_type".into(), serde_json::json!(mt));
+        }
+        sizing.insert("zone".into(), serde_json::json!(zone));
+
+        // Build final state
+        let mut state_map = serde_json::Map::new();
+        state_map.insert("identity".into(), serde_json::Value::Object(identity));
+        if !config.is_empty() {
+            state_map.insert("config".into(), serde_json::Value::Object(config));
+        }
+        if !network.is_empty() {
+            state_map.insert("network".into(), serde_json::Value::Object(network));
+        }
+        // Skip runtime.metadata — server-generated with fingerprint
+        state_map.insert("sizing".into(), serde_json::Value::Object(sizing));
+
+        let state = serde_json::Value::Object(state_map);
 
         let mut outputs = HashMap::new();
         outputs.insert(
