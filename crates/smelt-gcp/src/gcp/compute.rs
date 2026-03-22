@@ -7205,13 +7205,9 @@ impl GcpProvider {
             },
             "config": {
                 "stack_type": &vpn_gateway.stack_type,
-                "vpn_interfaces": &vpn_gateway.vpn_interfaces,
             },
             "network": {
                 "network": vpn_gateway.network.as_deref().unwrap_or(""),
-            },
-            "output": {
-                "gateway_ip_version": &vpn_gateway.gateway_ip_version,
             },
         });
 
@@ -7903,6 +7899,21 @@ impl GcpProvider {
             .await
             .map_err(|e| super::classify_gcp_error("GetReservation", e))?;
 
+        // Apply camel_to_snake_keys to specific_reservation and fix count type
+        let mut specific_reservation_val =
+            super::camel_to_snake_keys(&serde_json::json!(&reservation.specific_reservation));
+        // Convert count from string to number and strip server-assigned tracking fields
+        if let Some(obj) = specific_reservation_val.as_object_mut() {
+            if let Some(count_str) = obj.get("count").and_then(|v| v.as_str()) {
+                if let Ok(n) = count_str.parse::<i64>() {
+                    obj.insert("count".into(), serde_json::json!(n));
+                }
+            }
+            // assuredCount and inUseCount are server-assigned tracking fields
+            obj.remove("assured_count");
+            obj.remove("in_use_count");
+        }
+
         let state = serde_json::json!({
             "identity": {
                 "description": reservation.description.as_deref().unwrap_or(""),
@@ -7918,7 +7929,7 @@ impl GcpProvider {
                 "resource_policies": &reservation.resource_policies,
                 "scheduling_type": &reservation.scheduling_type,
                 "share_settings": &reservation.share_settings,
-                "specific_reservation": &reservation.specific_reservation,
+                "specific_reservation": specific_reservation_val,
                 "specific_reservation_required": reservation.specific_reservation_required.unwrap_or(false),
             },
             "sizing": {

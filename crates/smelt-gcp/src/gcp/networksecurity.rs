@@ -431,9 +431,24 @@ impl GcpProvider {
             .map(|(k, v)| (k.clone(), serde_json::json!(v)))
             .collect();
 
-        // Apply camel_to_snake_keys to mtls_policy to fix camelCase vs snake_case mismatch
-        let mtls_policy_val =
+        // Apply camel_to_snake_keys to mtls_policy to fix camelCase vs snake_case mismatch,
+        // then convert client_validation_mode from integer enum to string.
+        let mut mtls_policy_val =
             super::camel_to_snake_keys(&serde_json::json!(&server_tls_policy.mtls_policy));
+        if let Some(obj) = mtls_policy_val.as_object_mut() {
+            if let Some(mode_val) = obj.get("client_validation_mode").and_then(|v| v.as_i64()) {
+                let mode_str = match mode_val {
+                    0 => "CLIENT_CERT_NOT_REQUIRED",
+                    1 => "ALLOW_INVALID_OR_MISSING_CLIENT_CERT",
+                    2 => "REJECT_INVALID",
+                    _ => "CLIENT_CERT_NOT_REQUIRED",
+                };
+                obj.insert(
+                    "client_validation_mode".into(),
+                    serde_json::Value::String(mode_str.to_string()),
+                );
+            }
+        }
 
         let state = serde_json::json!({
             "identity": {

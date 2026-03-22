@@ -914,9 +914,23 @@ fn build_registry() -> smelt::provider::ProviderRegistry {
                 .unwrap_or_else(|| "default".into())
         });
     let gcp_region = std::env::var("GOOGLE_CLOUD_REGION").unwrap_or_else(|_| "us-central1".into());
-    let gcp_provider = rt
-        .block_on(GcpProvider::from_env(&gcp_project, &gcp_region))
-        .expect("Failed to initialize GCP provider");
+    let gcp_provider = match rt.block_on(GcpProvider::from_env(&gcp_project, &gcp_region)) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!(
+                "warning: GCP provider initialization failed: {e}\n\
+                 GCP resources will not be available. Check GOOGLE_APPLICATION_CREDENTIALS."
+            );
+            // Return registry without GCP — other providers still work
+            registry.register(TracingProvider::wrap(Box::new(
+                CloudflareProvider::from_env(),
+            )));
+            registry.register(TracingProvider::wrap(Box::new(
+                GoogleWorkspaceProvider::from_env(),
+            )));
+            return registry;
+        }
+    };
     registry.register(TracingProvider::wrap(Box::new(gcp_provider)));
     registry.register(TracingProvider::wrap(Box::new(
         CloudflareProvider::from_env(),

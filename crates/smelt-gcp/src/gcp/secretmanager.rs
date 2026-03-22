@@ -262,9 +262,18 @@ impl GcpProvider {
         // Only include replication if user-managed (non-default).
         // GCP always returns automatic replication as the default;
         // only user_managed replication is user-configurable state.
+        // Check for non-null values: serde may serialize the inactive variant
+        // key with a null value, so `.get("key").is_some()` alone is insufficient.
         if let Some(ref repl) = secret.replication {
             let repl_json = serde_json::to_value(repl).unwrap_or_default();
-            if repl_json.get("user_managed").is_some() || repl_json.get("userManaged").is_some() {
+            let has_automatic = repl_json.get("automatic").is_some_and(|v| !v.is_null())
+                || repl_json
+                    .get("replication")
+                    .and_then(|r| r.get("automatic"))
+                    .is_some_and(|v| !v.is_null());
+            let has_user_managed = repl_json.get("user_managed").is_some_and(|v| !v.is_null())
+                || repl_json.get("userManaged").is_some_and(|v| !v.is_null());
+            if !has_automatic && has_user_managed {
                 state["reliability"] = serde_json::json!({
                     "replication": repl_json,
                 });

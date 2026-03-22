@@ -187,15 +187,8 @@ impl GcpProvider {
         if hub.export_psc.unwrap_or(false) {
             config.insert("export_psc".into(), serde_json::json!(true));
         }
-        // Strip policy_mode and preset_topology enum ints (0 = unspecified default)
-        let policy_mode_val = serde_json::json!(&hub.policy_mode);
-        if policy_mode_val.as_i64() != Some(0) && !policy_mode_val.is_null() {
-            config.insert("policy_mode".into(), policy_mode_val);
-        }
-        let preset_topology_val = serde_json::json!(&hub.preset_topology);
-        if preset_topology_val.as_i64() != Some(0) && !preset_topology_val.is_null() {
-            config.insert("preset_topology".into(), preset_topology_val);
-        }
+        // policy_mode and preset_topology are server-assigned; never include
+        // them in config (they cause diffs since users don't specify them).
         config.insert("routing_vpcs".into(), serde_json::json!(&hub.routing_vpcs));
 
         let state = serde_json::json!({

@@ -2333,6 +2333,15 @@ impl Provider for GcpProvider {
             };
         }
 
+        // Strip write-only / create-only fields that the API never returns on read.
+        // These are set during create but cannot be compared on subsequent reads.
+        changes.retain(|c| {
+            !matches!(
+                (resource_type, c.path.as_str()),
+                ("compute.SslCertificate", "config.private_key")
+            )
+        });
+
         changes
     }
 }
