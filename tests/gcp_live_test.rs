@@ -5425,22 +5425,38 @@ async fn gcp_functions_function_crud() {
         String::from_utf8_lossy(&zip_status.stderr)
     );
 
-    // Upload to GCS using gcloud storage (gsutil needs reauth in non-interactive)
+    // Upload to GCS via REST API using ADC token (gcloud CLI needs interactive reauth)
     let gcs_uri = format!("gs://{bucket_name}/source.zip");
-    let upload_status = std::process::Command::new("gcloud")
+    let zip_bytes = std::fs::read(zip_path.as_path()).expect("read zip file");
+    let upload_url = format!(
+        "https://storage.googleapis.com/upload/storage/v1/b/{}/o?uploadType=media&name=source.zip",
+        bucket_name
+    );
+    let adc_token = std::process::Command::new("gcloud")
+        .args(["auth", "application-default", "print-access-token"])
+        .output()
+        .expect("get ADC token");
+    let token = String::from_utf8_lossy(&adc_token.stdout)
+        .trim()
+        .to_string();
+    let upload_status = std::process::Command::new("curl")
         .args([
-            "storage",
-            "cp",
-            zip_path.to_str().unwrap(),
-            &gcs_uri,
-            "--project",
-            &project,
+            "-s",
+            "-X",
+            "POST",
+            &upload_url,
+            "-H",
+            &format!("Authorization: Bearer {token}"),
+            "-H",
+            "Content-Type: application/zip",
+            "--data-binary",
+            &format!("@{}", zip_path.display()),
         ])
         .output()
-        .expect("gcloud storage cp failed");
+        .expect("curl upload failed");
     assert!(
         upload_status.status.success(),
-        "gcloud storage cp failed: {:?}",
+        "GCS upload failed: {:?}",
         String::from_utf8_lossy(&upload_status.stderr)
     );
     println!("  Uploaded source to {gcs_uri}");
