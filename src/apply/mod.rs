@@ -383,12 +383,25 @@ pub fn execute_plan_with_config(
             }
         }
 
-        // Phase 2: Execute provider calls concurrently within the tier
+        // Phase 2: Execute provider calls with bounded concurrency and timeouts.
+        // Max 10 concurrent calls prevents rate limit storms.
+        // 15-minute timeout prevents hung API calls from blocking forever.
+        const MAX_CONCURRENT: usize = 10;
+        const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(900);
+
         let outcomes: Vec<CallOutcome> = if prepared.is_empty() {
             vec![]
         } else {
             rt.block_on(async {
-                let futs = prepared.iter().map(|p| async {
+                use futures::stream::{FuturesOrdered, StreamExt};
+                let mut futs = FuturesOrdered::new();
+                let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT));
+
+                for p in prepared.iter() {
+                    let sem = semaphore.clone();
+                    futs.push_back(async move {
+                        let _permit = sem.acquire().await.expect("semaphore closed");
+                        let result = tokio::time::timeout(CALL_TIMEOUT, async {
                     match p.action.action {
                         ActionType::Create => {
                             match p.provider.create(&p.resource_type, &p.config).await {
@@ -502,8 +515,18 @@ pub fn execute_plan_with_config(
                         }
                         ActionType::Unchanged => unreachable!(),
                     }
-                });
-                futures::future::join_all(futs).await
+                        }).await;
+                        // Convert timeout to CallOutcome
+                        match result {
+                            Ok(outcome) => outcome,
+                            Err(_) => CallOutcome::Failed {
+                                error: "provider call timed out after 15 minutes".to_string(),
+                                suggested_action: Some("check cloud console for the resource status, then retry".to_string()),
+                            },
+                        }
+                    });
+                }
+                futs.collect::<Vec<_>>().await
             })
         };
 

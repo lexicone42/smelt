@@ -160,15 +160,27 @@ impl SecretStore {
     /// Rotate the encryption key: generate a new key and re-encrypt all values.
     ///
     /// Returns the old key bytes for re-encryption by the caller.
+    /// Uses atomic temp-file-and-rename to prevent key loss on crash.
     pub fn rotate_key(&self) -> Result<Vec<u8>, SecretError> {
         let old_key_bytes = self.load_key_bytes()?;
-
-        // Remove old key
         let key_path = self.key_path();
-        fs::remove_file(&key_path)?;
 
-        // Generate new key
-        self.generate_key()?;
+        // Generate new key to a temp file first (crash-safe)
+        let tmp_path = key_path.with_extension("key.new");
+        let rng = aws_lc_rs::rand::SystemRandom::new();
+        let mut new_key_bytes = [0u8; 32];
+        rng.fill(&mut new_key_bytes)
+            .map_err(|_| SecretError::EncryptionFailed)?;
+
+        fs::write(&tmp_path, &new_key_bytes)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&tmp_path, fs::Permissions::from_mode(0o600))?;
+        }
+
+        // Atomic rename — old key is replaced, never missing
+        fs::rename(&tmp_path, &key_path)?;
 
         Ok(old_key_bytes)
     }

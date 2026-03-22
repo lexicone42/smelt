@@ -265,11 +265,23 @@ fn parse_files(files: &[std::path::PathBuf]) -> Result<Vec<SmeltFile>> {
             })
             .collect();
 
+        let project_root = std::env::current_dir()
+            .and_then(|p| p.canonicalize())
+            .map_err(|e| miette!("cannot resolve project root: {e}"))?;
+
         for include_path in includes {
             let resolved = Path::new(".").join(&include_path);
             let canonical = resolved
                 .canonicalize()
                 .map_err(|e| miette!("include '{include_path}': {e}"))?;
+
+            // Prevent including files outside the project root
+            if !canonical.starts_with(&project_root) {
+                return Err(miette!(
+                    "include '{include_path}' resolves to {} which is outside the project root",
+                    canonical.display()
+                ));
+            }
 
             if included.contains(&canonical) {
                 continue; // Already included — skip (prevents cycles)
@@ -1078,6 +1090,18 @@ fn cmd_destroy(
     yes: bool,
     dry_run: bool,
 ) -> Result<()> {
+    // Check protected environments require --yes (same as apply)
+    let project_config =
+        ProjectConfig::load_or_default(Path::new(".")).map_err(|e| miette!("{e}"))?;
+    if let Ok(env_config) = project_config.get_env(environment)
+        && env_config.protected
+        && !yes
+    {
+        return Err(miette!(
+            "environment '{environment}' is protected — use --yes to confirm destroy"
+        ));
+    }
+
     let files = resolve_files(files)?;
     let parsed = parse_files(&files)?;
     let graph = DependencyGraph::build(&parsed).map_err(|e| miette!("{e}"))?;
@@ -2060,8 +2084,10 @@ fn cmd_state_rm(environment: &str, resource: &str, yes: bool) -> Result<()> {
     eprintln!("  provider_id: {provider_id}");
     eprintln!();
     eprintln!(
-        "WARNING: This removes the resource from smelt's state only. \
-         The cloud resource will NOT be deleted."
+        "WARNING: This removes the resource from smelt's state only.\n\
+         The cloud resource will NOT be deleted now, but the NEXT `smelt apply`\n\
+         will treat it as unmanaged and may attempt to DELETE it.\n\
+         Consider `smelt destroy` instead if you want to delete the cloud resource."
     );
 
     if !yes {

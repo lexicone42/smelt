@@ -403,7 +403,7 @@ fn value_to_json(value: &Value) -> serde_json::Value {
             }
             serde_json::Value::Object(map)
         }
-        Value::Secret(s) => serde_json::Value::String(s.clone()),
+        Value::Secret(_) => serde_json::Value::String("(sensitive)".to_string()),
         Value::ParamRef(name) => serde_json::Value::String(format!("{{param.{name}}}")),
         Value::EnvRef(var) => {
             // Resolve environment variable at plan time
