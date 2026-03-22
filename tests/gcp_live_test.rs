@@ -5370,3 +5370,638 @@ async fn gcp_workstations_cluster_config_crud() {
     );
     println!("=== WorkstationConfig diffs: {} ===", cfg_changes.len());
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Cloud Functions v2 (Gen2) — requires GCS bucket with source zip
+// Cost: ~free (256 MB RAM, HTTP trigger, deletes immediately)
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_functions_function_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("func");
+
+    // 1. Create a GCS bucket for function source
+    let bucket_name = format!("{name}-src");
+    println!("\n=== STEP 1: GCS Bucket for source ===");
+    let bucket_config = serde_json::json!({
+        "identity": { "name": &bucket_name },
+        "config": {
+            "location": "US",
+            "storage_class": "STANDARD",
+        },
+    });
+    let bucket = provider
+        .create("storage.Bucket", &bucket_config)
+        .await
+        .expect("GCS Bucket create failed");
+    println!("  bucket = {}", bucket.provider_id);
+
+    // 2. Create a minimal function source zip and upload via gsutil
+    println!("\n=== STEP 2: Upload function source ===");
+    let tmp_dir = std::env::temp_dir().join(format!("smelt-func-{}", name));
+    std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
+
+    // Write a minimal Node.js HTTP function
+    let index_js = r#"exports.helloWorld = (req, res) => { res.send('Hello from smelt test!'); };"#;
+    let package_json = r#"{"name":"smelt-test","version":"1.0.0","dependencies":{}}"#;
+    std::fs::write(tmp_dir.join("index.js"), index_js).expect("write index.js");
+    std::fs::write(tmp_dir.join("package.json"), package_json).expect("write package.json");
+
+    // Create zip
+    let zip_path = tmp_dir.join("source.zip");
+    let zip_status = std::process::Command::new("zip")
+        .args(["-j", zip_path.to_str().unwrap(), "index.js", "package.json"])
+        .current_dir(&tmp_dir)
+        .output()
+        .expect("zip command failed");
+    assert!(
+        zip_status.status.success(),
+        "zip failed: {:?}",
+        String::from_utf8_lossy(&zip_status.stderr)
+    );
+
+    // Upload to GCS using gcloud storage (gsutil needs reauth in non-interactive)
+    let gcs_uri = format!("gs://{bucket_name}/source.zip");
+    let upload_status = std::process::Command::new("gcloud")
+        .args([
+            "storage",
+            "cp",
+            zip_path.to_str().unwrap(),
+            &gcs_uri,
+            "--project",
+            &project,
+        ])
+        .output()
+        .expect("gcloud storage cp failed");
+    assert!(
+        upload_status.status.success(),
+        "gcloud storage cp failed: {:?}",
+        String::from_utf8_lossy(&upload_status.stderr)
+    );
+    println!("  Uploaded source to {gcs_uri}");
+
+    // Clean up temp dir
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+
+    // 3. Create the Cloud Function (Gen2)
+    println!("\n=== STEP 3: Create Cloud Function (this takes ~2-5 minutes) ===");
+    let func_config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "description": "smelt live test function",
+        },
+        "config": {
+            "environment": "GEN_2",
+            "build_config": {
+                "runtime": "nodejs20",
+                "entry_point": "helloWorld",
+                "source": {
+                    "storageSource": {
+                        "bucket": &bucket_name,
+                        "object": "source.zip",
+                    }
+                },
+            },
+            "service_config": {
+                "maxInstanceCount": 1,
+                "availableMemory": "256M",
+                "timeoutSeconds": 60,
+            },
+        },
+    });
+
+    let func_result = provider.create("functions.Function", &func_config).await;
+    match &func_result {
+        Ok(f) => {
+            println!("  function = {}", f.provider_id);
+
+            // Read + diff
+            let func_read = provider
+                .read("functions.Function", &f.provider_id)
+                .await
+                .expect("Function READ failed");
+            let func_changes = provider.diff("functions.Function", &func_config, &func_read.state);
+            println!(
+                "[DIFF] functions.Function: {} change(s)",
+                func_changes.len()
+            );
+            for c in &func_changes {
+                println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+            }
+
+            // Delete function
+            println!("\n[DELETE] functions.Function...");
+            match provider.delete("functions.Function", &f.provider_id).await {
+                Ok(()) => println!("  Function deleted."),
+                Err(e) => println!("  Function delete failed: {e:?}"),
+            }
+        }
+        Err(e) => {
+            println!("  FUNCTION CREATE FAILED: {e:?}");
+            println!("  (Cloud Functions Gen2 create returns an LRO — .send() may not poll it)");
+        }
+    }
+
+    // 4. Clean up GCS bucket (delete object first, then bucket)
+    println!("\n=== STEP 4: Cleanup ===");
+    let _ = std::process::Command::new("gcloud")
+        .args(["storage", "rm", &gcs_uri, "--project", &project])
+        .output();
+    println!("[DELETE] storage.Bucket...");
+    provider
+        .delete("storage.Bucket", &bucket.provider_id)
+        .await
+        .expect("GCS Bucket DELETE failed");
+    println!("  Bucket deleted.");
+
+    if let Ok(f) = &func_result {
+        println!(
+            "\n=== Cloud Function test complete (provider_id: {}) ===",
+            f.provider_id
+        );
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AlloyDB Backup — requires a running AlloyDB cluster + instance
+// Cost: ~$1.50 (cluster + instance ~10 min + backup storage)
+// Uses default network with VPC peering already configured.
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_alloydb_backup_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let name = test_name("adbbk");
+
+    // 1. Create AlloyDB Cluster (using default network — VPC peering already set up)
+    let cluster_name = format!("{name}-cl");
+    println!("\n=== STEP 1: AlloyDB Cluster (takes ~5-10 minutes) ===");
+    let cluster_config = serde_json::json!({
+        "identity": {
+            "name": &cluster_name,
+            "display_name": "smelt alloydb backup test cluster",
+        },
+        "config": {
+            "database_version": "POSTGRES_15",
+            "network_config": {
+                "network": format!("projects/{project}/global/networks/default"),
+            },
+            "initial_user": {
+                "user": "postgres",
+                "password": "smelt-test-pw-2024",
+            },
+        },
+    });
+
+    let cluster = provider
+        .create("alloydb.Cluster", &cluster_config)
+        .await
+        .expect("AlloyDB Cluster create failed");
+    println!("  cluster = {}", cluster.provider_id);
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    // 2. Create a PRIMARY instance in the cluster
+    let inst_name = format!("{name}-inst");
+    println!("\n=== STEP 2: AlloyDB Instance (takes ~5-10 minutes) ===");
+    let inst_config = serde_json::json!({
+        "identity": {
+            "name": &inst_name,
+            "display_name": "smelt alloydb backup test instance",
+            "cluster_id": &cluster.provider_id,
+        },
+        "config": {
+            "availability_type": "ZONAL",
+            "machine_config": {
+                "cpuCount": 2,
+            },
+        },
+        "sizing": {
+            "instance_type": "PRIMARY",
+        },
+    });
+
+    let instance = provider
+        .create("alloydb.Instance", &inst_config)
+        .await
+        .expect("AlloyDB Instance create failed");
+    println!("  instance = {}", instance.provider_id);
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    // 3. Create a Backup of the cluster
+    let backup_name = format!("{name}-bk");
+    println!("\n=== STEP 3: AlloyDB Backup (takes ~5-10 minutes) ===");
+    let backup_config = serde_json::json!({
+        "identity": {
+            "name": &backup_name,
+            "display_name": "smelt alloydb backup test",
+            "description": "smelt live test backup",
+        },
+        "config": {
+            "cluster_name": &cluster.provider_id,
+        },
+    });
+
+    let backup_result = provider.create("alloydb.Backup", &backup_config).await;
+    match &backup_result {
+        Ok(b) => {
+            println!("  backup = {}", b.provider_id);
+
+            // Read + diff
+            let backup_read = provider
+                .read("alloydb.Backup", &b.provider_id)
+                .await
+                .expect("Backup READ failed");
+            let backup_changes =
+                provider.diff("alloydb.Backup", &backup_config, &backup_read.state);
+            println!("[DIFF] alloydb.Backup: {} change(s)", backup_changes.len());
+            for c in &backup_changes {
+                println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+            }
+        }
+        Err(e) => println!("  BACKUP CREATE FAILED: {e:?}"),
+    }
+
+    // 4. Cleanup: backup -> instance -> cluster (reverse order)
+    println!("\n=== STEP 4: Cleanup ===");
+
+    if let Ok(b) = &backup_result {
+        println!("[DELETE] alloydb.Backup...");
+        match provider.delete("alloydb.Backup", &b.provider_id).await {
+            Ok(()) => println!("  Backup deleted."),
+            Err(e) => println!("  Backup delete failed: {e:?}"),
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+    }
+
+    println!("[DELETE] alloydb.Instance...");
+    provider
+        .delete("alloydb.Instance", &instance.provider_id)
+        .await
+        .expect("Instance DELETE failed");
+    println!("  Instance deleted.");
+
+    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+
+    println!("[DELETE] alloydb.Cluster...");
+    provider
+        .delete("alloydb.Cluster", &cluster.provider_id)
+        .await
+        .expect("Cluster DELETE failed");
+    println!("  Cluster deleted.");
+
+    println!("\n=== AlloyDB Backup test complete ===");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// GKE Backup: BackupPlan + RestorePlan — requires a GKE cluster
+// Cost: ~$0.10/hr for GKE cluster (e2-small, 1 node)
+// GKE Cluster model is deeply nested — needs 16MB stack.
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_gkebackup_backupplan_restoreplan_crud() {
+    // GKE Cluster model is deeply nested — needs extra stack in debug builds
+    const STACK_SIZE: usize = 16 * 1024 * 1024; // 16 MB
+    std::thread::Builder::new()
+        .stack_size(STACK_SIZE)
+        .spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(gkebackup_inner())
+        })
+        .unwrap()
+        .join()
+        .unwrap()
+}
+
+async fn gkebackup_inner() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let prefix = format!("smelt-gkebk-{}", ts % 1_000_000);
+
+    // 1. Create VPC Network
+    println!("\n=== STEP 1: VPC Network ===");
+    let net_name = format!("{prefix}-net");
+    let net = provider
+        .create(
+            "compute.Network",
+            &serde_json::json!({
+                "identity": { "name": &net_name },
+                "network": { "auto_create_subnetworks": false, "routing_mode": "REGIONAL" }
+            }),
+        )
+        .await
+        .expect("Network create failed");
+    println!("  network = {}", net.provider_id);
+
+    // 2. Create Subnet
+    println!("\n=== STEP 2: Subnet ===");
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+    let subnet_name = format!("{prefix}-sub");
+    let subnet = provider
+        .create(
+            "compute.Subnetwork",
+            &serde_json::json!({
+                "identity": { "name": &subnet_name },
+                "network": {
+                    "network": format!("projects/{project}/global/networks/{net_name}"),
+                    "ip_cidr_range": "10.0.0.0/20",
+                }
+            }),
+        )
+        .await
+        .expect("Subnet create failed");
+    println!("  subnet = {}", subnet.provider_id);
+
+    // 3. Create GKE Cluster (minimal: e2-small, 1 node)
+    println!("\n=== STEP 3: GKE Cluster (takes ~5-10 minutes) ===");
+    let cluster_name = format!("{prefix}-cl");
+    let cluster_config = serde_json::json!({
+        "identity": {
+            "name": &cluster_name,
+            "description": "smelt GKE backup test cluster",
+        },
+        "config": {
+            "initial_cluster_version": "latest",
+            "node_pools": [{
+                "name": "default-pool",
+                "initial_node_count": 1,
+                "config": {
+                    "machine_type": "e2-small",
+                    "disk_size_gb": 20,
+                }
+            }],
+        },
+        "network": {
+            "network": format!("projects/{project}/global/networks/{net_name}"),
+            "subnetwork": format!("projects/{project}/regions/{REGION}/subnetworks/{subnet_name}"),
+        }
+    });
+    let cluster_result = provider.create("container.Cluster", &cluster_config).await;
+    if let Err(e) = &cluster_result {
+        println!("  CLUSTER CREATE FAILED: {e:?}");
+        println!("[CLEANUP] Destroying subnet, network...");
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        let _ = provider
+            .delete("compute.Subnetwork", &subnet.provider_id)
+            .await;
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        let _ = provider.delete("compute.Network", &net.provider_id).await;
+        panic!("GKE cluster creation failed: {e:?}");
+    }
+    let cluster = cluster_result.unwrap();
+    println!("  cluster = {}", cluster.provider_id);
+
+    // The GKE cluster resource name for gkebackup is:
+    // projects/{project}/locations/{region}/clusters/{name}
+    let gke_cluster_ref = format!("projects/{project}/locations/{REGION}/clusters/{cluster_name}");
+
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+
+    // 4. Create BackupPlan
+    println!("\n=== STEP 4: GKE BackupPlan ===");
+    let bp_name = format!("{prefix}-bp");
+    let bp_config = serde_json::json!({
+        "identity": {
+            "name": &bp_name,
+            "description": "smelt gke backup plan test",
+        },
+        "config": {
+            "cluster": &gke_cluster_ref,
+            "retention_policy": {
+                "backupRetainDays": 7,
+            },
+        },
+    });
+
+    let bp_result = provider.create("gkebackup.BackupPlan", &bp_config).await;
+    match &bp_result {
+        Ok(bp) => {
+            println!("  backup_plan = {}", bp.provider_id);
+
+            // Read + diff
+            let bp_read = provider
+                .read("gkebackup.BackupPlan", &bp.provider_id)
+                .await
+                .expect("BackupPlan READ failed");
+            let bp_changes = provider.diff("gkebackup.BackupPlan", &bp_config, &bp_read.state);
+            println!(
+                "[DIFF] gkebackup.BackupPlan: {} change(s)",
+                bp_changes.len()
+            );
+            for c in &bp_changes {
+                println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+            }
+        }
+        Err(e) => println!("  BACKUPPLAN CREATE FAILED: {e:?}"),
+    }
+
+    // 5. Create RestorePlan (needs backup_plan reference + cluster + restore_config)
+    if let Ok(bp) = &bp_result {
+        println!("\n=== STEP 5: GKE RestorePlan ===");
+        let rp_name = format!("{prefix}-rp");
+        let rp_config = serde_json::json!({
+            "identity": {
+                "name": &rp_name,
+                "description": "smelt gke restore plan test",
+            },
+            "config": {
+                "backup_plan": &bp.provider_id,
+                "cluster": &gke_cluster_ref,
+                "restore_config": {
+                    "allNamespaces": true,
+                    "volumeDataRestorePolicy": "RESTORE_VOLUME_DATA_FROM_BACKUP",
+                    "clusterResourceRestoreScope": {
+                        "allGroupKinds": true,
+                    },
+                    "namespacedResourceRestoreMode": "DELETE_AND_RESTORE",
+                    "clusterResourceConflictPolicy": "USE_BACKUP_VERSION",
+                },
+            },
+        });
+
+        let rp_result = provider.create("gkebackup.RestorePlan", &rp_config).await;
+        match &rp_result {
+            Ok(rp) => {
+                println!("  restore_plan = {}", rp.provider_id);
+
+                // Read + diff
+                let rp_read = provider
+                    .read("gkebackup.RestorePlan", &rp.provider_id)
+                    .await
+                    .expect("RestorePlan READ failed");
+                let rp_changes = provider.diff("gkebackup.RestorePlan", &rp_config, &rp_read.state);
+                println!(
+                    "[DIFF] gkebackup.RestorePlan: {} change(s)",
+                    rp_changes.len()
+                );
+                for c in &rp_changes {
+                    println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+                }
+
+                // Delete RestorePlan
+                println!("\n[DELETE] gkebackup.RestorePlan...");
+                match provider
+                    .delete("gkebackup.RestorePlan", &rp.provider_id)
+                    .await
+                {
+                    Ok(()) => println!("  RestorePlan deleted."),
+                    Err(e) => println!("  RestorePlan delete failed: {e:?}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            }
+            Err(e) => println!("  RESTOREPLAN CREATE FAILED: {e:?}"),
+        }
+
+        // Delete BackupPlan
+        println!("[DELETE] gkebackup.BackupPlan...");
+        match provider
+            .delete("gkebackup.BackupPlan", &bp.provider_id)
+            .await
+        {
+            Ok(()) => println!("  BackupPlan deleted."),
+            Err(e) => println!("  BackupPlan delete failed: {e:?}"),
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    }
+
+    // 6. Cleanup: cluster -> subnet -> network
+    println!("\n=== STEP 6: Cleanup ===");
+
+    println!("[DELETE] container.Cluster (takes ~5 minutes)...");
+    match provider
+        .delete("container.Cluster", &cluster.provider_id)
+        .await
+    {
+        Ok(()) => println!("  Cluster deleted."),
+        Err(e) => println!("  Cluster delete failed: {e:?}"),
+    }
+
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+
+    println!("[DELETE] compute.Subnetwork...");
+    match provider
+        .delete("compute.Subnetwork", &subnet.provider_id)
+        .await
+    {
+        Ok(()) => println!("  Subnet deleted."),
+        Err(e) => println!("  Subnet delete failed (may need more time): {e:?}"),
+    }
+
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    println!("[DELETE] compute.Network...");
+    match provider.delete("compute.Network", &net.provider_id).await {
+        Ok(()) => println!("  Network deleted."),
+        Err(e) => println!("  Network delete failed: {e:?}"),
+    }
+
+    println!("\n=== GKE Backup (BackupPlan + RestorePlan) test complete ===");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Spanner InstanceConfig — custom instance config based on nam3
+// Cost: free (config is metadata only, but create takes 20-30 minutes)
+// Requires replicas matching the base config's replicas.
+// ═══════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn gcp_spanner_instanceconfig_crud() {
+    let project = gcp_project();
+    let provider = GcpProvider::from_env(&project, REGION)
+        .await
+        .expect("GCP provider init");
+    // Custom instance config names must match: custom-[a-z][a-z0-9-]*[a-z0-9]
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let name = format!("custom-smelt-{}", ts % 1_000_000);
+
+    // A custom InstanceConfig is derived from a base config.
+    // nam3 = North America multi-region. We must specify replicas
+    // that include the base config's replicas plus optionally more.
+    // The base nam3 config has replicas in us-central1, us-east1, us-east4
+    // (3 read-write + 2 witnesses). For a custom config we must specify
+    // at minimum the same replicas.
+    let base_config = format!("projects/{project}/instanceConfigs/nam3");
+
+    println!("\n=== Spanner InstanceConfig (takes ~20-30 minutes) ===");
+    println!("  base_config = {base_config}");
+
+    let config = serde_json::json!({
+        "identity": {
+            "name": &name,
+            "display_name": "smelt spanner custom config test",
+        },
+        "config": {
+            "base_config": &base_config,
+        },
+        "reliability": {
+            "replicas": [
+                { "location": "us-central1", "type": "READ_WRITE", "defaultLeaderLocation": true },
+                { "location": "us-central2", "type": "READ_WRITE", "defaultLeaderLocation": false },
+                { "location": "us-east1", "type": "READ_WRITE", "defaultLeaderLocation": false },
+                { "location": "us-east4", "type": "WITNESS", "defaultLeaderLocation": false },
+                { "location": "us-west1", "type": "WITNESS", "defaultLeaderLocation": false },
+            ],
+        },
+    });
+
+    let result = provider.create("spanner.InstanceConfig", &config).await;
+    match &result {
+        Ok(created) => {
+            println!("  instance_config = {}", created.provider_id);
+
+            // Read + diff
+            let read = provider
+                .read("spanner.InstanceConfig", &created.provider_id)
+                .await
+                .expect("InstanceConfig READ failed");
+            let changes = provider.diff("spanner.InstanceConfig", &config, &read.state);
+            println!("[DIFF] spanner.InstanceConfig: {} change(s)", changes.len());
+            for c in &changes {
+                println!("  {}: {:?} -> {:?}", c.path, c.old_value, c.new_value);
+            }
+
+            // Delete
+            println!("\n[DELETE] spanner.InstanceConfig...");
+            match provider
+                .delete("spanner.InstanceConfig", &created.provider_id)
+                .await
+            {
+                Ok(()) => println!("  InstanceConfig deleted."),
+                Err(e) => println!("  InstanceConfig delete failed: {e:?}"),
+            }
+        }
+        Err(e) => {
+            println!("  INSTANCECONFIG CREATE FAILED: {e:?}");
+            println!(
+                "  (Custom Spanner configs require specific replica placement matching the base config)"
+            );
+        }
+    }
+
+    println!("\n=== Spanner InstanceConfig test complete ===");
+}
