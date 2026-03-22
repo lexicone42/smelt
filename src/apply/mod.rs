@@ -448,8 +448,18 @@ pub fn execute_plan_with_config(
                             }
                         }
                         ActionType::Update => {
-                            let pid = p.provider_id.as_deref().unwrap();
-                            let old = p.old_config.as_ref().unwrap();
+                            let Some(pid) = p.provider_id.as_deref() else {
+                                return CallOutcome::Failed {
+                                    error: "update failed: no provider_id in state (corrupted state?)".to_string(),
+                                    suggested_action: Some("run `smelt drift` to refresh state from cloud".to_string()),
+                                };
+                            };
+                            let Some(old) = p.old_config.as_ref() else {
+                                return CallOutcome::Failed {
+                                    error: "update failed: no previous config in state (corrupted state?)".to_string(),
+                                    suggested_action: Some("run `smelt drift` to refresh state from cloud".to_string()),
+                                };
+                            };
                             match with_retry(|| p.provider.update(&p.resource_type, pid, old, &p.config)).await
                             {
                                 Ok(output) => CallOutcome::Output(output),
@@ -525,7 +535,12 @@ pub fn execute_plan_with_config(
                             }
                         }
                         ActionType::Delete => {
-                            let pid = p.provider_id.as_deref().unwrap();
+                            let Some(pid) = p.provider_id.as_deref() else {
+                                return CallOutcome::Failed {
+                                    error: "delete failed: no provider_id in state (corrupted state?)".to_string(),
+                                    suggested_action: Some("use `smelt state rm` to remove the orphaned entry".to_string()),
+                                };
+                            };
                             match with_retry(|| p.provider.delete(&p.resource_type, pid)).await {
                                 Ok(()) => CallOutcome::Deleted,
                                 Err(e) => {
@@ -773,12 +788,20 @@ pub fn execute_plan_with_config(
         match key_store.sign_transition(transition) {
             Ok(signed) => {
                 // Store the signed transition alongside the tree
-                let sig_data = serde_json::to_vec_pretty(&signed).unwrap_or_default();
+                let sig_data = match serde_json::to_vec_pretty(&signed) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "failed to serialize signed transition");
+                        vec![] // Empty data — transition won't be persisted
+                    }
+                };
                 let sig_path = project_root
                     .join(".smelt/transitions")
                     .join(format!("{}.json", new_tree_hash.short()));
-                if let Err(e) = std::fs::create_dir_all(sig_path.parent().unwrap()) {
-                    tracing::warn!(error = %e, "failed to create transitions dir");
+                if let Some(parent) = sig_path.parent() {
+                    if let Err(e) = std::fs::create_dir_all(parent) {
+                        tracing::warn!(error = %e, "failed to create transitions dir");
+                    }
                 }
                 if let Err(e) = std::fs::write(&sig_path, sig_data) {
                     tracing::warn!(error = %e, "failed to write signed transition");
@@ -1034,7 +1057,10 @@ fn resolve_refs(
             if parts.len() == 2 {
                 let section = parts[0];
                 let field = parts[1];
-                let obj = config.as_object_mut().unwrap();
+                let Some(obj) = config.as_object_mut() else {
+                    tracing::warn!("config is not a JSON object — cannot inject binding");
+                    continue;
+                };
                 let section_obj = obj
                     .entry(section)
                     .or_insert_with(|| serde_json::json!({}))
