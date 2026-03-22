@@ -3,10 +3,39 @@ use std::path::Path;
 
 use crate::ast::{Declaration, SmeltFile, StringPart, Value};
 use crate::plan::{ActionType, Plan, PlannedAction};
-use crate::provider::ProviderRegistry;
+use crate::provider::{ProviderError, ProviderRegistry};
 use crate::secrets::SecretStore;
 use crate::signing::{SigningKeyStore, TransitionChange, TransitionData};
 use crate::store::{ContentHash, Event, EventType, ResourceState, Store, TreeEntry, TreeNode};
+
+/// Retry a provider call with exponential backoff on rate-limit errors.
+/// Returns the result of the call, with up to 3 retries on RateLimited.
+async fn with_retry<F, Fut, T>(mut f: F) -> Result<T, ProviderError>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, ProviderError>>,
+{
+    let mut attempt = 0;
+    loop {
+        match f().await {
+            Ok(v) => return Ok(v),
+            Err(ProviderError::RateLimited { retry_after_secs }) => {
+                attempt += 1;
+                if attempt > 3 {
+                    return Err(ProviderError::RateLimited { retry_after_secs });
+                }
+                let delay = std::cmp::min(retry_after_secs * attempt, 60);
+                tracing::warn!(
+                    attempt,
+                    delay_secs = delay,
+                    "rate limited — retrying with backoff"
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
 
 /// Tracks provider IDs for resources that have been successfully created/read,
 /// so that dependent resources can resolve their `needs` bindings.
@@ -404,7 +433,7 @@ pub fn execute_plan_with_config(
                         let result = tokio::time::timeout(CALL_TIMEOUT, async {
                     match p.action.action {
                         ActionType::Create => {
-                            match p.provider.create(&p.resource_type, &p.config).await {
+                            match with_retry(|| p.provider.create(&p.resource_type, &p.config)).await {
                                 Ok(output) => CallOutcome::Output(output),
                                 Err(e) => {
                                     let suggestion = e.suggestion().unwrap_or_else(|| {
@@ -421,10 +450,7 @@ pub fn execute_plan_with_config(
                         ActionType::Update => {
                             let pid = p.provider_id.as_deref().unwrap();
                             let old = p.old_config.as_ref().unwrap();
-                            match p
-                                .provider
-                                .update(&p.resource_type, pid, old, &p.config)
-                                .await
+                            match with_retry(|| p.provider.update(&p.resource_type, pid, old, &p.config)).await
                             {
                                 Ok(output) => CallOutcome::Output(output),
                                 Err(crate::provider::ProviderError::RequiresReplacement(_)) => {
@@ -500,7 +526,7 @@ pub fn execute_plan_with_config(
                         }
                         ActionType::Delete => {
                             let pid = p.provider_id.as_deref().unwrap();
-                            match p.provider.delete(&p.resource_type, pid).await {
+                            match with_retry(|| p.provider.delete(&p.resource_type, pid)).await {
                                 Ok(()) => CallOutcome::Deleted,
                                 Err(e) => {
                                     let suggestion = e.suggestion().unwrap_or_else(|| {
@@ -555,6 +581,7 @@ pub fn execute_plan_with_config(
                         Some(output.outputs.clone())
                     };
                     let state = ResourceState {
+                        last_updated: Some(chrono::Utc::now()),
                         resource_id: p.action.resource_id.clone(),
                         type_path: p.action.type_path.clone(),
                         config: redacted,
@@ -644,6 +671,7 @@ pub fn execute_plan_with_config(
                 };
 
                 let event = Event {
+                    chain_hash: None,
                     seq,
                     timestamp: chrono::Utc::now(),
                     event_type,

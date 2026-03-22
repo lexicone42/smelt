@@ -799,6 +799,7 @@ mod tests {
 
         // Append some events
         let event = crate::store::Event {
+            chain_hash: None,
             seq: 1,
             timestamp: chrono::Utc::now(),
             event_type: crate::store::EventType::ResourceCreated,
@@ -833,6 +834,7 @@ mod tests {
 
         // Store a resource and tree
         let state = crate::store::ResourceState {
+            last_updated: None,
             resource_id: "vpc.main".to_string(),
             type_path: "aws.ec2.Vpc".to_string(),
             config: serde_json::json!({"network": {"cidr_block": "10.0.0.0/16"}}),
@@ -860,6 +862,7 @@ mod tests {
         let store = Store::open(&dir).unwrap();
 
         let state = crate::store::ResourceState {
+            last_updated: None,
             resource_id: "vpc.main".to_string(),
             type_path: "aws.ec2.Vpc".to_string(),
             config: serde_json::json!({"network": {"cidr_block": "10.0.0.0/16"}}),

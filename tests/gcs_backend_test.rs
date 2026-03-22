@@ -25,6 +25,7 @@ fn gcs_put_and_get_object() {
     let store = test_store();
 
     let state = ResourceState {
+        last_updated: None,
         resource_id: "vpc.main".to_string(),
         type_path: "gcp.compute.Network".to_string(),
         config: serde_json::json!({"identity": {"name": "test-vpc"}}),
@@ -51,6 +52,7 @@ fn gcs_content_addressing_is_deterministic() {
     let store = test_store();
 
     let state = ResourceState {
+        last_updated: None,
         resource_id: "vpc.main".to_string(),
         type_path: "gcp.compute.Network".to_string(),
         config: serde_json::json!({"identity": {"name": "test-vpc"}}),
@@ -71,6 +73,7 @@ fn gcs_tree_and_ref_operations() {
     let store = test_store();
 
     let state = ResourceState {
+        last_updated: None,
         resource_id: "vpc.main".to_string(),
         type_path: "gcp.compute.Network".to_string(),
         config: serde_json::json!({}),
@@ -105,6 +108,7 @@ fn gcs_event_log() {
     let store = test_store();
 
     let event = smelt::store::Event {
+        chain_hash: None,
         seq: 1,
         timestamp: chrono::Utc::now(),
         event_type: smelt::store::EventType::ResourceCreated,
@@ -144,6 +148,7 @@ fn gcs_blake3_integrity_verification() {
     let store = test_store();
 
     let state = ResourceState {
+        last_updated: None,
         resource_id: "integrity.test".to_string(),
         type_path: "test.Resource".to_string(),
         config: serde_json::json!({"key": "value"}),

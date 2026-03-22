@@ -581,17 +581,25 @@ fn load_current_state(
 ) -> BTreeMap<String, plan::CurrentResource> {
     let store = match open_store_from_config() {
         Ok(s) => s,
-        Err(_) => return BTreeMap::new(),
+        Err(e) => {
+            eprintln!(
+                "warning: could not open state store: {e} — planning as if no resources exist"
+            );
+            return BTreeMap::new();
+        }
     };
 
     let tree_hash = match store.get_ref(environment) {
         Ok(h) => h,
-        Err(_) => return BTreeMap::new(),
+        Err(_) => return BTreeMap::new(), // No state yet — this is normal for first apply
     };
 
     let tree = match store.get_tree(&tree_hash) {
         Ok(t) => t,
-        Err(_) => return BTreeMap::new(),
+        Err(e) => {
+            eprintln!("warning: state tree is corrupted: {e} — planning as if no resources exist");
+            return BTreeMap::new();
+        }
     };
 
     let mut state = BTreeMap::new();
@@ -973,9 +981,16 @@ fn cmd_apply(
             }
             let current_hash = hasher.finalize().to_hex().to_string();
             if current_hash != *saved_hash {
+                if !yes {
+                    return Err(miette!(
+                        ".smelt files have changed since this plan was created — \
+                         the plan is stale. Re-run `smelt plan` to generate a fresh plan, \
+                         or use --yes to apply the stale plan anyway."
+                    ));
+                }
                 eprintln!(
                     "warning: .smelt files have changed since this plan was created — \
-                     the plan may be stale. Re-run `smelt plan` to generate a fresh plan."
+                     applying stale plan (--yes overrides this check)"
                 );
             }
         }
@@ -1478,6 +1493,7 @@ fn cmd_import(
         Some(output.outputs)
     };
     let state = store::ResourceState {
+        last_updated: Some(chrono::Utc::now()),
         resource_id: resource.to_string(),
         type_path: node.type_path.clone(),
         config: output.state.clone(),
@@ -1498,6 +1514,7 @@ fn cmd_import(
 
     // Record import event
     let event = store::Event {
+        chain_hash: None,
         seq: s.next_seq().map_err(|e| miette!("{e}"))?,
         timestamp: chrono::Utc::now(),
         event_type: store::EventType::ResourceCreated,
@@ -1638,6 +1655,7 @@ fn cmd_rollback(environment: &str, target: &str, yes: bool) -> Result<()> {
 
     // Record rollback event
     let event = store::Event {
+        chain_hash: None,
         seq: s.next_seq().map_err(|e| miette!("{e}"))?,
         timestamp: chrono::Utc::now(),
         event_type: store::EventType::Rollback,
@@ -1786,6 +1804,7 @@ fn cmd_recover(environment: &str, tree_hash: &str, yes: bool) -> Result<()> {
 
     // Record recovery event
     let event = store::Event {
+        chain_hash: None,
         seq: s.next_seq().map_err(|e| miette!("{e}"))?,
         timestamp: chrono::Utc::now(),
         event_type: store::EventType::Rollback,
@@ -2107,6 +2126,7 @@ fn cmd_state_rm(environment: &str, resource: &str, yes: bool) -> Result<()> {
 
     // Record audit event
     let event = store::Event {
+        chain_hash: None,
         seq: s.next_seq().map_err(|e| miette!("{e}"))?,
         timestamp: chrono::Utc::now(),
         event_type: store::EventType::ResourceDeleted,
@@ -2165,6 +2185,7 @@ fn cmd_state_mv(environment: &str, from: &str, to: &str) -> Result<()> {
 
             // Record audit event
             let event = store::Event {
+                chain_hash: None,
                 seq: s.next_seq().map_err(|e| miette!("{e}"))?,
                 timestamp: chrono::Utc::now(),
                 event_type: store::EventType::ResourceUpdated,

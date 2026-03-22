@@ -105,20 +105,36 @@ impl StorageBackend for LocalBackend {
             Ok(file) => {
                 use std::io::Write;
                 let mut f = file;
-                let _ = write!(f, "{}", std::process::id());
+                // Write PID and timestamp for stale lock detection
+                let _ = write!(
+                    f,
+                    "{},{}",
+                    std::process::id(),
+                    chrono::Utc::now().timestamp()
+                );
                 Ok(Box::new(LocalLock {
                     _file: f,
                     path: lock_path,
                 }))
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                // Check if the lock is stale (process no longer running)
-                if let Ok(pid_str) = fs::read_to_string(&lock_path)
-                    && let Ok(pid) = pid_str.trim().parse::<u32>()
-                    && !process_alive(pid)
-                {
-                    let _ = fs::remove_file(&lock_path);
-                    return self.lock();
+                // Check if the lock is stale: process dead AND lock > 5 minutes old.
+                // Both conditions must be true to prevent TOCTOU races.
+                if let Ok(lock_content) = fs::read_to_string(&lock_path) {
+                    let parts: Vec<&str> = lock_content.trim().splitn(2, ',').collect();
+                    let pid_dead = parts
+                        .first()
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .is_some_and(|pid| !process_alive(pid));
+                    let lock_old = parts
+                        .get(1)
+                        .and_then(|s| s.parse::<i64>().ok())
+                        .is_some_and(|ts| chrono::Utc::now().timestamp() - ts > 300);
+
+                    if pid_dead && lock_old {
+                        let _ = fs::remove_file(&lock_path);
+                        return self.lock();
+                    }
                 }
                 Err(StoreError::Locked)
             }

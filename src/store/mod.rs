@@ -53,6 +53,10 @@ pub struct ResourceState {
     /// Provider outputs (endpoints, IPs, ARNs, etc.)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outputs: Option<std::collections::HashMap<String, serde_json::Value>>,
+    /// When this state was last written — prevents replay attacks where
+    /// an attacker reverts state to an older (vulnerable) configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_updated: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// A Merkle tree node representing a group of resources.
@@ -104,6 +108,10 @@ pub struct Event {
     pub intent: Option<String>,
     pub prev_hash: Option<ContentHash>,
     pub new_hash: Option<ContentHash>,
+    /// BLAKE3 hash of the previous event's JSON — creates a tamper-evident chain.
+    /// First event has None. If any event is deleted or modified, the chain breaks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -313,16 +321,27 @@ impl Store {
     /// Append an event to the log.
     ///
     /// Uses atomic write to prevent corruption from crashes mid-write.
+    /// Computes a chain hash from the previous event for tamper detection.
     pub fn append_event(&self, event: &Event) -> Result<(), StoreError> {
-        let line = serde_json::to_string(event)?;
         let event_path = "events/events.jsonl";
 
-        // Read existing content (if any), append new line
-        let mut content = match self.backend.read(event_path) {
-            Ok(data) => String::from_utf8_lossy(&data).to_string(),
-            Err(StoreError::ObjectNotFound(_)) => String::new(),
+        // Read existing content and compute chain hash from last event
+        let (mut content, chain_hash) = match self.backend.read(event_path) {
+            Ok(data) => {
+                let text = String::from_utf8_lossy(&data).to_string();
+                let last_line = text.lines().rev().find(|l| !l.trim().is_empty());
+                let hash = last_line.map(|l| ContentHash::of(l.as_bytes()).0);
+                (text, hash)
+            }
+            Err(StoreError::ObjectNotFound(_)) => (String::new(), None),
             Err(e) => return Err(e),
         };
+
+        // Create a copy of the event with the chain hash set
+        let mut chained_event = event.clone();
+        chained_event.chain_hash = chain_hash;
+
+        let line = serde_json::to_string(&chained_event)?;
         content.push_str(&line);
         content.push('\n');
 
@@ -457,6 +476,7 @@ mod tests {
     fn store_and_retrieve_object() {
         let store = temp_store();
         let state = ResourceState {
+            last_updated: None,
             resource_id: "vpc.main".to_string(),
             type_path: "aws.ec2.Vpc".to_string(),
             config: serde_json::json!({ "cidr_block": "10.0.0.0/16" }),
@@ -477,6 +497,7 @@ mod tests {
     fn content_addressing_is_deterministic() {
         let store = temp_store();
         let state = ResourceState {
+            last_updated: None,
             resource_id: "vpc.main".to_string(),
             type_path: "aws.ec2.Vpc".to_string(),
             config: serde_json::json!({ "cidr_block": "10.0.0.0/16" }),
@@ -497,6 +518,7 @@ mod tests {
 
         let mut tree = TreeNode::new();
         let state = ResourceState {
+            last_updated: None,
             resource_id: "vpc.main".to_string(),
             type_path: "aws.ec2.Vpc".to_string(),
             config: serde_json::json!({}),
@@ -543,6 +565,7 @@ mod tests {
             intent: Some("Create VPC".to_string()),
             prev_hash: None,
             new_hash: Some(ContentHash("abc123".to_string())),
+            chain_hash: None,
         };
 
         store.append_event(&event).unwrap();

@@ -214,7 +214,7 @@ mod store_properties {
             type_path in arb_ident(),
         ) {
             let (store, _dir) = temp_store();
-            let state = smelt::store::ResourceState {
+            let state = smelt::store::ResourceState { last_updated: None,
                 resource_id: resource_id.clone(),
                 type_path: type_path.clone(),
                 config: serde_json::json!({"test": true}),
@@ -236,7 +236,7 @@ mod store_properties {
         #[test]
         fn store_is_content_addressable(resource_id in arb_ident()) {
             let (store, _dir) = temp_store();
-            let state = smelt::store::ResourceState {
+            let state = smelt::store::ResourceState { last_updated: None,
                 resource_id,
                 type_path: "test.Type".to_string(),
                 config: serde_json::json!({}),
