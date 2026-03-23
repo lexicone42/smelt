@@ -3,10 +3,9 @@ use libfuzzer_sys::fuzz_target;
 
 /// Fuzz the JSON diff engine with arbitrary JSON values.
 ///
-/// Targets: deeply nested diffs, type mismatches, large arrays,
-/// and recursive diff_values edge cases.
+/// smelt-provider is lightweight (no cloud SDK deps), so this
+/// compiles fast with ASAN instrumentation.
 fuzz_target!(|data: &[u8]| {
-    // Split input in half to get two JSON values
     if data.len() < 4 {
         return;
     }
@@ -18,6 +17,6 @@ fuzz_target!(|data: &[u8]| {
         serde_json::from_slice::<serde_json::Value>(right),
     ) {
         let mut changes = Vec::new();
-        smelt::provider::diff_values("", &desired, &actual, &mut changes);
+        smelt_provider::diff_values("", &desired, &actual, &mut changes);
     }
 });

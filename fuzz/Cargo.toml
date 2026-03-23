@@ -13,28 +13,16 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 serde_json = "1"
 
-[dependencies.smelt]
-path = ".."
+# Lightweight — no cloud SDK deps, compiles fast with ASAN
+smelt-provider = { path = "../crates/smelt-provider" }
 
-# Fuzz targets
-
-[[bin]]
-name = "fuzz_parser"
-path = "fuzz_targets/fuzz_parser.rs"
-test = false
-doc = false
-bench = false
+# Parser/formatter fuzz targets require extracting a smelt-core crate
+# to avoid pulling in 50+ GCP SDK crates that OOM during ASAN build.
+# TODO: Add fuzz_parser and fuzz_formatter once smelt-core exists.
 
 [[bin]]
 name = "fuzz_diff"
 path = "fuzz_targets/fuzz_diff.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "fuzz_formatter"
-path = "fuzz_targets/fuzz_formatter.rs"
 test = false
 doc = false
 bench = false
