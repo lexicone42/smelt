@@ -445,15 +445,22 @@ fn cmd_validate(files: &[std::path::PathBuf]) -> Result<()> {
                     }
                 }
 
-                // Check required fields are present
+                // Check required fields are present (in sections or via needs bindings)
+                let binding_fields: std::collections::HashSet<&str> = resource
+                    .dependencies
+                    .iter()
+                    .map(|d| d.binding.as_str())
+                    .collect();
+
                 for schema_section in &schema.schema.sections {
                     for schema_field in &schema_section.fields {
                         if schema_field.required {
-                            let present = resource.sections.iter().any(|s| {
+                            let in_section = resource.sections.iter().any(|s| {
                                 s.name == schema_section.name
                                     && s.fields.iter().any(|f| f.name == schema_field.name)
                             });
-                            if !present {
+                            let via_binding = binding_fields.contains(schema_field.name.as_str());
+                            if !in_section && !via_binding {
                                 errors.push(format!(
                                     "{}.{}: missing required field '{}.{}'",
                                     resource.kind,
