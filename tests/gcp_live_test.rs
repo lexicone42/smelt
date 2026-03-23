@@ -612,6 +612,7 @@ async fn gcp_secret_manager_crud() {
 
     let config = serde_json::json!({
         "identity": { "name": &name },
+        "reliability": { "replication": { "automatic": {} } }
     });
 
     let (created, _read, changes) =
