@@ -40,8 +40,8 @@ src/
 
 crates/
 ├── smelt-provider/      # Provider trait, ProviderRegistry, schema types
-├── smelt-aws/           # AWS provider (52 resource types across 28 services)
-└── smelt-gcp/           # GCP provider (87 resource types across 33 services)
+├── smelt-aws/           # AWS provider (52 resource types across 29 services)
+└── smelt-gcp/           # GCP provider (91 resource types across 34 services)
 
 tools/
 └── codegen/             # Codegen tool for generating provider resource code
@@ -68,6 +68,31 @@ SmeltFile[]
 ```
 
 The graph module indexes resources by `ResourceId` (kind.name) and resolves dependency edges from `needs` clauses. Cycle detection happens during construction.
+
+### Expansion (for_each, count, components)
+
+Before the dependency graph is built, three expansion passes transform template declarations into concrete resources:
+
+```
+SmeltFile[]
+    → expand_components()    # "use X as Y" → scoped resource copies with param substitution
+    → expand_for_each()      # for_each = [...] → one resource per list element
+    → expand_count()         # count = N → N numbered resource instances
+    → DependencyGraph::build()
+```
+
+All three expansions share a pattern: clone the template `ResourceDecl`, rename it with a suffix (`[key]` for for_each/count, `instance__kind` for components), and recursively substitute placeholder values (`each.value`, `each.index`, `param.name`) throughout all sections and fields. The key design choice is that expansion happens **before** graph construction — the plan and apply engines never see templates, only concrete resources. This means dependencies, tiered execution, and blast radius analysis work transparently on expanded instances.
+
+The substitution functions (`substitute_each`, `substitute_params`) handle nested structures: arrays, records, and string interpolation (`${each.index}`) are all recursively traversed.
+
+### Tiered execution
+
+```
+DependencyGraph
+    → tiered_apply_order() → Vec<(ResourceNode, tier)>
+```
+
+Resources are grouped into execution tiers based on dependency depth. Tier 0 has no dependencies, tier 1 depends only on tier 0, and so on. Resources within the same tier can be executed concurrently (bounded by a semaphore). Tiers are processed sequentially. This maximizes parallelism while respecting dependency ordering.
 
 ### Plan
 
@@ -110,6 +135,27 @@ Objects are immutable. Trees reference objects by hash. Refs are the only mutabl
 State is saved per-tier during apply (not just at the end), so partial failures preserve successful resources. On partial failure, the ref is still updated with the successful subset — preventing duplicate-create on re-run.
 
 Adding a new backend (S3, Azure Blob, etc.) requires implementing the `StorageBackend` trait: `read`, `write`, `exists`, `delete`, `list`, and `lock`.
+
+#### GCS distributed locking
+
+The GCS backend uses generation-based compare-and-swap for locking, avoiding the need for an external coordination service (like Terraform's DynamoDB table). Lock acquisition sends a PUT with `ifGenerationMatch=0` — this succeeds atomically only if the lock object doesn't exist. The lock object stores the holder's identity and timestamp. On release, the lock is deleted with generation matching to prevent ABA problems.
+
+The implementation caches the auth token at lock acquisition time so the `Drop` impl can release the lock without needing an async runtime. A blocking HTTP client is used in `Drop` to avoid async-in-drop pitfalls.
+
+#### Event chain integrity
+
+The event log uses hash chaining: each event includes the BLAKE3 hash of the previous event's serialized form. The first event has no chain hash. If any event is deleted or modified, the chain breaks on verification. This provides tamper evidence for the audit trail without the complexity of a full Merkle tree (which is used separately for state objects).
+
+### Apply
+
+```
+Plan + ProviderRegistry + Store
+    → apply::execute()
+    → per-tier: concurrent provider calls (bounded semaphore)
+    → per-resource: create/update/delete + state save + sign
+```
+
+The apply engine processes resources tier by tier. Within each tier, provider calls run concurrently up to a configurable limit (default: 10). Each successful operation immediately saves state to the store — this per-tier persistence means a crash during apply preserves all resources from completed tiers. Rate-limited errors trigger exponential backoff retry (3 attempts). Provider calls are wrapped with a 15-minute timeout.
 
 ## Key Design Decisions
 
@@ -164,8 +210,25 @@ This allows tools to validate configuration, generate documentation, and provide
 
 ## Testing Strategy
 
-The codebase uses three testing layers:
+The codebase uses four testing layers:
 
-1. **Unit tests** — Example-based tests for each module (parser, formatter, store, signing, providers)
-2. **Property-based tests** — [proptest](https://docs.rs/proptest) generates random inputs to verify invariants (roundtrip idempotency, hash determinism, diff symmetry, signing integrity)
-3. **Schema invariant tests** — Verify structural consistency across all resource types (identity sections, required fields, enum variants, uniqueness)
+1. **Unit tests** (121) — Example-based tests for each module (parser, formatter, store, signing, providers)
+2. **Integration tests** (17) — End-to-end pipeline tests (parse → plan → apply with mock provider)
+3. **Property-based tests** (25) — [proptest](https://docs.rs/proptest) generates random inputs to verify invariants (roundtrip idempotency, hash determinism, diff symmetry, signing integrity, secret encryption roundtrip)
+4. **Fuzz tests** — [cargo-fuzz](https://docs.rs/cargo-fuzz) / libFuzzer targets for crash resistance: parser on arbitrary bytes, diff engine on random JSON, formatter on fuzzed ASTs. 38M+ iterations completed without crashes.
+
+Additionally, 120 live tests (`tests/gcp_live_test.rs`, `tests/aws_live_test.rs`) exercise real cloud APIs and are gated behind `#[ignore]` — run manually with `cargo test -- --ignored`.
+
+## Security Architecture
+
+Defense in depth across the data path:
+
+- **Secrets**: AES-256-GCM with random 96-bit nonces. Format: `enc:v1:<base64(nonce || ciphertext || tag)>`. Key files created atomically with `create_new(true)` + `0600` permissions before writing material.
+- **State integrity**: BLAKE3 hash verified on every read. Hash mismatch = hard error, not warning.
+- **Signing**: Ed25519 over canonical (deterministic) JSON. Signatures use `aws-lc-rs` (FIPS-validated).
+- **Event chain**: BLAKE3 hash of previous event embedded in each new event. Tamper-evident audit log.
+- **Atomic writes**: All state mutations use write-to-temp + rename. No partial-write corruption window.
+- **Lock safety**: Stale lock cleared only if holding process is dead AND lock is >5 minutes old (prevents TOCTOU).
+- **Plan output**: Sensitive field values are redacted to `(sensitive)` — never shown in plan diffs.
+- **Bounded concurrency**: Semaphore limits concurrent provider API calls (default 10 per tier).
+- **Timeouts**: 15-minute timeout on all provider calls via `tokio::time::timeout`.

@@ -77,7 +77,9 @@ smelt graph
 smelt graph --dot | dot -Tpng -o graph.png
 ```
 
-## Example
+## Examples
+
+### AWS
 
 ```
 resource vpc "main" : aws.ec2.Vpc {
@@ -113,22 +115,72 @@ resource subnet "public_a" : aws.ec2.Subnet {
 }
 ```
 
+### GCP
+
+```
+resource vpc "main" : gcp.compute.Network {
+  @intent "Primary VPC for the application stack"
+
+  identity {
+    name = "app-vpc"
+  }
+
+  network {
+    auto_create_subnetworks = false
+    routing_mode = "REGIONAL"
+  }
+}
+
+resource subnet "app" : gcp.compute.Subnetwork {
+  @intent "Application subnet for Cloud Run"
+
+  needs vpc.main -> network
+
+  identity {
+    name = "app-subnet"
+  }
+
+  network {
+    ip_cidr_range = "10.0.0.0/24"
+  }
+}
+
+resource service "api" : gcp.run.Service {
+  @intent "API service"
+  @lifecycle "prevent_destroy"
+
+  identity {
+    name = "api-service"
+  }
+
+  config {
+    template = {
+      containers = [{
+        image = "us-docker.pkg.dev/my-project/app/api:latest"
+        ports = [{ container_port = 8080 }]
+      }]
+    }
+  }
+}
+```
+
 ## Supported Resource Types
 
-### AWS (52 resource types across 28 services)
+### AWS (52 resource types across 29 services)
 
 | Service | Resources |
 |---------|-----------|
-| EC2 | Vpc, Subnet, SecurityGroup, Instance, InternetGateway, RouteTable, NatGateway, ElasticIP, KeyPair, VPC Endpoint |
+| EC2 | Vpc, Subnet, SecurityGroup, Instance, InternetGateway, RouteTable, NatGateway, ElasticIp, KeyPair, VpcEndpoint |
 | IAM | Role, Policy, InstanceProfile |
 | S3 | Bucket |
 | ELBv2 | LoadBalancer, TargetGroup, Listener |
 | ECS | Cluster, TaskDefinition, Service |
 | ECR | Repository |
 | RDS | DBInstance, DBSubnetGroup |
-| Lambda | Function, Permission |
+| Lambda | Function, EventSourceMapping |
 | Route53 | HostedZone, RecordSet |
-| CloudWatch | LogGroup, Alarm |
+| CloudWatch Logs | LogGroup |
+| CloudWatch | Alarm |
 | SQS | Queue |
 | SNS | Topic |
 | KMS | Key |
@@ -137,40 +189,55 @@ resource subnet "public_a" : aws.ec2.Subnet {
 | ACM | Certificate |
 | Secrets Manager | Secret |
 | SSM | Parameter |
-| ElastiCache | ReplicationGroup, ParameterGroup |
+| ElastiCache | ReplicationGroup, CacheSubnetGroup |
 | EFS | FileSystem, MountTarget |
 | API Gateway | Api, Stage |
 | Step Functions | StateMachine |
-| EventBridge | Rule, Target |
+| EventBridge | Rule, EventBus |
 | Auto Scaling | Group |
 | EKS | Cluster, NodeGroup |
 | WAFv2 | WebACL |
 | Cognito | UserPool |
 | SES | EmailIdentity |
 
-### GCP (87 resource types across 33 services, 30 tested, 23 zero-diff)
+### GCP (91 resource types across 34 services, 88 tested, 37+ zero-diff)
 
 | Service | Resources |
 |---------|-----------|
-| Compute | Network, Subnetwork, Firewall, Instance, Route, Address, Disk, Image, and 15 more |
+| Compute Engine | Network, Subnetwork, Firewall, Instance, Address, Disk, Route, Image, InstanceTemplate, InstanceGroup, Router, SecurityPolicy, Snapshot, SslCertificate, UrlMap, TargetHttpProxy, TargetHttpsProxy, VpnGateway, VpnTunnel, Reservation, InterconnectAttachment, Autoscaler, ResourcePolicy |
+| Load Balancing | BackendService, HealthCheck, ForwardingRule |
 | Cloud Run | Service, Job |
+| Cloud Functions | Function |
 | Cloud SQL | Instance, Database, User |
-| IAM | ServiceAccount, IAMBinding |
+| IAM | ServiceAccount, Role |
 | Pub/Sub | Topic, Subscription |
 | BigQuery | Dataset, Table |
 | Secret Manager | Secret |
-| Cloud DNS | ManagedZone, RecordSet, DnsPolicy |
+| Cloud DNS | ManagedZone, RecordSet, Policy |
 | KMS | KeyRing, CryptoKey |
 | Artifact Registry | Repository |
-| Logging | LogMetric, LogSink, LogView, LogExclusion |
-| Monitoring | AlertPolicy, NotificationChannel, UptimeCheckConfig |
+| Cloud Logging | LogBucket, LogSink, LogExclusion, LogMetric |
+| Cloud Monitoring | AlertPolicy, NotificationChannel, UptimeCheckConfig, Group |
 | Cloud Storage | Bucket |
 | Scheduler | Job |
 | Cloud Tasks | Queue |
 | Service Directory | Namespace, Service |
+| Eventarc | Trigger, Channel |
 | API Keys | Key |
 | Container (GKE) | Cluster, NodePool |
-| And more | Spanner, AlloyDB, Filestore, Workflows, Functions, etc. |
+| GKE Backup | BackupPlan, RestorePlan |
+| AlloyDB | Cluster, Instance, Backup |
+| Spanner | Instance, InstanceConfig |
+| Filestore | Instance, Backup |
+| Memorystore | Instance |
+| Private CA | CaPool, CertificateAuthority |
+| Certificate Manager | Certificate, CertificateMap, DnsAuthorization |
+| Network Services | Gateway, Mesh, HttpRoute, GrpcRoute |
+| Network Security | AuthorizationPolicy, ServerTlsPolicy, ClientTlsPolicy |
+| Network Connectivity | Hub, Spoke |
+| Workstations | WorkstationCluster, WorkstationConfig |
+| Workflows | Workflow |
+| Org Policy | Policy |
 
 ### Cloudflare (3 resource types)
 
@@ -206,6 +273,7 @@ User, Group
 | `smelt state ls/rm/mv` | Manage stored state directly |
 | `smelt secrets init/encrypt/decrypt/rotate` | Manage AES-256-GCM encryption for secrets |
 | `smelt env create/list/delete/show` | Manage project environments |
+| `smelt schema <type>` | Show resource type schema (fields, sections, types) |
 | `smelt audit trail/verify/attestation/sbom` | Audit trail, integrity verification, SLSA attestations, CycloneDX SBOM |
 | `smelt debug <file>` | Dump parsed AST as JSON |
 
@@ -231,6 +299,98 @@ layer "staging" over "base" {
 ```
 
 Layers merge additively — they override matching fields while preserving everything else.
+
+## Resource Multiplication
+
+### for_each
+
+Create multiple instances of a resource from a list of values. Each instance gets a unique name suffix and can reference `each.value` and `each.index`:
+
+```
+resource subnet "public" : aws.ec2.Subnet {
+  @intent "Public subnet per AZ"
+
+  for_each = ["us-east-1a", "us-east-1b", "us-east-1c"]
+
+  needs vpc.main -> vpc_id
+
+  identity {
+    name = "public-${each.value}"
+  }
+
+  network {
+    availability_zone = each.value
+    cidr_block = "10.0.${each.index}.0/24"
+  }
+}
+```
+
+This expands into three resources: `subnet.public[us-east-1a]`, `subnet.public[us-east-1b]`, and `subnet.public[us-east-1c]`. Values can be strings, integers, or records.
+
+### count
+
+Create N identical instances with a numeric index. Simpler alternative to `for_each` when you just need numbered copies:
+
+```
+resource sa "worker" : gcp.iam.ServiceAccount {
+  @intent "Per-worker service account"
+
+  count = 3
+
+  identity {
+    display_name = "Worker ${each.index}"
+    name = "worker-${each.index}"
+  }
+}
+```
+
+This expands into `sa.worker[0]`, `sa.worker[1]`, and `sa.worker[2]`.
+
+## Components
+
+Reusable parameterized resource templates. Define a component once, instantiate it multiple times with different arguments:
+
+```
+component "vpc-stack" {
+  param env_name : String
+  param cidr : String
+  param public_cidr : String = "10.0.1.0/24"
+
+  resource vpc "main" : aws.ec2.Vpc {
+    @intent "VPC for environment"
+
+    identity {
+      name = param.env_name
+    }
+
+    network {
+      cidr_block = param.cidr
+    }
+  }
+
+  resource subnet "public" : aws.ec2.Subnet {
+    @intent "Public subnet for load balancers"
+
+    needs vpc.main -> vpc_id
+
+    network {
+      cidr_block = param.public_cidr
+    }
+  }
+}
+
+use "vpc-stack" as "prod" {
+  cidr = "10.0.0.0/16"
+  env_name = "production"
+}
+
+use "vpc-stack" as "staging" {
+  cidr = "10.1.0.0/16"
+  env_name = "staging"
+}
+```
+
+Each `use` creates scoped copies of all resources in the component. Dependencies within the component are automatically re-scoped. Parameters support types (`String`, `Integer`, `Bool`) and optional defaults.
 
 ## AI Integration
 
@@ -285,11 +445,14 @@ GCS backend uses generation-based compare-and-swap for distributed locking — n
 ## Testing
 
 ```bash
-# Run all tests (155 total: 117 unit + 17 integration + 21 property-based)
+# Run all tests (163 total: 121 unit + 17 integration + 25 property-based)
 cargo test
 
 # Run property-based tests only
 cargo test --test property_tests
+
+# Run fuzz targets (requires nightly)
+cargo +nightly fuzz run fuzz_diff -- -max_total_time=60
 
 # Run with cargo-deny checks
 cargo deny check
@@ -302,6 +465,11 @@ Property-based tests (via [proptest](https://docs.rs/proptest)) verify:
 - Signing roundtrip and tamper detection
 - Config roundtrip serialization
 - Secret encryption/decryption roundtrip
+
+Fuzz targets (via [cargo-fuzz](https://docs.rs/cargo-fuzz) / libFuzzer):
+- Parser crash resistance on arbitrary input
+- Diff engine stability on random JSON pairs
+- Formatter roundtrip on fuzzed ASTs
 
 ## License
 
