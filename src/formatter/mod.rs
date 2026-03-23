@@ -205,7 +205,7 @@ fn format_annotations(out: &mut String, annotations: &[Annotation], indent: usiz
         for ann in annotations {
             if ann.kind == *kind {
                 let pad = "  ".repeat(indent);
-                if ann.value.contains('\n') {
+                if ann.value.contains('\n') && !ann.value.contains('#') {
                     out.push_str(&format!("{pad}@{} ", ann.kind));
                     format_multiline_string(out, &ann.value, indent);
                     out.push('\n');
@@ -260,7 +260,9 @@ fn format_field(out: &mut String, field: &Field, indent: usize) {
 fn format_value(out: &mut String, value: &Value, indent: usize) {
     match value {
         Value::String(s) => {
-            if s.contains('\n') {
+            if s.contains('\n') && !s.contains('#') {
+                // Triple-quoted strings can't contain '#' because the parser
+                // treats '#' as a comment start, eating the rest of the line.
                 format_multiline_string(out, s, indent);
             } else {
                 out.push_str(&format!("\"{}\"", escape_string(s)));
@@ -420,7 +422,9 @@ fn format_multiline_string(out: &mut String, s: &str, indent: usize) {
             out.push('\n');
         } else {
             out.push_str(&inner_pad);
-            out.push_str(line);
+            // trim_end: the parser's dedent() strips trailing whitespace,
+            // so we must too for idempotency.
+            out.push_str(line.trim_end());
             out.push('\n');
         }
     }

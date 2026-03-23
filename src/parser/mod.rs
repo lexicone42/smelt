@@ -623,10 +623,11 @@ fn dedent(s: &str) -> String {
     let s = s.strip_prefix('\n').unwrap_or(s);
     let s = s.trim_end();
 
+    // Count leading whitespace in chars (not bytes) for Unicode safety.
     let min_indent = s
         .lines()
         .filter(|line| !line.trim().is_empty())
-        .map(|line| line.len() - line.trim_start().len())
+        .map(|line| line.chars().take_while(|c| c.is_whitespace()).count())
         .min()
         .unwrap_or(0);
 
@@ -634,10 +635,14 @@ fn dedent(s: &str) -> String {
         .map(|line| {
             if line.trim().is_empty() {
                 ""
-            } else if line.len() >= min_indent {
-                &line[min_indent..]
             } else {
-                line
+                // Skip min_indent chars (not bytes) to handle multi-byte UTF-8
+                let skip: usize = line
+                    .char_indices()
+                    .nth(min_indent)
+                    .map(|(i, _)| i)
+                    .unwrap_or(line.len());
+                &line[skip..]
             }
         })
         .collect::<Vec<_>>()
