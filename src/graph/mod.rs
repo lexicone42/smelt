@@ -500,7 +500,7 @@ fn expand_for_each(files: &[SmeltFile]) -> Vec<ResourceDecl> {
             if let Declaration::Resource(resource) = decl
                 && let Some(items) = &resource.for_each
             {
-                for (index, item) in items.iter().enumerate() {
+                for (index, item) in items.iter().take(MAX_EXPANSION as usize).enumerate() {
                     let key = match item {
                         Value::String(s) => s.clone(),
                         Value::Integer(n) => n.to_string(),
@@ -543,6 +543,10 @@ fn expand_for_each(files: &[SmeltFile]) -> Vec<ResourceDecl> {
 ///
 /// `each.index` in field values is substituted with the instance index.
 /// This is simpler than `for_each` — no `each.value`, just numeric indexing.
+/// Maximum number of instances a single `count` or `for_each` can expand to.
+/// Prevents accidental resource bombs (e.g., `count = 1000000`).
+const MAX_EXPANSION: i64 = 10_000;
+
 fn expand_count(files: &[SmeltFile]) -> Vec<ResourceDecl> {
     let mut expanded = Vec::new();
 
@@ -551,6 +555,7 @@ fn expand_count(files: &[SmeltFile]) -> Vec<ResourceDecl> {
             if let Declaration::Resource(resource) = decl
                 && let Some(n) = resource.count
             {
+                let n = n.min(MAX_EXPANSION);
                 for index in 0..n {
                     let mut instance = resource.clone();
                     instance.name = format!("{}[{}]", resource.name, index);
