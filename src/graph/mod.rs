@@ -109,15 +109,16 @@ impl DependencyGraph {
         // Expand use declarations into concrete resources
         let expanded = expand_components(files, &components)?;
 
-        // Expand for_each resources into concrete instances
+        // Expand for_each and count resources into concrete instances
         let for_each_expanded = expand_for_each(files);
+        let count_expanded = expand_count(files);
 
         // First pass: add all resource nodes (both direct and expanded)
         for file in files {
             for decl in &file.declarations {
                 if let Declaration::Resource(resource) = decl {
-                    // Skip resources with for_each — they've been expanded above
-                    if resource.for_each.is_some() {
+                    // Skip resources with for_each or count — they've been expanded above
+                    if resource.for_each.is_some() || resource.count.is_some() {
                         continue;
                     }
 
@@ -156,6 +157,22 @@ impl DependencyGraph {
             index_map.insert(id, idx);
         }
 
+        // Add count expanded resources
+        for resource in &count_expanded {
+            let id = ResourceId::new(&resource.kind, &resource.name);
+            if index_map.contains_key(&id) {
+                return Err(GraphError::DuplicateResource(id));
+            }
+            let node = ResourceNode {
+                id: id.clone(),
+                type_path: resource.type_path.to_string(),
+                intent: find_annotation(resource, "intent"),
+                owner: find_annotation(resource, "owner"),
+            };
+            let idx = graph.add_node(node);
+            index_map.insert(id, idx);
+        }
+
         // Add expanded component resources (check for unresolved param refs)
         for resource in &expanded {
             let id = ResourceId::new(&resource.kind, &resource.name);
@@ -178,8 +195,8 @@ impl DependencyGraph {
         for file in files {
             for decl in &file.declarations {
                 if let Declaration::Resource(resource) = decl {
-                    // Skip for_each templates — their expanded instances handle deps
-                    if resource.for_each.is_some() {
+                    // Skip for_each/count templates — their expanded instances handle deps
+                    if resource.for_each.is_some() || resource.count.is_some() {
                         continue;
                     }
                     let source_id = ResourceId::new(&resource.kind, &resource.name);
@@ -264,6 +281,7 @@ impl DependencyGraph {
             expanded_resources: {
                 let mut all = expanded;
                 all.extend(for_each_expanded);
+                all.extend(count_expanded);
                 all
             },
         })
@@ -505,6 +523,48 @@ fn expand_for_each(files: &[SmeltFile]) -> Vec<ResourceDecl> {
                     }
                     for field in &mut instance.fields {
                         substitute_each(&mut field.value, &value_str, index_val);
+                    }
+
+                    expanded.push(instance);
+                }
+            }
+        }
+    }
+
+    expanded
+}
+
+/// Expand `count` resources into N identical instances.
+///
+/// A resource with `count = 3` is expanded into three resources:
+/// - `kind.name[0]` with each.index=0
+/// - `kind.name[1]` with each.index=1
+/// - `kind.name[2]` with each.index=2
+///
+/// `each.index` in field values is substituted with the instance index.
+/// This is simpler than `for_each` — no `each.value`, just numeric indexing.
+fn expand_count(files: &[SmeltFile]) -> Vec<ResourceDecl> {
+    let mut expanded = Vec::new();
+
+    for file in files {
+        for decl in &file.declarations {
+            if let Declaration::Resource(resource) = decl
+                && let Some(n) = resource.count
+            {
+                for index in 0..n {
+                    let mut instance = resource.clone();
+                    instance.name = format!("{}[{}]", resource.name, index);
+                    instance.count = None;
+
+                    // Substitute each.index in all field values
+                    let index_val = index;
+                    for section in &mut instance.sections {
+                        for field in &mut section.fields {
+                            substitute_each(&mut field.value, &index.to_string(), index_val);
+                        }
+                    }
+                    for field in &mut instance.fields {
+                        substitute_each(&mut field.value, &index.to_string(), index_val);
                     }
 
                     expanded.push(instance);

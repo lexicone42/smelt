@@ -45,6 +45,9 @@ pub struct ResourceDecl {
     /// for_each: create one instance per element in the list
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub for_each: Option<Vec<Value>>,
+    /// count: create N identical instances with each.index = 0..N-1
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<i64>,
 }
 
 /// An environment layer declaration.

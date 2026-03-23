@@ -2,3 +2,5 @@ target
 corpus
 artifacts
 coverage
+fuzz/corpus/
+fuzz/artifacts/

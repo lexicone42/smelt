@@ -74,6 +74,7 @@ fn resource_decl() -> impl Parser<char, ResourceDecl, Error = Simple<char>> {
                 sections: body.sections,
                 fields: body.fields,
                 for_each: body.for_each,
+                count: body.count,
             }
         })
 }
@@ -104,6 +105,7 @@ struct ResourceBody {
     sections: Vec<Section>,
     fields: Vec<Field>,
     for_each: Option<Vec<Value>>,
+    count: Option<i64>,
 }
 
 /// Intermediate struct for collecting layer body elements.
@@ -119,6 +121,7 @@ enum ResourceBodyItem {
     Section(Section),
     Field(Field),
     ForEach(Vec<Value>),
+    Count(i64),
 }
 
 /// Parse the body of a resource declaration.
@@ -132,6 +135,7 @@ fn resource_body() -> impl Parser<char, ResourceBody, Error = Simple<char>> {
             let mut sections = Vec::new();
             let mut fields = Vec::new();
             let mut for_each = None;
+            let mut count = None;
             let mut seen_sections = std::collections::HashSet::new();
 
             for item in items {
@@ -152,6 +156,7 @@ fn resource_body() -> impl Parser<char, ResourceBody, Error = Simple<char>> {
                     }
                     ResourceBodyItem::Field(f) => fields.push(f),
                     ResourceBodyItem::ForEach(items) => for_each = Some(items),
+                    ResourceBodyItem::Count(n) => count = Some(n),
                 }
             }
 
@@ -161,6 +166,7 @@ fn resource_body() -> impl Parser<char, ResourceBody, Error = Simple<char>> {
                 sections,
                 fields,
                 for_each,
+                count,
             })
         })
 }
@@ -180,10 +186,22 @@ fn resource_body_item() -> impl Parser<char, ResourceBodyItem, Error = Simple<ch
         )
         .map(ResourceBodyItem::ForEach);
 
+    // count = N
+    let count = text::keyword("count")
+        .padded_by(ws())
+        .ignore_then(just('=').padded())
+        .ignore_then(text::int(10))
+        .try_map(|s: String, span| {
+            s.parse::<i64>()
+                .map(ResourceBodyItem::Count)
+                .map_err(|_| Simple::custom(span, "count must be a positive integer"))
+        });
+
     annotation()
         .map(ResourceBodyItem::Annotation)
         .or(dependency().map(ResourceBodyItem::Dependency))
         .or(for_each)
+        .or(count)
         .or(section().map(ResourceBodyItem::Section))
         .or(field().map(ResourceBodyItem::Field))
 }
