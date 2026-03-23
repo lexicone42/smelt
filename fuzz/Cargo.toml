@@ -16,13 +16,28 @@ serde_json = "1"
 # Lightweight — no cloud SDK deps, compiles fast with ASAN
 smelt-provider = { path = "../crates/smelt-provider" }
 
-# Parser/formatter fuzz targets require extracting a smelt-core crate
-# to avoid pulling in 50+ GCP SDK crates that OOM during ASAN build.
-# TODO: Add fuzz_parser and fuzz_formatter once smelt-core exists.
+# Core smelt without provider SDKs — parser, formatter, AST only.
+# default-features = false skips smelt-aws/smelt-gcp (50+ SDK crates
+# that OOM at 23GB during ASAN-instrumented builds).
+smelt = { path = "..", default-features = false }
 
 [[bin]]
 name = "fuzz_diff"
 path = "fuzz_targets/fuzz_diff.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_parser"
+path = "fuzz_targets/fuzz_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_formatter"
+path = "fuzz_targets/fuzz_formatter.rs"
 test = false
 doc = false
 bench = false
