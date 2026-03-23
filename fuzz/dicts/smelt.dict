@@ -1,0 +1,83 @@
+# .smelt language keywords and tokens for libFuzzer dictionary
+# See: https://llvm.org/docs/LibFuzzer.html#dictionaries
+
+# Top-level declarations
+"resource"
+"component"
+"layer"
+"use"
+"include"
+"override"
+
+# Keywords
+"for_each"
+"count"
+"needs"
+"param"
+"over"
+"as"
+
+# Annotations
+"@intent"
+"@owner"
+"@constraint"
+"@lifecycle"
+
+# Built-in functions and refs
+"secret("
+"param."
+"env("
+"each.value"
+"each.index"
+"${each.index}"
+"${each.value}"
+
+# Types
+"String"
+"Integer"
+"Bool"
+"true"
+"false"
+
+# Common section names
+"identity"
+"network"
+"security"
+"sizing"
+"reliability"
+"config"
+
+# Common field names
+"name"
+"description"
+"tags"
+
+# Operators and delimiters
+"->"
+"="
+"{"
+"}"
+"["
+"]"
+"("
+")"
+"\""
+","
+"."
+":"
+"#"
+
+# Type paths
+"aws.ec2.Vpc"
+"aws.ec2.Subnet"
+"gcp.compute.Network"
+"gcp.run.Service"
+
+# Lifecycle values
+"prevent_destroy"
+
+# Triple-quoted strings
+"\"\"\""
+
+# String interpolation
+"${"
